@@ -6,7 +6,7 @@ import faker from "@faker-js/faker";
 import dotenv from "dotenv";
 
 dotenv.config();
-
+//test
 const secretKey = process.env.TEMP_DB_KEY; // will be pulled from the server and used for creation, encryption, and decryption of the database
 
 interface Department {
