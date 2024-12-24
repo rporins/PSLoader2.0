@@ -4,6 +4,7 @@ import Database, { Database as DatabaseType } from "better-sqlite3-multiple-ciph
 import fs from "fs";
 import faker from "@faker-js/faker";
 import dotenv from "dotenv";
+import pl from "nodejs-polars";
 
 dotenv.config();
 //test new updates
