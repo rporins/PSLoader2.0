@@ -135,7 +135,7 @@ export async function initializeDatabase() {
             last_modified TEXT DEFAULT CURRENT_TIMESTAMP,
             item_version INTEGER DEFAULT 1,
             FOREIGN KEY(dep_acc_combo_id) REFERENCES department_accounts(dep_acc_combo_id),
-            PRIMARY KEY (dep_acc_combo_id, period_combo, item_version)
+            PRIMARY KEY (dep_acc_combo_id, period_combo, scenario)
         )
         `,
     ]);
@@ -182,10 +182,13 @@ interface FinancialDataRow {
 }
 
 // Function to retrieve 12 periods of financial data
-export async function get12Periods(client: Client, period: string, scenario: string): Promise<string> {
+export async function get12Periods(...args: unknown[]): Promise<string> {
   // Validation
   const periodRegex = /^\d{4}-(0[1-9]|1[0-2])$/;
   const allowedScenarios = ["ACT", "BUD", "PY1", "PY2", "PY3", "FCST"];
+
+  const period = args[0] as string;
+  const scenario = args[1] as string;
 
   if (!periodRegex.test(period)) {
     throw new Error("Invalid period format. Expected 'YYYY-MM'.");
@@ -260,10 +263,13 @@ export async function get12Periods(client: Client, period: string, scenario: str
 
 //----------------- UPDATE 12 PERIODS ----------------------------------------------------------------------------
 // Function to update 12 periods
-export async function update12Periods(client: Client, period: string, scenario: string, rawData: string): Promise<string> {
+export async function update12Periods(...args: unknown[]): Promise<string> {
   // Validation
   const periodRegex = /^\d{4}-(0[1-9]|1[0-2])$/;
   const allowedScenarios = ["ACT", "BUD", "PY1", "PY2", "PY3", "FCST"];
+
+  const period = args[0] as string;
+  const scenario = args[1] as string;
 
   if (!periodRegex.test(period)) {
     throw new Error("Invalid period format. Expected 'YYYY-MM'.");
@@ -273,30 +279,24 @@ export async function update12Periods(client: Client, period: string, scenario: 
     throw new Error("Invalid scenario. Expected one of 'ACT', 'BUD', 'PY1', 'PY2', 'PY3', or 'FCST'.");
   }
 
-  // Parse JSON data
+  // Parse args[2] as JSON
   let data: Record<string, any>;
   try {
-    data = JSON.parse(rawData);
+    data = JSON.parse(args[2] as string);
   } catch (e) {
-    throw new Error("Invalid JSON data provided.");
+    throw new Error("Invalid JSON data in args[2].");
   }
 
   const periods = generatePeriods(period, 12); // Generate 12 periods starting from `period`
 
-  const updateQuery = `
-      UPDATE financial_data SET
-        amount = ?,
-        last_modified = CURRENT_TIMESTAMP,
-        item_version = item_version + 1
-      WHERE dep_acc_combo_id = ? AND period_combo = ? AND scenario = ?
-    `;
-
-  const insertQuery = `
+  const upsertQuery = `
       INSERT INTO financial_data (
         dep_acc_combo_id, month, year, period_combo, scenario, amount, count, currency, last_modified, item_version
-      ) VALUES (
-        ?, ?, ?, ?, ?, ?, NULL, 'USD', CURRENT_TIMESTAMP, 1
-      )
+      ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'USD', CURRENT_TIMESTAMP, 1)
+      ON CONFLICT (dep_acc_combo_id, period_combo, scenario) DO UPDATE SET
+        amount = excluded.amount,
+        last_modified = CURRENT_TIMESTAMP,
+        item_version = financial_data.item_version + 1;
     `;
 
   const batchQueries: { sql: string; args: (string | number | null)[] }[] = [];
@@ -316,15 +316,8 @@ export async function update12Periods(client: Client, period: string, scenario: 
     const year = parseInt(yearStr);
     const month = parseInt(monthStr);
 
-    // First attempt to update
     batchQueries.push({
-      sql: updateQuery,
-      args: [amount, dep_acc_combo_id, currentPeriod, scenario],
-    });
-
-    // Then attempt to insert if update fails
-    batchQueries.push({
-      sql: insertQuery,
+      sql: upsertQuery,
       args: [dep_acc_combo_id, month, year, currentPeriod, scenario, amount],
     });
   }
@@ -336,3 +329,732 @@ export async function update12Periods(client: Client, period: string, scenario: 
     throw new Error(`Failed to update data: ${e.message}`);
   }
 }
+
+//--- INSERT BATCH DEPARTMENTS -----------------------------------------------------------------------------------------
+interface Department {
+  department_id: string;
+  d_easy_name: string;
+  d_is_locked: number;
+  d_level_1: string;
+  d_level_2: string;
+  d_level_3: string;
+  d_level_4: string;
+  d_level_5: string;
+  d_level_6: string;
+  d_level_7: string;
+  d_level_8: string;
+  d_level_9: string;
+  d_level_10: string;
+  d_level_11: string;
+  d_level_12: string;
+  d_level_13: string;
+  d_level_14: string;
+  d_level_15: string;
+  d_level_16: string;
+  d_level_17: string;
+  d_level_18: string;
+  d_level_19: string;
+  d_level_20: string;
+  d_level_21: string;
+  d_level_22: string;
+  d_level_23: string;
+  d_level_24: string;
+  d_level_25: string;
+  d_level_26: string;
+  d_level_27: string;
+  d_level_28: string;
+  d_level_29: string;
+  d_level_30: string;
+}
+
+export async function insertBatchDepartments(batchData: Department[]) {
+  if (!Array.isArray(batchData) || batchData.length === 0) {
+    console.error("Batch data must be a non-empty array.");
+    return;
+  }
+
+  try {
+    // Start a transaction for batch insertion
+    const queries = batchData.map((item) => {
+      return {
+        sql: `
+            INSERT INTO departments (
+              department_id, d_easy_name, d_is_locked, d_level_1, d_level_2, d_level_3,
+              d_level_4, d_level_5, d_level_6, d_level_7, d_level_8, d_level_9, d_level_10,
+              d_level_11, d_level_12, d_level_13, d_level_14, d_level_15, d_level_16, d_level_17,
+              d_level_18, d_level_19, d_level_20, d_level_21, d_level_22, d_level_23, d_level_24,
+              d_level_25, d_level_26, d_level_27, d_level_28, d_level_29, d_level_30
+            ) VALUES (
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?
+            )
+          `,
+        args: [
+          item.department_id,
+          item.d_easy_name,
+          item.d_is_locked,
+          item.d_level_1,
+          item.d_level_2,
+          item.d_level_3,
+          item.d_level_4,
+          item.d_level_5,
+          item.d_level_6,
+          item.d_level_7,
+          item.d_level_8,
+          item.d_level_9,
+          item.d_level_10,
+          item.d_level_11,
+          item.d_level_12,
+          item.d_level_13,
+          item.d_level_14,
+          item.d_level_15,
+          item.d_level_16,
+          item.d_level_17,
+          item.d_level_18,
+          item.d_level_19,
+          item.d_level_20,
+          item.d_level_21,
+          item.d_level_22,
+          item.d_level_23,
+          item.d_level_24,
+          item.d_level_25,
+          item.d_level_26,
+          item.d_level_27,
+          item.d_level_28,
+          item.d_level_29,
+          item.d_level_30,
+        ],
+      };
+    });
+
+    await client.batch(queries);
+
+    console.log(`${batchData.length} records inserted successfully.`);
+  } catch (error) {
+    console.error("Error inserting batch data:", error);
+  }
+}
+
+interface Account {
+  account_id: string;
+  a_easy_name: string;
+  a_is_stat: number;
+  a_is_locked: number;
+  a_level_1: string;
+  a_level_2: string;
+  a_level_3: string;
+  a_level_4: string;
+  a_level_5: string;
+  a_level_6: string;
+  a_level_7: string;
+  a_level_8: string;
+  a_level_9: string;
+  a_level_10: string;
+  a_level_11: string;
+  a_level_12: string;
+  a_level_13: string;
+  a_level_14: string;
+  a_level_15: string;
+  a_level_16: string;
+  a_level_17: string;
+  a_level_18: string;
+  a_level_19: string;
+  a_level_20: string;
+  a_level_21: string;
+  a_level_22: string;
+  a_level_23: string;
+  a_level_24: string;
+  a_level_25: string;
+  a_level_26: string;
+  a_level_27: string;
+  a_level_28: string;
+  a_level_29: string;
+  a_level_30: string;
+}
+
+export async function insertBatchAccounts(batchData: Account[]) {
+  if (!Array.isArray(batchData) || batchData.length === 0) {
+    console.error("Batch data must be a non-empty array.");
+    return;
+  }
+
+  try {
+    // Start a transaction for batch insertion
+    const queries = batchData.map((item) => {
+      return {
+        sql: `
+            INSERT INTO accounts (
+              account_id, a_easy_name, a_is_stat, a_is_locked, a_level_1, a_level_2, a_level_3,
+              a_level_4, a_level_5, a_level_6, a_level_7, a_level_8, a_level_9, a_level_10,
+              a_level_11, a_level_12, a_level_13, a_level_14, a_level_15, a_level_16, a_level_17,
+              a_level_18, a_level_19, a_level_20, a_level_21, a_level_22, a_level_23, a_level_24,
+              a_level_25, a_level_26, a_level_27, a_level_28, a_level_29, a_level_30
+            ) VALUES (
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?
+            )
+          `,
+        args: [
+          item.account_id,
+          item.a_easy_name,
+          item.a_is_stat,
+          item.a_is_locked,
+          item.a_level_1,
+          item.a_level_2,
+          item.a_level_3,
+          item.a_level_4,
+          item.a_level_5,
+          item.a_level_6,
+          item.a_level_7,
+          item.a_level_8,
+          item.a_level_9,
+          item.a_level_10,
+          item.a_level_11,
+          item.a_level_12,
+          item.a_level_13,
+          item.a_level_14,
+          item.a_level_15,
+          item.a_level_16,
+          item.a_level_17,
+          item.a_level_18,
+          item.a_level_19,
+          item.a_level_20,
+          item.a_level_21,
+          item.a_level_22,
+          item.a_level_23,
+          item.a_level_24,
+          item.a_level_25,
+          item.a_level_26,
+          item.a_level_27,
+          item.a_level_28,
+          item.a_level_29,
+          item.a_level_30,
+        ],
+      };
+    });
+
+    await client.batch(queries);
+
+    console.log(`${batchData.length} records inserted successfully.`);
+  } catch (error) {
+    console.error("Error inserting batch data:", error);
+  }
+}
+
+interface DepartmentAccount {
+  dep_acc_combo_id: string;
+  department_id: string;
+  account_id: string;
+  is_locked: number;
+}
+
+export async function insertBatchDepartmentAccounts(batchData: DepartmentAccount[]) {
+  if (!Array.isArray(batchData) || batchData.length === 0) {
+    console.error("Batch data must be a non-empty array.");
+    return;
+  }
+
+  try {
+    // Start a transaction for batch insertion
+    const queries = batchData.map((item) => {
+      return {
+        sql: `
+            INSERT INTO department_accounts (
+              dep_acc_combo_id, department_id, account_id, is_locked
+            ) VALUES (
+              ?, ?, ?, ?
+            )
+          `,
+        args: [item.dep_acc_combo_id, item.department_id, item.account_id, item.is_locked],
+      };
+    });
+
+    await client.batch(queries);
+
+    console.log(`${batchData.length} records inserted successfully.`);
+  } catch (error) {
+    console.error("Error inserting batch data:", error);
+  }
+}
+
+interface FinancialData {
+  dep_acc_combo_id: string;
+  month: number;
+  year: number;
+  period_combo: string;
+  scenario: string;
+  amount: number;
+  count: number;
+  currency: string;
+  last_modified: string;
+  item_version: number;
+}
+
+export async function insertBatchFinancialData(batchData: FinancialData[]) {
+  if (!Array.isArray(batchData) || batchData.length === 0) {
+    console.error("Batch data must be a non-empty array.");
+    return;
+  }
+
+  try {
+    // Start a transaction for batch insertion
+    const queries = batchData.map((item) => {
+      return {
+        sql: `
+            INSERT INTO financial_data (
+              dep_acc_combo_id, month, year, period_combo, scenario, amount, count, currency, last_modified, item_version
+            ) VALUES (
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
+          `,
+        args: [
+          item.dep_acc_combo_id,
+          item.month,
+          item.year,
+          item.period_combo,
+          item.scenario,
+          item.amount,
+          item.count,
+          item.currency,
+          item.last_modified || new Date().toISOString(),
+          item.item_version || 1,
+        ],
+      };
+    });
+
+    await client.batch(queries);
+
+    console.log(`${batchData.length} records inserted successfully.`);
+  } catch (error) {
+    console.error("Error inserting batch data:", error);
+  }
+}
+
+export async function GeneratedDummyData() {
+  await insertBatchDepartments(departments);
+  await insertBatchAccounts(accounts);
+  await insertBatchDepartmentAccounts(department_accounts);
+  await insertBatchFinancialData(financialData);
+  console.log("Dummy data inserted successfully.");
+}
+
+//--- DUMMY DATA ---------------------------------------------------------------------------------------------------
+
+const department_accounts = [
+  {
+    dep_acc_combo_id: "D0010_A300001",
+    department_id: "D0010",
+    account_id: "A300001",
+    is_locked: 0,
+  },
+  {
+    dep_acc_combo_id: "D0010_A300002",
+    department_id: "D0010",
+    account_id: "A300002",
+    is_locked: 0,
+  },
+  {
+    dep_acc_combo_id: "D0010_A400001",
+    department_id: "D0010",
+    account_id: "A400001",
+    is_locked: 0,
+  },
+  {
+    dep_acc_combo_id: "D0010_A500001",
+    department_id: "D0010",
+    account_id: "A500001",
+    is_locked: 0,
+  },
+  {
+    dep_acc_combo_id: "D0010_A600001",
+    department_id: "D0010",
+    account_id: "A600001",
+    is_locked: 0,
+  },
+  {
+    dep_acc_combo_id: "D0011_A400001",
+    department_id: "D0011",
+    account_id: "A400001",
+    is_locked: 0,
+  },
+  {
+    dep_acc_combo_id: "D0011_A500001",
+    department_id: "D0011",
+    account_id: "A500001",
+    is_locked: 0,
+  },
+  {
+    dep_acc_combo_id: "D0011_A600001",
+    department_id: "D0011",
+    account_id: "A600001",
+    is_locked: 0,
+  },
+  {
+    dep_acc_combo_id: "D0410_A500001",
+    department_id: "D0410",
+    account_id: "A500001",
+    is_locked: 0,
+  },
+  {
+    dep_acc_combo_id: "D0410_A600001",
+    department_id: "D0410",
+    account_id: "A600001",
+    is_locked: 0,
+  },
+  {
+    dep_acc_combo_id: "D0440_A600001",
+    department_id: "D0440",
+    account_id: "A600001",
+    is_locked: 0,
+  },
+  {
+    dep_acc_combo_id: "D0440_A500001",
+    department_id: "D0440",
+    account_id: "A500001",
+    is_locked: 0,
+  },
+];
+
+const accounts = [
+  {
+    account_id: "A300001",
+    a_easy_name: "Rooms Revenue",
+    a_is_stat: 0,
+    a_is_locked: 0,
+    a_level_1: "Accounts",
+    a_level_2: "Revenue",
+    a_level_3: "",
+    a_level_4: "",
+    a_level_5: "",
+    a_level_6: "",
+    a_level_7: "",
+    a_level_8: "",
+    a_level_9: "",
+    a_level_10: "",
+    a_level_11: "",
+    a_level_12: "",
+    a_level_13: "",
+    a_level_14: "",
+    a_level_15: "",
+    a_level_16: "",
+    a_level_17: "",
+    a_level_18: "",
+    a_level_19: "",
+    a_level_20: "",
+    a_level_21: "",
+    a_level_22: "",
+    a_level_23: "",
+    a_level_24: "",
+    a_level_25: "",
+    a_level_26: "",
+    a_level_27: "",
+    a_level_28: "",
+    a_level_29: "",
+    a_level_30: "",
+  },
+  {
+    account_id: "A300002",
+    a_easy_name: "Food Revenue",
+    a_is_stat: 0,
+    a_is_locked: 0,
+    a_level_1: "Accounts",
+    a_level_2: "Revenue",
+    a_level_3: "",
+    a_level_4: "",
+    a_level_5: "",
+    a_level_6: "",
+    a_level_7: "",
+    a_level_8: "",
+    a_level_9: "",
+    a_level_10: "",
+    a_level_11: "",
+    a_level_12: "",
+    a_level_13: "",
+    a_level_14: "",
+    a_level_15: "",
+    a_level_16: "",
+    a_level_17: "",
+    a_level_18: "",
+    a_level_19: "",
+    a_level_20: "",
+    a_level_21: "",
+    a_level_22: "",
+    a_level_23: "",
+    a_level_24: "",
+    a_level_25: "",
+    a_level_26: "",
+    a_level_27: "",
+    a_level_28: "",
+    a_level_29: "",
+    a_level_30: "",
+  },
+  {
+    account_id: "A400001",
+    a_easy_name: "Cost of Food",
+    a_is_stat: 0,
+    a_is_locked: 0,
+    a_level_1: "Accounts",
+    a_level_2: "Costs",
+    a_level_3: "",
+    a_level_4: "",
+    a_level_5: "",
+    a_level_6: "",
+    a_level_7: "",
+    a_level_8: "",
+    a_level_9: "",
+    a_level_10: "",
+    a_level_11: "",
+    a_level_12: "",
+    a_level_13: "",
+    a_level_14: "",
+    a_level_15: "",
+    a_level_16: "",
+    a_level_17: "",
+    a_level_18: "",
+    a_level_19: "",
+    a_level_20: "",
+    a_level_21: "",
+    a_level_22: "",
+    a_level_23: "",
+    a_level_24: "",
+    a_level_25: "",
+    a_level_26: "",
+    a_level_27: "",
+    a_level_28: "",
+    a_level_29: "",
+    a_level_30: "",
+  },
+  {
+    account_id: "A500001",
+    a_easy_name: "Payroll",
+    a_is_stat: 0,
+    a_is_locked: 0,
+    a_level_1: "Accounts",
+    a_level_2: "Costs",
+    a_level_3: "",
+    a_level_4: "",
+    a_level_5: "",
+    a_level_6: "",
+    a_level_7: "",
+    a_level_8: "",
+    a_level_9: "",
+    a_level_10: "",
+    a_level_11: "",
+    a_level_12: "",
+    a_level_13: "",
+    a_level_14: "",
+    a_level_15: "",
+    a_level_16: "",
+    a_level_17: "",
+    a_level_18: "",
+    a_level_19: "",
+    a_level_20: "",
+    a_level_21: "",
+    a_level_22: "",
+    a_level_23: "",
+    a_level_24: "",
+    a_level_25: "",
+    a_level_26: "",
+    a_level_27: "",
+    a_level_28: "",
+    a_level_29: "",
+    a_level_30: "",
+  },
+  {
+    account_id: "A600001",
+    a_easy_name: "Controlables",
+    a_is_stat: 0,
+    a_is_locked: 0,
+    a_level_1: "Accounts",
+    a_level_2: "Costs",
+    a_level_3: "",
+    a_level_4: "",
+    a_level_5: "",
+    a_level_6: "",
+    a_level_7: "",
+    a_level_8: "",
+    a_level_9: "",
+    a_level_10: "",
+    a_level_11: "",
+    a_level_12: "",
+    a_level_13: "",
+    a_level_14: "",
+    a_level_15: "",
+    a_level_16: "",
+    a_level_17: "",
+    a_level_18: "",
+    a_level_19: "",
+    a_level_20: "",
+    a_level_21: "",
+    a_level_22: "",
+    a_level_23: "",
+    a_level_24: "",
+    a_level_25: "",
+    a_level_26: "",
+    a_level_27: "",
+    a_level_28: "",
+    a_level_29: "",
+    a_level_30: "",
+  },
+];
+
+const departments = [
+  {
+    department_id: "D0010",
+    d_easy_name: "Reception",
+    d_is_locked: 0,
+    d_level_1: "Departments",
+    d_level_2: "Profit",
+    d_level_3: "Rooms",
+    d_level_4: "",
+    d_level_5: "",
+    d_level_6: "",
+    d_level_7: "",
+    d_level_8: "",
+    d_level_9: "",
+    d_level_10: "",
+    d_level_11: "",
+    d_level_12: "",
+    d_level_13: "",
+    d_level_14: "",
+    d_level_15: "",
+    d_level_16: "",
+    d_level_17: "",
+    d_level_18: "",
+    d_level_19: "",
+    d_level_20: "",
+    d_level_21: "",
+    d_level_22: "",
+    d_level_23: "",
+    d_level_24: "",
+    d_level_25: "",
+    d_level_26: "",
+    d_level_27: "",
+    d_level_28: "",
+    d_level_29: "",
+    d_level_30: "",
+  },
+  {
+    department_id: "D0011",
+    d_easy_name: "Housekeeping",
+    d_is_locked: 0,
+    d_level_1: "Departments",
+    d_level_2: "Profit",
+    d_level_3: "Rooms",
+    d_level_4: "",
+    d_level_5: "",
+    d_level_6: "",
+    d_level_7: "",
+    d_level_8: "",
+    d_level_9: "",
+    d_level_10: "",
+    d_level_11: "",
+    d_level_12: "",
+    d_level_13: "",
+    d_level_14: "",
+    d_level_15: "",
+    d_level_16: "",
+    d_level_17: "",
+    d_level_18: "",
+    d_level_19: "",
+    d_level_20: "",
+    d_level_21: "",
+    d_level_22: "",
+    d_level_23: "",
+    d_level_24: "",
+    d_level_25: "",
+    d_level_26: "",
+    d_level_27: "",
+    d_level_28: "",
+    d_level_29: "",
+    d_level_30: "",
+  },
+  {
+    department_id: "D0410",
+    d_easy_name: "Admin & General",
+    d_is_locked: 0,
+    d_level_1: "Departments",
+    d_level_2: "Profit",
+    d_level_3: "Undistributed",
+    d_level_4: "",
+    d_level_5: "",
+    d_level_6: "",
+    d_level_7: "",
+    d_level_8: "",
+    d_level_9: "",
+    d_level_10: "",
+    d_level_11: "",
+    d_level_12: "",
+    d_level_13: "",
+    d_level_14: "",
+    d_level_15: "",
+    d_level_16: "",
+    d_level_17: "",
+    d_level_18: "",
+    d_level_19: "",
+    d_level_20: "",
+    d_level_21: "",
+    d_level_22: "",
+    d_level_23: "",
+    d_level_24: "",
+    d_level_25: "",
+    d_level_26: "",
+    d_level_27: "",
+    d_level_28: "",
+    d_level_29: "",
+    d_level_30: "",
+  },
+  {
+    department_id: "D0440",
+    d_easy_name: "Finance",
+    d_is_locked: 0,
+    d_level_1: "Departments",
+    d_level_2: "Profit",
+    d_level_3: "Undistributed",
+    d_level_4: "",
+    d_level_5: "",
+    d_level_6: "",
+    d_level_7: "",
+    d_level_8: "",
+    d_level_9: "",
+    d_level_10: "",
+    d_level_11: "",
+    d_level_12: "",
+    d_level_13: "",
+    d_level_14: "",
+    d_level_15: "",
+    d_level_16: "",
+    d_level_17: "",
+    d_level_18: "",
+    d_level_19: "",
+    d_level_20: "",
+    d_level_21: "",
+    d_level_22: "",
+    d_level_23: "",
+    d_level_24: "",
+    d_level_25: "",
+    d_level_26: "",
+    d_level_27: "",
+    d_level_28: "",
+    d_level_29: "",
+    d_level_30: "",
+  },
+];
+
+const financialData = department_accounts.flatMap((depAcc) => {
+  return [2022, 2023, 2024].flatMap((year) => {
+    return Array.from({ length: 12 }, (_, i) => i + 1).map((month) => {
+      const monthPadded = String(month).padStart(2, "0"); // Ensures months in period_combo are 01, 02, ..., 12
+      return {
+        dep_acc_combo_id: depAcc.dep_acc_combo_id,
+        month, // Integer month: 1, 2, ..., 12
+        year,
+        period_combo: `${year}-${monthPadded}`, // Ensures YYYY-MM format
+        scenario: "ACT",
+        amount: Math.round(Math.random() * 1000),
+        count: Math.round(Math.random() * 100),
+        currency: "USD",
+        last_modified: new Date().toISOString(),
+        item_version: 1,
+      };
+    });
+  });
+});

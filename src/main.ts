@@ -6,7 +6,7 @@ import faker from "@faker-js/faker";
 import dotenv from "dotenv";
 import pl from "nodejs-polars";
 
-import { initializeDatabase } from "./local_db";
+import { initializeDatabase, GeneratedDummyData, update12Periods, get12Periods } from "./local_db";
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require("electron-squirrel-startup")) {
@@ -63,13 +63,13 @@ async function handleIpcRequest(event: Electron.IpcMainEvent, request: string, .
   switch (request) {
     case "Get12periods":
       {
-        break;
+        return get12Periods(...args);
       }
       break;
 
     case "Update12periods":
       {
-        break;
+        return update12Periods(...args);
       }
       break;
   }
@@ -82,4 +82,5 @@ app.whenReady().then(() => {
   ipcMain.handle("ipcMain", handleIpcRequest);
 
   initializeDatabase();
+  //GeneratedDummyData();
 });
