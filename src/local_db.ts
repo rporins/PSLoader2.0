@@ -14,6 +14,7 @@ if (!fs.existsSync(rebyterFolderPath)) {
   fs.mkdirSync(rebyterFolderPath, { recursive: true });
 }
 const dbPath = path.join(rebyterFolderPath, "planning-tool.db");
+// Enable secret key after testing
 // Create a new SQLite client
 const client = createClient({
   url: "file:" + dbPath,
@@ -22,6 +23,125 @@ const client = createClient({
 
 const dbExists = fs.existsSync(dbPath);
 
+//------------------------------------------------------------------------------------------------------------------
+//------DEFINE ALL INTERFACES -------------------------------------------------------------------------------------
+// Interface for Financial Data Row used for front end mainly
+interface FinancialDataRow {
+  combo: string;
+  department: string;
+  account: string;
+  p1: number;
+  p2: number;
+  p3: number;
+  p4: number;
+  p5: number;
+  p6: number;
+  p7: number;
+  p8: number;
+  p9: number;
+  p10: number;
+  p11: number;
+  p12: number;
+}
+
+// base department interface matching the database
+interface Department {
+  department_id: string;
+  d_easy_name: string;
+  d_is_locked: number;
+  d_level_1: string;
+  d_level_2: string;
+  d_level_3: string;
+  d_level_4: string;
+  d_level_5: string;
+  d_level_6: string;
+  d_level_7: string;
+  d_level_8: string;
+  d_level_9: string;
+  d_level_10: string;
+  d_level_11: string;
+  d_level_12: string;
+  d_level_13: string;
+  d_level_14: string;
+  d_level_15: string;
+  d_level_16: string;
+  d_level_17: string;
+  d_level_18: string;
+  d_level_19: string;
+  d_level_20: string;
+  d_level_21: string;
+  d_level_22: string;
+  d_level_23: string;
+  d_level_24: string;
+  d_level_25: string;
+  d_level_26: string;
+  d_level_27: string;
+  d_level_28: string;
+  d_level_29: string;
+  d_level_30: string;
+}
+
+// base account interface matching the database
+interface Account {
+  account_id: string;
+  a_easy_name: string;
+  a_is_stat: number;
+  a_is_locked: number;
+  a_level_1: string;
+  a_level_2: string;
+  a_level_3: string;
+  a_level_4: string;
+  a_level_5: string;
+  a_level_6: string;
+  a_level_7: string;
+  a_level_8: string;
+  a_level_9: string;
+  a_level_10: string;
+  a_level_11: string;
+  a_level_12: string;
+  a_level_13: string;
+  a_level_14: string;
+  a_level_15: string;
+  a_level_16: string;
+  a_level_17: string;
+  a_level_18: string;
+  a_level_19: string;
+  a_level_20: string;
+  a_level_21: string;
+  a_level_22: string;
+  a_level_23: string;
+  a_level_24: string;
+  a_level_25: string;
+  a_level_26: string;
+  a_level_27: string;
+  a_level_28: string;
+  a_level_29: string;
+  a_level_30: string;
+}
+
+// base department account interface matching the database
+interface FinancialData {
+  dep_acc_combo_id: string;
+  month: number;
+  year: number;
+  period_combo: string;
+  scenario: string;
+  amount: number;
+  count: number;
+  currency: string;
+  last_modified: string;
+  item_version: number;
+}
+
+// base department account interface matching the database
+interface DepartmentAccount {
+  dep_acc_combo_id: string;
+  department_id: string;
+  account_id: string;
+  is_locked: number;
+}
+
+//------------------------------------------------------------------------------------------------------------------
 //--- INITIALIZE DATABASE ---------------------------------------------------------------------------------------
 //create database if it doesn't exist
 export async function initializeDatabase() {
@@ -160,27 +280,43 @@ function generatePeriods(startPeriod: string, count: number): string[] {
 
   return periods;
 }
+//------------------------------------------------------------------------------------------------------------------
+//---- Get all data for Polars Cache --------------------------------------------------------------------------------
+export async function getAllDataForPolarsCache() {
+  //get financial table
+  const fin_table_query = `
+        SELECT * FROM financial_data
+      `;
+  const fin_table_resultSet = await client.execute({ sql: fin_table_query, args: [] });
+  const fin_table_rows = fin_table_resultSet.rows as unknown as FinancialData[];
 
-//----------------- GET 12 PERIODS ------------------------------------------------------------------------------
-// Interface for Financial Data Row
-interface FinancialDataRow {
-  combo: string;
-  department: string;
-  account: string;
-  p1: number;
-  p2: number;
-  p3: number;
-  p4: number;
-  p5: number;
-  p6: number;
-  p7: number;
-  p8: number;
-  p9: number;
-  p10: number;
-  p11: number;
-  p12: number;
+  //get department_accounts table
+  const dep_acc_table_query = `
+        SELECT * FROM department_accounts
+      `;
+  const dep_acc_table_resultSet = await client.execute({ sql: dep_acc_table_query, args: [] });
+  const dep_acc_table_rows = dep_acc_table_resultSet.rows as unknown as DepartmentAccount[];
+
+  //get accounts table
+  const acc_table_query = `
+        SELECT * FROM accounts
+      `;
+  const acc_table_resultSet = await client.execute({ sql: acc_table_query, args: [] });
+  const acc_table_rows = acc_table_resultSet.rows as unknown as Account[];
+
+  //get departments table
+  const dep_table_query = `
+        SELECT * FROM departments
+      `;
+  const dep_table_resultSet = await client.execute({ sql: dep_table_query, args: [] });
+  const dep_table_rows = dep_table_resultSet.rows as unknown as Department[];
+
+  return { fin_table_rows, dep_acc_table_rows, acc_table_rows, dep_table_rows };
 }
 
+//------------------------------------------------------------------------------------------------------------------
+//----------------- GET 12 PERIODS ------------------------------------------------------------------------------
+// interface defined in common area at the top
 // Function to retrieve 12 periods of financial data
 export async function get12Periods(...args: unknown[]): Promise<string> {
   // Validation
@@ -261,6 +397,7 @@ export async function get12Periods(...args: unknown[]): Promise<string> {
   }
 }
 
+//------------------------------------------------------------------------------------------------------------------
 //----------------- UPDATE 12 PERIODS ----------------------------------------------------------------------------
 // Function to update 12 periods
 export async function update12Periods(...args: unknown[]): Promise<string> {
@@ -330,42 +467,9 @@ export async function update12Periods(...args: unknown[]): Promise<string> {
   }
 }
 
+//------------------------------------------------------------------------------------------------------------------
 //--- INSERT BATCH DEPARTMENTS -----------------------------------------------------------------------------------------
-interface Department {
-  department_id: string;
-  d_easy_name: string;
-  d_is_locked: number;
-  d_level_1: string;
-  d_level_2: string;
-  d_level_3: string;
-  d_level_4: string;
-  d_level_5: string;
-  d_level_6: string;
-  d_level_7: string;
-  d_level_8: string;
-  d_level_9: string;
-  d_level_10: string;
-  d_level_11: string;
-  d_level_12: string;
-  d_level_13: string;
-  d_level_14: string;
-  d_level_15: string;
-  d_level_16: string;
-  d_level_17: string;
-  d_level_18: string;
-  d_level_19: string;
-  d_level_20: string;
-  d_level_21: string;
-  d_level_22: string;
-  d_level_23: string;
-  d_level_24: string;
-  d_level_25: string;
-  d_level_26: string;
-  d_level_27: string;
-  d_level_28: string;
-  d_level_29: string;
-  d_level_30: string;
-}
+// interface defined in common area at the top
 
 export async function insertBatchDepartments(batchData: Department[]) {
   if (!Array.isArray(batchData) || batchData.length === 0) {
@@ -434,43 +538,7 @@ export async function insertBatchDepartments(batchData: Department[]) {
   }
 }
 
-interface Account {
-  account_id: string;
-  a_easy_name: string;
-  a_is_stat: number;
-  a_is_locked: number;
-  a_level_1: string;
-  a_level_2: string;
-  a_level_3: string;
-  a_level_4: string;
-  a_level_5: string;
-  a_level_6: string;
-  a_level_7: string;
-  a_level_8: string;
-  a_level_9: string;
-  a_level_10: string;
-  a_level_11: string;
-  a_level_12: string;
-  a_level_13: string;
-  a_level_14: string;
-  a_level_15: string;
-  a_level_16: string;
-  a_level_17: string;
-  a_level_18: string;
-  a_level_19: string;
-  a_level_20: string;
-  a_level_21: string;
-  a_level_22: string;
-  a_level_23: string;
-  a_level_24: string;
-  a_level_25: string;
-  a_level_26: string;
-  a_level_27: string;
-  a_level_28: string;
-  a_level_29: string;
-  a_level_30: string;
-}
-
+//interface defined in common area at the top
 export async function insertBatchAccounts(batchData: Account[]) {
   if (!Array.isArray(batchData) || batchData.length === 0) {
     console.error("Batch data must be a non-empty array.");
@@ -539,12 +607,7 @@ export async function insertBatchAccounts(batchData: Account[]) {
   }
 }
 
-interface DepartmentAccount {
-  dep_acc_combo_id: string;
-  department_id: string;
-  account_id: string;
-  is_locked: number;
-}
+//interface defined in common area at the top
 
 export async function insertBatchDepartmentAccounts(batchData: DepartmentAccount[]) {
   if (!Array.isArray(batchData) || batchData.length === 0) {
@@ -575,19 +638,7 @@ export async function insertBatchDepartmentAccounts(batchData: DepartmentAccount
   }
 }
 
-interface FinancialData {
-  dep_acc_combo_id: string;
-  month: number;
-  year: number;
-  period_combo: string;
-  scenario: string;
-  amount: number;
-  count: number;
-  currency: string;
-  last_modified: string;
-  item_version: number;
-}
-
+//interface defined in common area at the top
 export async function insertBatchFinancialData(batchData: FinancialData[]) {
   if (!Array.isArray(batchData) || batchData.length === 0) {
     console.error("Batch data must be a non-empty array.");
@@ -636,6 +687,7 @@ export async function GeneratedDummyData() {
   console.log("Dummy data inserted successfully.");
 }
 
+//------------------------------------------------------------------------------------------------------------------
 //--- DUMMY DATA ---------------------------------------------------------------------------------------------------
 
 const department_accounts = [

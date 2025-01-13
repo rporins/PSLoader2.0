@@ -2,11 +2,10 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import path from "path";
 import { createClient, Client } from "@libsql/client";
 import fs from "fs";
-import faker from "@faker-js/faker";
 import dotenv from "dotenv";
-import pl from "nodejs-polars";
 
-import { initializeDatabase, GeneratedDummyData, update12Periods, get12Periods } from "./local_db";
+import { initializeDatabase, GeneratedDummyData, update12Periods, get12Periods, getAllDataForPolarsCache } from "./local_db";
+import { updatePolarsDataFrames, testCount } from "./polars";
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require("electron-squirrel-startup")) {
@@ -77,10 +76,12 @@ async function handleIpcRequest(event: Electron.IpcMainEvent, request: string, .
   // Send a response back to the renderer process
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Get the path to the app's user data directory (e.g., AppData on Windows)
   ipcMain.handle("ipcMain", handleIpcRequest);
 
-  initializeDatabase();
-  //GeneratedDummyData();
+  // Await initializeDatabase
+  await initializeDatabase();
+  await getAllDataForPolarsCache().then((data) => updatePolarsDataFrames(data));
+  testCount();
 });
