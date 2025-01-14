@@ -280,39 +280,6 @@ function generatePeriods(startPeriod: string, count: number): string[] {
 
   return periods;
 }
-//------------------------------------------------------------------------------------------------------------------
-//---- Get all data for Polars Cache --------------------------------------------------------------------------------
-export async function getAllDataForPolarsCache() {
-  //get financial table
-  const fin_table_query = `
-        SELECT * FROM financial_data
-      `;
-  const fin_table_resultSet = await client.execute({ sql: fin_table_query, args: [] });
-  const fin_table_rows = fin_table_resultSet.rows as unknown as FinancialData[];
-
-  //get department_accounts table
-  const dep_acc_table_query = `
-        SELECT * FROM department_accounts
-      `;
-  const dep_acc_table_resultSet = await client.execute({ sql: dep_acc_table_query, args: [] });
-  const dep_acc_table_rows = dep_acc_table_resultSet.rows as unknown as DepartmentAccount[];
-
-  //get accounts table
-  const acc_table_query = `
-        SELECT * FROM accounts
-      `;
-  const acc_table_resultSet = await client.execute({ sql: acc_table_query, args: [] });
-  const acc_table_rows = acc_table_resultSet.rows as unknown as Account[];
-
-  //get departments table
-  const dep_table_query = `
-        SELECT * FROM departments
-      `;
-  const dep_table_resultSet = await client.execute({ sql: dep_table_query, args: [] });
-  const dep_table_rows = dep_table_resultSet.rows as unknown as Department[];
-
-  return { fin_table_rows, dep_acc_table_rows, acc_table_rows, dep_table_rows };
-}
 
 //------------------------------------------------------------------------------------------------------------------
 //----------------- GET 12 PERIODS ------------------------------------------------------------------------------

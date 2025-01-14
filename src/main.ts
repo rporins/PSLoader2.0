@@ -4,8 +4,7 @@ import { createClient, Client } from "@libsql/client";
 import fs from "fs";
 import dotenv from "dotenv";
 
-import { initializeDatabase, GeneratedDummyData, update12Periods, get12Periods, getAllDataForPolarsCache } from "./local_db";
-import { updatePolarsDataFrames, testCount } from "./polars";
+import { initializeDatabase, GeneratedDummyData, update12Periods, get12Periods } from "./local_db";
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require("electron-squirrel-startup")) {
@@ -82,6 +81,4 @@ app.whenReady().then(async () => {
 
   // Await initializeDatabase
   await initializeDatabase();
-  await getAllDataForPolarsCache().then((data) => updatePolarsDataFrames(data));
-  testCount();
 });
