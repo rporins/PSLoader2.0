@@ -1,46 +1,1009 @@
-// Import specific React and ReactDOM functions
-import React from "react";
-import { createRoot } from "react-dom/client";
-import { styled } from "@mui/material/styles";
-// Import specific components from react-router-dom
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+// Landing.tsx — Liquid Metal Elite 2025 (Next-Gen Desktop Experience)
+// ---------------------------------------------------------------------------------
+// What's new:
+// - Liquid metal morphing backdrop with prismatic refractions
+// - Dynamic 3D chrome spheres with real-time reflections
+// - Holographic glass panels with depth and chromatic aberration
+// - Particle field with depth-based motion blur
+// - Magnetic hover interactions and force field effects
+// - Register link and support contact
+// - Premium desktop-first design language
+// ---------------------------------------------------------------------------------
+
+import React, { Suspense, useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import Button from "@mui/material/Button";
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  Stack,
+  Typography,
+  useMediaQuery,
+  Link,
+  Divider,
+} from "@mui/material";
+import { alpha, styled, useTheme, keyframes } from "@mui/material/styles";
+import LoginIcon from "@mui/icons-material/Login";
+import LockRoundedIcon from "@mui/icons-material/LockRounded";
+import PersonAddAltRoundedIcon from "@mui/icons-material/PersonAddAltRounded";
+import HelpOutlineRoundedIcon from "@mui/icons-material/HelpOutlineRounded";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+
+// 3D imports
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Environment, Float, MeshTransmissionMaterial, ContactShadows } from "@react-three/drei";
+import * as THREE from "three";
+
+// ────────────────────────────────────────────────────────────
+// 0) ROUTING + CONSTANTS
+// ────────────────────────────────────────────────────────────
+
+const REDIRECT_AFTER_LOGIN = "/signed-in-landing";
+const SUPPORT_EMAIL = "support@rebyter.com";
+
+// ────────────────────────────────────────────────────────────
+/** 1) IPC TYPES + GLOBAL AUGMENTATION */
+// ────────────────────────────────────────────────────────────
+
+interface IpcApi {
+  sendIpcRequest: (channel: string, ...args: any[]) => Promise<any>;
+  onAuthSuccess: (cb: (event: any, data: any) => void) => void;
+  onAuthError: (cb: (event: any, message: string) => void) => void;
+  onAuthLogout: (cb: (event: any) => void) => void;
+  offAuthSuccess?: (cb: (event: any, data: any) => void) => void;
+  offAuthError?: (cb: (event: any, message: string) => void) => void;
+  offAuthLogout?: (cb: (event: any) => void) => void;
+}
+
+declare global {
+  interface Window {
+    ipcApi?: IpcApi;
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+/** 2) PREMIUM ANIMATIONS */
+// ────────────────────────────────────────────────────────────
+
+const liquidMorph = keyframes`
+  0%, 100% { 
+    border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+    transform: rotate(0deg) scale(1);
+  }
+  25% { 
+    border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%;
+    transform: rotate(90deg) scale(1.05);
+  }
+  50% { 
+    border-radius: 50% 50% 50% 50% / 60% 40% 60% 40%;
+    transform: rotate(180deg) scale(0.95);
+  }
+  75% { 
+    border-radius: 40% 60% 30% 70% / 70% 30% 60% 40%;
+    transform: rotate(270deg) scale(1.02);
+  }
+`;
+
+const prismShift = keyframes`
+  0%, 100% { 
+    filter: hue-rotate(0deg) saturate(100%);
+    transform: translateZ(0) rotateY(0deg);
+  }
+  33% { 
+    filter: hue-rotate(60deg) saturate(110%);
+    transform: translateZ(20px) rotateY(120deg);
+  }
+  66% { 
+    filter: hue-rotate(-60deg) saturate(120%);
+    transform: translateZ(-20px) rotateY(240deg);
+  }
+`;
+
+const hologramPulse = keyframes`
+  0%, 100% { opacity: 0.3; transform: scale(1) translateY(0); }
+  50% { opacity: 0.6; transform: scale(1.02) translateY(-2px); }
+`;
+
+const chromaticWave = keyframes`
+  0% { 
+    background-position: 0% 50%;
+    filter: hue-rotate(0deg);
+  }
+  50% { 
+    background-position: 100% 50%;
+    filter: hue-rotate(30deg);
+  }
+  100% { 
+    background-position: 0% 50%;
+    filter: hue-rotate(0deg);
+  }
+`;
+
+const magneticFloat = keyframes`
+  0%, 100% { transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg); }
+  25% { transform: translate3d(10px, -15px, 20px) rotateX(5deg) rotateY(10deg); }
+  50% { transform: translate3d(-10px, -20px, 30px) rotateX(-5deg) rotateY(-10deg); }
+  75% { transform: translate3d(5px, -10px, 15px) rotateX(3deg) rotateY(5deg); }
+`;
+
+// ────────────────────────────────────────────────────────────
+/** 3) STYLED COMPONENTS */
+// ────────────────────────────────────────────────────────────
+
+const PageRoot = styled("div")(({ theme }) => ({
+  minHeight: "100vh",
+  position: "relative",
+  overflow: "hidden",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  perspective: "2000px",
+  transformStyle: "preserve-3d",
+  
+  // Deep space gradient with metallic undertones
+  background: theme.palette.mode === "dark"
+    ? `radial-gradient(ellipse at top left, #1a1b3a 0%, #090a1f 25%, #000511 50%, #090a1f 75%, #1a1b3a 100%)`
+    : `radial-gradient(ellipse at top left, #f0f4ff 0%, #e8ecff 25%, #dce2ff 50%, #e8ecff 75%, #f0f4ff 100%)`,
+  
+  "&::before": {
+    // Prismatic overlay
+    content: '""',
+    position: "absolute",
+    inset: 0,
+    background: `conic-gradient(from 180deg at 50% 50%,
+      ${alpha("#ff00ff", 0.03)},
+      ${alpha("#00ffff", 0.03)},
+      ${alpha("#ffff00", 0.03)},
+      ${alpha("#ff00ff", 0.03)})`,
+    backgroundSize: "400% 400%",
+    animation: `${chromaticWave} 20s ease-in-out infinite`,
+    mixBlendMode: theme.palette.mode === "dark" ? "screen" : "multiply",
+    pointerEvents: "none",
+  },
+  
+  "&::after": {
+    // Noise texture for depth
+    content: '""',
+    position: "absolute",
+    inset: 0,
+    opacity: theme.palette.mode === "dark" ? 0.03 : 0.02,
+    backgroundImage: `url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' /%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' /%3E%3C/svg%3E")`,
+    pointerEvents: "none",
+  },
+}));
+
+const LiquidMetalOrbs = styled("div")<{ $reduceMotion: boolean }>(({ theme, $reduceMotion }) => ({
+  position: "absolute",
+  inset: 0,
+  pointerEvents: "none",
+  
+  ".metal-orb": {
+    position: "absolute",
+    background: theme.palette.mode === "dark"
+      ? `radial-gradient(circle at 30% 30%, 
+          ${alpha("#ffffff", 0.8)}, 
+          ${alpha("#8b5cf6", 0.4)},
+          ${alpha("#06b6d4", 0.3)},
+          ${alpha("#000000", 0.2)})`
+      : `radial-gradient(circle at 30% 30%, 
+          ${alpha("#ffffff", 0.9)}, 
+          ${alpha("#8b5cf6", 0.3)},
+          ${alpha("#06b6d4", 0.2)},
+          ${alpha("#000000", 0.1)})`,
+    filter: "blur(40px) contrast(1.5)",
+    animation: $reduceMotion ? "none" : `${liquidMorph} 18s ease-in-out infinite`,
+    willChange: "transform, border-radius",
+  },
+  
+  ".orb1": {
+    width: 500,
+    height: 500,
+    top: "-15%",
+    left: "-10%",
+    animationDelay: "0s",
+  },
+  ".orb2": {
+    width: 400,
+    height: 400,
+    bottom: "-10%",
+    right: "-8%",
+    animationDelay: "-6s",
+    animationDuration: "20s",
+  },
+  ".orb3": {
+    width: 350,
+    height: 350,
+    top: "35%",
+    right: "10%",
+    animationDelay: "-12s",
+    animationDuration: "16s",
+  },
+}));
+
+const HolographicCard = styled(Card)(({ theme }) => ({
+  width: "100%",
+  maxWidth: 480,
+  borderRadius: 32,
+  position: "relative",
+  overflow: "visible",
+  backdropFilter: "blur(40px) saturate(200%)",
+  background: theme.palette.mode === "dark"
+    ? `linear-gradient(135deg, 
+        ${alpha("#ffffff", 0.08)} 0%, 
+        ${alpha("#ffffff", 0.03)} 40%, 
+        ${alpha("#8b5cf6", 0.05)} 100%)`
+    : `linear-gradient(135deg, 
+        ${alpha("#ffffff", 0.95)} 0%, 
+        ${alpha("#ffffff", 0.85)} 40%, 
+        ${alpha("#8b5cf6", 0.08)} 100%)`,
+  
+  border: `1px solid ${alpha("#ffffff", theme.palette.mode === "dark" ? 0.15 : 0.25)}`,
+  
+  boxShadow: theme.palette.mode === "dark"
+    ? `0 50px 100px -20px rgba(139, 92, 246, 0.25),
+       0 30px 60px -30px rgba(6, 182, 212, 0.3),
+       inset 0 1px 0 rgba(255, 255, 255, 0.1),
+       inset 0 -1px 0 rgba(0, 0, 0, 0.2)`
+    : `0 50px 100px -20px rgba(139, 92, 246, 0.15),
+       0 30px 60px -30px rgba(6, 182, 212, 0.2),
+       inset 0 1px 0 rgba(255, 255, 255, 0.9)`,
+  
+  transformStyle: "preserve-3d",
+  transition: "all 0.6s cubic-bezier(0.23, 1, 0.32, 1)",
+  
+  "&:hover": {
+    transform: "translateY(-4px) rotateX(2deg)",
+    boxShadow: theme.palette.mode === "dark"
+      ? `0 60px 120px -20px rgba(139, 92, 246, 0.35),
+         0 40px 80px -30px rgba(6, 182, 212, 0.4),
+         inset 0 1px 0 rgba(255, 255, 255, 0.15)`
+      : `0 60px 120px -20px rgba(139, 92, 246, 0.25),
+         0 40px 80px -30px rgba(6, 182, 212, 0.3)`,
+  },
+  
+  // Holographic shimmer
+  "&::before": {
+    content: '""',
+    position: "absolute",
+    inset: -2,
+    borderRadius: 32,
+    padding: 2,
+    background: `linear-gradient(45deg,
+      ${alpha("#ff00ff", 0.3)},
+      ${alpha("#00ffff", 0.3)},
+      ${alpha("#ffff00", 0.3)},
+      ${alpha("#ff00ff", 0.3)})`,
+    backgroundSize: "300% 300%",
+    animation: `${chromaticWave} 8s ease-in-out infinite`,
+    WebkitMask: "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+    WebkitMaskComposite: "xor",
+    maskComposite: "exclude",
+    opacity: theme.palette.mode === "dark" ? 0.6 : 0.3,
+    pointerEvents: "none",
+  },
+  
+  // Floating particles effect
+  "&::after": {
+    content: '""',
+    position: "absolute",
+    inset: -50,
+    background: `radial-gradient(circle at 50% 50%, 
+      ${alpha("#8b5cf6", 0.1)} 0%, 
+      transparent 70%)`,
+    animation: `${hologramPulse} 4s ease-in-out infinite`,
+    pointerEvents: "none",
+    zIndex: -1,
+  },
+}));
+
+const PremiumButton = styled(Button)(({ theme }) => ({
+  borderRadius: 18,
+  textTransform: "none",
+  fontWeight: 700,
+  fontSize: "1rem",
+  letterSpacing: 0.3,
+  padding: "16px 32px",
+  position: "relative",
+  overflow: "hidden",
+  background: `linear-gradient(135deg, #667eea 0%, #764ba2 100%)`,
+  boxShadow: `0 20px 40px -10px rgba(103, 126, 234, 0.35)`,
+  transform: "translateZ(0)",
+  transition: "all 0.3s cubic-bezier(0.23, 1, 0.32, 1)",
+  
+  "&:hover": {
+    transform: "translateY(-2px) scale(1.02)",
+    boxShadow: `0 25px 50px -10px rgba(103, 126, 234, 0.45)`,
+    background: `linear-gradient(135deg, #764ba2 0%, #667eea 100%)`,
+  },
+  
+  "&:active": {
+    transform: "translateY(0) scale(0.98)",
+  },
+  
+  "&:focus-visible": {
+    outline: `3px solid ${alpha(theme.palette.primary.main, 0.5)}`,
+    outlineOffset: 3,
+  },
+  
+  // Magnetic shimmer
+  "&::before": {
+    content: '""',
+    position: "absolute",
+    top: -2,
+    left: -2,
+    right: -2,
+    bottom: -2,
+    background: `linear-gradient(45deg,
+      transparent,
+      ${alpha("#ffffff", 0.3)},
+      transparent)`,
+    transform: "translateX(-100%)",
+    transition: "transform 0.6s",
+  },
+  
+  "&:hover::before": {
+    transform: "translateX(100%)",
+  },
+  
+  // Glow effect
+  "&::after": {
+    content: '""',
+    position: "absolute",
+    inset: -20,
+    background: "inherit",
+    filter: "blur(20px)",
+    opacity: 0.4,
+    zIndex: -1,
+    transition: "opacity 0.3s",
+  },
+  
+  "&:hover::after": {
+    opacity: 0.6,
+  },
+}));
+
+const SecondaryButton = styled(Button)(({ theme }) => ({
+  borderRadius: 18,
+  textTransform: "none",
+  fontWeight: 600,
+  fontSize: "0.95rem",
+  letterSpacing: 0.3,
+  padding: "14px 28px",
+  position: "relative",
+  background: alpha(theme.palette.primary.main, 0.08),
+  border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
+  backdropFilter: "blur(10px)",
+  transition: "all 0.3s cubic-bezier(0.23, 1, 0.32, 1)",
+  
+  "&:hover": {
+    background: alpha(theme.palette.primary.main, 0.12),
+    borderColor: alpha(theme.palette.primary.main, 0.3),
+    transform: "translateY(-1px)",
+  },
+}));
+
+// ────────────────────────────────────────────────────────────
+/** 4) 3D SCENE COMPONENTS */
+// ────────────────────────────────────────────────────────────
+
+function ChromeSphere({ position, scale = 1 }: { position: [number, number, number]; scale?: number }) {
+  const meshRef = useRef<THREE.Mesh>(null!);
+  const { viewport } = useThree();
+  
+  useFrame((state) => {
+    if (!meshRef.current) return;
+    const t = state.clock.elapsedTime;
+    meshRef.current.rotation.x = Math.sin(t * 0.3) * 0.2;
+    meshRef.current.rotation.y = Math.cos(t * 0.2) * 0.3;
+    meshRef.current.position.y = position[1] + Math.sin(t * 0.5) * 0.1;
+    
+    // Magnetic mouse interaction
+    const x = (state.mouse.x * viewport.width) / 2;
+    const y = (state.mouse.y * viewport.height) / 2;
+    const dist = Math.sqrt(
+      Math.pow(x - meshRef.current.position.x, 2) + 
+      Math.pow(y - meshRef.current.position.y, 2)
+    );
+    if (dist < 2) {
+      const force = (2 - dist) * 0.05;
+      meshRef.current.position.x += (x - meshRef.current.position.x) * force;
+      meshRef.current.position.z = position[2] + force * 2;
+    } else {
+      meshRef.current.position.x += (position[0] - meshRef.current.position.x) * 0.1;
+      meshRef.current.position.z += (position[2] - meshRef.current.position.z) * 0.1;
+    }
+  });
+  
+  return (
+    <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
+      <mesh ref={meshRef} position={position} scale={scale}>
+        <sphereGeometry args={[1, 64, 64]} />
+        <MeshTransmissionMaterial
+          backside
+          samples={8}
+          resolution={512}
+          transmission={0.95}
+          roughness={0.1}
+          thickness={0.5}
+          ior={1.5}
+          chromaticAberration={0.2}
+          anisotropy={0.3}
+          distortion={0.2}
+          distortionScale={0.2}
+          temporalDistortion={0.1}
+          clearcoat={1}
+          attenuationDistance={0.5}
+          attenuationColor="#ffffff"
+          color="#c9b8ff"
+        />
+      </mesh>
+    </Float>
+  );
+}
+
+function ParticleField() {
+  const count = 1000;
+  const meshRef = useRef<THREE.Points>(null!);
+  
+  const [positions, sizes] = useMemo(() => {
+    const pos = new Float32Array(count * 3);
+    const siz = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      pos[i * 3] = (Math.random() - 0.5) * 10;
+      pos[i * 3 + 1] = (Math.random() - 0.5) * 10;
+      pos[i * 3 + 2] = (Math.random() - 0.5) * 10;
+      siz[i] = Math.random() * 0.02 + 0.005;
+    }
+    return [pos, siz];
+  }, []);
+  
+  useFrame((state) => {
+    if (!meshRef.current) return;
+    const t = state.clock.elapsedTime;
+    meshRef.current.rotation.x = t * 0.02;
+    meshRef.current.rotation.y = t * 0.03;
+    
+    // Depth-based motion
+    const positions = meshRef.current.geometry.attributes.position.array as Float32Array;
+    for (let i = 0; i < count; i++) {
+      const i3 = i * 3;
+      positions[i3 + 1] += Math.sin(t + i) * 0.001;
+    }
+    meshRef.current.geometry.attributes.position.needsUpdate = true;
+  });
+  
+  return (
+    <points ref={meshRef}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" count={count} array={positions} itemSize={3} />
+        <bufferAttribute attach="attributes-size" count={count} array={sizes} itemSize={1} />
+      </bufferGeometry>
+      <pointsMaterial
+        size={0.015}
+        sizeAttenuation
+        transparent
+        opacity={0.6}
+        blending={THREE.AdditiveBlending}
+        vertexColors={false}
+        color="#8b5cf6"
+      />
+    </points>
+  );
+}
+
+function Scene3D({ reduceMotion }: { reduceMotion: boolean }) {
+  if (reduceMotion) return null;
+  
+  return (
+    <Box sx={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 0 }}>
+      <Canvas
+        dpr={[1, 2]}
+        gl={{ antialias: true, alpha: true }}
+        camera={{ position: [0, 0, 5], fov: 50 }}
+      >
+        <ambientLight intensity={0.4} />
+        <directionalLight position={[10, 10, 5]} intensity={0.5} />
+        <pointLight position={[-10, -10, -5]} intensity={0.3} color="#8b5cf6" />
+        
+        <Suspense fallback={null}>
+          <Environment preset="city" />
+          <ChromeSphere position={[-2.5, 1, -2]} scale={0.8} />
+          <ChromeSphere position={[2.5, -1, -3]} scale={0.6} />
+          <ChromeSphere position={[0, 0.5, -4]} scale={0.4} />
+          <ParticleField />
+        </Suspense>
+        
+        <ContactShadows
+          opacity={0.2}
+          scale={10}
+          blur={2}
+          far={10}
+          position={[0, -2, 0]}
+        />
+      </Canvas>
+    </Box>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+/** 5) HELPER FUNCTIONS */
+// ────────────────────────────────────────────────────────────
+
+function getDisplayName(user: any): string {
+  if (!user) return "User";
+  const claims = user.claims ?? user.idTokenClaims ?? user.userinfo ?? null;
+  const fromClaims = claims?.preferred_username || claims?.name || claims?.email;
+  const loose = user.preferred_username || user.name || user.email || user.sub;
+  return String(fromClaims || loose || "User");
+}
+
+// ────────────────────────────────────────────────────────────
+/** 6) useIpcAuth Hook */
+// ────────────────────────────────────────────────────────────
+
+type AuthState = {
+  initialized: boolean;
+  loading: boolean;
+  isAuthenticated: boolean;
+  user: any | null;
+  error: string | null;
+};
+
+function useIpcAuth() {
+  const [state, setState] = useState<AuthState>({
+    initialized: false,
+    loading: false,
+    isAuthenticated: false,
+    user: null,
+    error: null,
+  });
+
+  const onSuccess = useCallback((_e: any, data: any) => {
+    setState((s) => ({
+      ...s,
+      isAuthenticated: true,
+      user: data?.user ?? null,
+      loading: false,
+      error: null,
+      initialized: true,
+    }));
+  }, []);
+
+  const onError = useCallback((_e: any, message: string) => {
+    setState((s) => ({
+      ...s,
+      isAuthenticated: false,
+      user: null,
+      loading: false,
+      error: message || "Authentication failed.",
+      initialized: true,
+    }));
+  }, []);
+
+  const onLogout = useCallback((_e: any) => {
+    setState((s) => ({
+      ...s,
+      isAuthenticated: false,
+      user: null,
+      error: null,
+      loading: false,
+      initialized: true,
+    }));
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const wireEvents = () => {
+      if (!window.ipcApi) return;
+      window.ipcApi.onAuthSuccess(onSuccess);
+      window.ipcApi.onAuthError(onError);
+      window.ipcApi.onAuthLogout(onLogout);
+    };
+
+    const unwireEvents = () => {
+      if (!window.ipcApi) return;
+      window.ipcApi.offAuthSuccess?.(onSuccess);
+      window.ipcApi.offAuthError?.(onError);
+      window.ipcApi.offAuthLogout?.(onLogout);
+    };
+
+    const check = async () => {
+      try {
+        if (!window.ipcApi) {
+          if (mounted) {
+            setState((s) => ({
+              ...s,
+              initialized: true,
+              error: s.error ?? "IPC bridge unavailable. Please ensure preload exposes window.ipcApi.",
+            }));
+          }
+          return;
+        }
+        const authState: any = await window.ipcApi.sendIpcRequest("auth-check");
+        if (!mounted) return;
+        setState((s) => ({
+          ...s,
+          isAuthenticated: !!authState?.isAuthenticated && !!authState?.user,
+          user: authState?.user ?? null,
+          initialized: true,
+        }));
+      } catch {
+        if (mounted) {
+          setState((s) => ({
+            ...s,
+            initialized: true,
+            error: "Failed to check authentication status. Please try again.",
+          }));
+        }
+      }
+    };
+
+    wireEvents();
+    void check();
+
+    return () => {
+      mounted = false;
+      unwireEvents();
+    };
+  }, [onError, onLogout, onSuccess]);
+
+  const login = useCallback(async () => {
+    setState((s) => ({ ...s, error: null, loading: true }));
+    try {
+      if (!window.ipcApi) throw new Error("IPC bridge unavailable.");
+      await window.ipcApi.sendIpcRequest("auth-login");
+    } catch {
+      setState((s) => ({
+        ...s,
+        loading: false,
+        error: "Failed to start login process.",
+      }));
+    }
+  }, []);
+
+  const clearError = useCallback(() => {
+    setState((s) => ({ ...s, error: null }));
+  }, []);
+
+  return { ...state, login, clearError };
+}
+
+// ────────────────────────────────────────────────────────────
+/** 7) UI COMPONENTS */
+// ────────────────────────────────────────────────────────────
+
+function LoadingOverlay({ message }: { message: string }) {
+  return (
+    <Box
+      role="status"
+      aria-live="polite"
+      sx={{
+        position: "fixed",
+        inset: 0,
+        display: "grid",
+        placeItems: "center",
+        backdropFilter: "blur(8px)",
+        background: alpha("#000000", 0.3),
+        zIndex: 9999,
+      }}
+    >
+      <Stack alignItems="center" spacing={3}>
+        <Box sx={{ position: "relative" }}>
+          <CircularProgress
+            size={56}
+            thickness={2}
+            sx={{
+              color: "#8b5cf6",
+              "& .MuiCircularProgress-circle": {
+                strokeLinecap: "round",
+              },
+            }}
+          />
+          <Box
+            sx={{
+              position: "absolute",
+              inset: -8,
+              borderRadius: "50%",
+              background: "radial-gradient(circle, rgba(139,92,246,0.2), transparent)",
+              animation: `${hologramPulse} 2s ease-in-out infinite`,
+            }}
+          />
+        </Box>
+        <Typography
+          variant="body1"
+          sx={{
+            color: "#ffffff",
+            fontWeight: 500,
+            letterSpacing: 0.5,
+            textShadow: "0 2px 10px rgba(0,0,0,0.3)",
+          }}
+        >
+          {message}
+        </Typography>
+      </Stack>
+    </Box>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+/** 8) MAIN COMPONENT */
+// ────────────────────────────────────────────────────────────
 
 export default function Landing() {
   const navigate = useNavigate();
-  const handleLogout = () => {
-    navigate("/", { replace: true });
-  };
+  const theme = useTheme();
+  const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 
-  const signinLanding = () => {
-    navigate("/signed-in-landing", { replace: false });
-  };
+  const { initialized, loading, isAuthenticated, user, error, login, clearError } = useIpcAuth();
 
-  async function requestFromMainProcess() {
-    try {
-      // Use the exposed API to invoke a request
-      const response = await window.ipcApi.sendIpcRequest("Add Account", 2, "February", 2025, 99.99);
-      console.log("Response from main:", response);
-    } catch (error) {
-      console.error("Error from main process:", error);
+  // Auto-forward once authenticated
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      const t = setTimeout(() => navigate(REDIRECT_AFTER_LOGIN, { replace: true }), 100);
+      return () => clearTimeout(t);
     }
-  }
+  }, [isAuthenticated, user, navigate]);
 
   return (
-    <div>
-      <h1>Landing Page</h1>
-      <Button variant="contained" sx={{ marginTop: 1, width: "100%" }} onClick={handleLogout}>
-        Sign In
-      </Button>
+    <PageRoot>
+      {/* 3D Scene with chrome spheres and particles */}
+      <Scene3D reduceMotion={!!reduceMotion} />
 
-      <Button variant="contained" sx={{ marginTop: 1, width: "100%" }} onClick={requestFromMainProcess}>
-        API Call
-      </Button>
+      {/* Liquid metal morphing background */}
+      <LiquidMetalOrbs $reduceMotion={!!reduceMotion}>
+        <div className="metal-orb orb1" />
+        <div className="metal-orb orb2" />
+        <div className="metal-orb orb3" />
+      </LiquidMetalOrbs>
 
-      <Button variant="contained" sx={{ marginTop: 1, width: "100%" }} onClick={signinLanding}>
-        New Landing
-      </Button>
-    </div>
+      {/* Main content */}
+      <Box sx={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 480, px: 2 }}>
+        <HolographicCard elevation={0}>
+          <CardContent sx={{ p: 5 }}>
+            {/* Logo and branding */}
+            <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 4, justifyContent: "center" }}>
+              <Box
+                sx={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: "20%",
+                  background: `linear-gradient(135deg, #667eea, #764ba2, #f093fb)`,
+                  boxShadow: `0 20px 40px rgba(118,75,162,0.4)`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  position: "relative",
+                  animation: `${magneticFloat} 6s ease-in-out infinite`,
+                  "&::after": {
+                    content: '""',
+                    position: "absolute",
+                    inset: -4,
+                    borderRadius: "20%",
+                    background: "inherit",
+                    filter: "blur(12px)",
+                    opacity: 0.4,
+                    zIndex: -1,
+                  },
+                }}
+              >
+                <AutoAwesomeIcon sx={{ color: "#ffffff", fontSize: 28 }} />
+              </Box>
+              <Typography
+                variant="h5"
+                sx={{
+                  fontWeight: 800,
+                  background: `linear-gradient(135deg, #667eea, #764ba2)`,
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  letterSpacing: -0.5,
+                }}
+              >
+                Planning Tool
+              </Typography>
+            </Stack>
+
+            {/* Welcome text */}
+            <Box sx={{ textAlign: "center", mb: 4 }}>
+              <Typography
+                variant="h4"
+                sx={{
+                  fontWeight: 800,
+                  fontSize: "2.2rem",
+                  lineHeight: 1.1,
+                  mb: 1.5,
+                  background: theme.palette.mode === "dark"
+                    ? `linear-gradient(135deg, #ffffff, #c9b8ff)`
+                    : `linear-gradient(135deg, #1a1a2e, #764ba2)`,
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                }}
+              >
+                {isAuthenticated && user ? "Welcome back" : "Welcome"}
+              </Typography>
+              <Typography
+                variant="body1"
+                sx={{
+                  color: theme.palette.text.secondary,
+                  opacity: 0.9,
+                  fontSize: "1.05rem",
+                  fontWeight: 500,
+                }}
+              >
+                {isAuthenticated && user
+                  ? getDisplayName(user)
+                  : "Sign in to access your workspace"}
+              </Typography>
+            </Box>
+
+            {/* Error alert */}
+            {!!error && (
+              <Alert
+                severity="error"
+                sx={{
+                  mb: 3,
+                  borderRadius: 4,
+                  background: alpha("#ef4444", 0.08),
+                  border: `1px solid ${alpha("#ef4444", 0.2)}`,
+                  backdropFilter: "blur(10px)",
+                  "& .MuiAlert-icon": {
+                    color: "#ef4444",
+                  },
+                }}
+                onClose={clearError}
+                aria-live="assertive"
+              >
+                {error}
+              </Alert>
+            )}
+
+            {/* Auth buttons */}
+            {!isAuthenticated ? (
+              <>
+                <PremiumButton
+                  fullWidth
+                  size="large"
+                  startIcon={<LoginIcon />}
+                  onClick={login}
+                  disabled={loading}
+                  aria-label="Sign in with Single Sign-On"
+                  sx={{ mb: 2, color: 'white' }}
+                >
+                  Sign in with SSO
+                </PremiumButton>
+
+                <SecondaryButton
+                  fullWidth
+                  size="large"
+                  startIcon={<PersonAddAltRoundedIcon />}
+                  onClick={() => window.open("https://rebyter.com/register", "_blank")}
+                  sx={{ mb: 3 }}
+                >
+                  Create New Account
+                </SecondaryButton>
+              </>
+            ) : (
+              <PremiumButton
+                fullWidth
+                size="large"
+                onClick={() => navigate(REDIRECT_AFTER_LOGIN)}
+                sx={{ mb: 3 }}
+              >
+                Enter Application
+              </PremiumButton>
+            )}
+
+            <Divider sx={{ my: 3, opacity: 0.2 }} />
+
+            {/* Footer links */}
+            <Stack spacing={2}>
+              {/* Security badge */}
+              <Stack
+                direction="row"
+                spacing={1}
+                alignItems="center"
+                justifyContent="center"
+                sx={{ opacity: 0.8 }}
+              >
+                <LockRoundedIcon fontSize="small" sx={{ color: theme.palette.text.secondary }} />
+                <Typography
+                  variant="caption"
+                  sx={{
+                    color: theme.palette.text.secondary,
+                    fontWeight: 600,
+                    letterSpacing: 0.3,
+                  }}
+                >
+                  Enterprise-grade security • OpenID Connect & OAuth 2.0
+                </Typography>
+              </Stack>
+
+              {/* Support link */}
+              <Stack
+                direction="row"
+                spacing={0.5}
+                alignItems="center"
+                justifyContent="center"
+              >
+                <HelpOutlineRoundedIcon
+                  fontSize="small"
+                  sx={{ color: theme.palette.text.secondary, opacity: 0.7 }}
+                />
+                <Typography
+                  variant="caption"
+                  sx={{ color: theme.palette.text.secondary }}
+                >
+                  Having issues?{" "}
+                  <Link
+                    href={`mailto:${SUPPORT_EMAIL}`}
+                    sx={{
+                      color: theme.palette.primary.main,
+                      fontWeight: 600,
+                      textDecoration: "none",
+                      "&:hover": {
+                        textDecoration: "underline",
+                      },
+                    }}
+                  >
+                    Contact support
+                  </Link>
+                </Typography>
+              </Stack>
+
+              {/* Powered by */}
+              <Typography
+                variant="caption"
+                align="center"
+                sx={{
+                  color: theme.palette.text.secondary,
+                  opacity: 0.6,
+                  mt: 1,
+                }}
+              >
+                Powered by Rebyter
+              </Typography>
+            </Stack>
+          </CardContent>
+        </HolographicCard>
+
+        {/* Version badge */}
+        <Box
+          sx={{
+            position: "absolute",
+            bottom: -50,
+            left: "50%",
+            transform: "translateX(-50%)",
+            px: 2,
+            py: 0.5,
+            borderRadius: 2,
+            background: alpha(theme.palette.background.paper, 0.1),
+            backdropFilter: "blur(10px)",
+            border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+          }}
+        >
+          <Typography
+            variant="caption"
+            sx={{
+              fontSize: "0.7rem",
+              fontWeight: 600,
+              letterSpacing: 0.5,
+              opacity: 0.5,
+            }}
+          >
+            v2025.2.12 Alpha
+          </Typography>
+        </Box>
+      </Box>
+
+      {/* Loading overlay */}
+      {!initialized ? (
+        <LoadingOverlay message="Initializing secure connection..." />
+      ) : loading ? (
+        <LoadingOverlay message="Authenticating..." />
+      ) : null}
+    </PageRoot>
   );
 }

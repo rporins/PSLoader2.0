@@ -1,5 +1,5 @@
 // Import specific React and ReactDOM functions
-import React from "react";
+import React, { useState, useEffect, useCallback, useRef  } from "react";
 import { styled, useTheme, Theme, CSSObject } from "@mui/material/styles";
 // Import specific components from react-router-dom
 import { Routes, Route, Outlet, Link, useNavigate } from "react-router-dom";
@@ -25,6 +25,166 @@ import Box from "@mui/material/Box";
 import GridOnIcon from "@mui/icons-material/GridOn";
 import HomeIcon from "@mui/icons-material/Home";
 import ApartmentIcon from "@mui/icons-material/Apartment";
+import AccountCircle from "@mui/icons-material/AccountCircle";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import LogoutIcon from "@mui/icons-material/Logout";
+import Avatar from "@mui/material/Avatar";
+import SettingsIcon from "@mui/icons-material/Settings";
+import PersonIcon from "@mui/icons-material/Person";
+import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
+import NotificationsIcon from "@mui/icons-material/Notifications";
+import Badge from "@mui/material/Badge";
+import Tooltip from "@mui/material/Tooltip";
+import { alpha } from "@mui/material/styles";
+import Paper from "@mui/material/Paper";
+import Stack from "@mui/material/Stack";
+import Chip from "@mui/material/Chip";
+
+// IPC API types
+interface IpcApi {
+  sendIpcRequest: (channel: string, ...args: any[]) => Promise<any>;
+  onAuthSuccess: (cb: (event: any, data: any) => void) => void;
+  onAuthError: (cb: (event: any, message: string) => void) => void;
+  onAuthLogout: (cb: (event: any) => void) => void;
+  offAuthSuccess?: (cb: (event: any, data: any) => void) => void;
+  offAuthError?: (cb: (event: any, message: string) => void) => void;
+  offAuthLogout?: (cb: (event: any) => void) => void;
+}
+
+declare global {
+  interface Window {
+    ipcApi?: IpcApi;
+  }
+}
+
+// Helper function to decode JWT token (client-side)
+function decodeJWT(token: string): any {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+    return JSON.parse(jsonPayload);
+  } catch (error) {
+    console.error('Failed to decode JWT:', error);
+    return null;
+  }
+}
+
+// Helper function to get display name from user data
+function getDisplayName(user: any): string {
+  console.log("getDisplayName called with user:", user);
+  
+  if (!user) {
+    console.log("No user data, returning 'User'");
+    return "User";
+  }
+  
+  // Try to decode the ID token to get user claims
+  let decodedClaims = null;
+  if (user.id_token) {
+    console.log("Found id_token, attempting to decode...");
+    decodedClaims = decodeJWT(user.id_token);
+    console.log("Decoded claims from id_token:", decodedClaims);
+  }
+  
+  // Try different ways to access the claims data
+  const claimsFunction = typeof user.claims === 'function' ? user.claims() : null;
+  const claimsObject = user.claims;
+  const idTokenClaims = user.idTokenClaims;
+  const userinfo = user.userinfo;
+  
+  console.log("Claims function result:", claimsFunction);
+  console.log("Claims object:", claimsObject);
+  console.log("ID token claims:", idTokenClaims);
+  console.log("Userinfo:", userinfo);
+  console.log("Direct user properties:", { 
+    given_name: user.given_name,
+    name: user.name,
+    preferred_username: user.preferred_username,
+    email: user.email
+  });
+  
+  // Try all possible sources, prioritizing decoded claims
+  const claims = decodedClaims ?? claimsFunction ?? claimsObject ?? idTokenClaims ?? userinfo ?? user;
+  
+  // Try to get first name first, then full name, then other fallbacks
+  const firstName = claims?.given_name || claims?.first_name;
+  const fullName = claims?.name;
+  const preferredUsername = claims?.preferred_username;
+  const email = claims?.email;
+  
+  console.log("Extracted values:", { firstName, fullName, preferredUsername, email });
+  
+  // If we have a first name, use that
+  if (firstName) {
+    console.log("Returning first name:", firstName);
+    return String(firstName);
+  }
+  
+  // If we have a full name, try to extract first name
+  if (fullName) {
+    const nameParts = String(fullName).split(' ');
+    console.log("Returning first part of full name:", nameParts[0]);
+    return nameParts[0]; // Return first part of the name
+  }
+  
+  // Fallback to other options
+  const fromClaims = preferredUsername || email;
+  const loose = user.preferred_username || user.name || user.email || user.sub;
+  const result = String(fromClaims || loose || "User");
+  
+  console.log("Returning fallback:", result);
+  return result;
+}
+
+// Helper function to get user email
+function getUserEmail(user: any): string {
+  if (!user) return "";
+  
+  let decodedClaims = null;
+  if (user.id_token) {
+    decodedClaims = decodeJWT(user.id_token);
+  }
+  
+  const claims = decodedClaims ?? user.claims ?? user.idTokenClaims ?? user.userinfo ?? user;
+  return claims?.email || user.email || "";
+}
+
+// Custom styled components for modern menu
+const StyledMenu = styled(Menu)(({ theme }) => ({
+  '& .MuiPaper-root': {
+    borderRadius: 12,
+    marginTop: theme.spacing(1),
+    minWidth: 280,
+    boxShadow: '0px 5px 25px rgba(0,0,0,0.15)',
+    '& .MuiMenu-list': {
+      padding: '8px',
+    },
+  },
+}));
+
+const StyledMenuItem = styled(MenuItem)(({ theme }) => ({
+  borderRadius: 8,
+  padding: '10px 12px',
+  margin: '2px 0',
+  '&:hover': {
+    backgroundColor: alpha(theme.palette.primary.main, 0.08),
+  },
+  '& .MuiListItemIcon-root': {
+    minWidth: 36,
+  },
+}));
+
+const UserInfoSection = styled(Box)(({ theme }) => ({
+  padding: theme.spacing(2),
+  borderBottom: `1px solid ${theme.palette.divider}`,
+  display: 'flex',
+  alignItems: 'center',
+  gap: theme.spacing(2),
+}));
 
 export default function SignedInLanding() {
   const drawerWidth = 240;
@@ -72,6 +232,9 @@ export default function SignedInLanding() {
       easing: theme.transitions.easing.sharp,
       duration: theme.transitions.duration.leavingScreen,
     }),
+    backgroundColor: theme.palette.background.paper,
+    color: theme.palette.text.primary,
+    boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
     variants: [
       {
         props: ({ open }) => open,
@@ -112,6 +275,13 @@ export default function SignedInLanding() {
 
   const theme = useTheme();
   const [open, setOpen] = React.useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [notificationCount, setNotificationCount] = useState(3); // Example notification count
+  const navigate = useNavigate();
+
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const accountMenuOpen = Boolean(anchorEl);
+
 
   const handleDrawerOpen = () => {
     setOpen(true);
@@ -125,8 +295,67 @@ export default function SignedInLanding() {
   const listItemIconStyle = [{ minWidth: 0, justifyContent: "center" }, open ? { mr: 3 } : { mr: "auto" }];
   const listItemTextStyle = [open ? { opacity: 1 } : { opacity: 0 }];
 
-  //navigation
-  const navigate = useNavigate();
+
+const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+  setAnchorEl(event.currentTarget);
+};
+
+const handleMenuClose = () => {
+  setAnchorEl(null);
+};
+
+// Menu item handlers
+const handleProfile = () => {
+  navigate("/signed-in-landing/profile");
+  handleMenuClose();
+};
+
+const handleSettings = () => {
+  navigate("/signed-in-landing/settings");
+  handleMenuClose();
+};
+
+const handleHelp = () => {
+  navigate("/signed-in-landing/help");
+  handleMenuClose();
+};
+
+// Sign out function
+const handleSignOut = useCallback(async () => {
+  try {
+    if (window.ipcApi) {
+      await window.ipcApi.sendIpcRequest("auth-logout");
+      navigate("/", { replace: true });
+    }
+  } catch (error) {
+    console.error("Sign out failed:", error);
+  }
+  handleMenuClose();
+}, [navigate]);
+
+  // Get current user data
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      try {
+        if (window.ipcApi) {
+          const authState = await window.ipcApi.sendIpcRequest("auth-check");
+          console.log("Auth state from IPC:", authState);
+          if (authState?.user) {
+            console.log("Setting user in component:", authState.user);
+            setUser(authState.user);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to get user data:", error);
+      }
+    };
+
+    getCurrentUser();
+  }, []);
+
+  const displayName = user ? getDisplayName(user) : 'User';
+  const userEmail = user ? getUserEmail(user) : '';
+  const userInitials = displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
   return (
     <Box sx={{ display: "flex" }}>
@@ -134,22 +363,196 @@ export default function SignedInLanding() {
       <AppBar position="fixed" open={open}>
         <Toolbar variant="dense">
           <IconButton
-            color="inherit"
             aria-label="open drawer"
             onClick={handleDrawerOpen}
             edge="start"
             sx={[
               {
                 marginRight: 5,
+                color: 'inherit',
               },
               open && { display: "none" },
             ]}
           >
             <MenuIcon />
           </IconButton>
-          <Typography variant="h6" noWrap component="div">
+          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1, fontWeight: 600 }}>
             Planning Tool
           </Typography>
+          
+          {/* Modern User menu section */}
+          <Stack direction="row" spacing={1} alignItems="center">
+            {/* Notifications */}
+            <Tooltip title="Notifications">
+              <IconButton 
+                sx={{ 
+                  color: 'text.secondary',
+                  '&:hover': { 
+                    backgroundColor: alpha(theme.palette.primary.main, 0.08) 
+                  }
+                }}
+              >
+                <Badge badgeContent={notificationCount} color="error" variant="dot">
+                  <NotificationsIcon />
+                </Badge>
+              </IconButton>
+            </Tooltip>
+
+            {/* User Avatar and Menu */}
+            <IconButton
+              onClick={handleMenuOpen}
+              size="small"
+              sx={{
+                ml: 1,
+                p: 0.5,
+                '&:hover': {
+                  backgroundColor: alpha(theme.palette.primary.main, 0.08),
+                },
+              }}
+              aria-controls={accountMenuOpen ? 'account-menu' : undefined}
+              aria-haspopup="true"
+              aria-expanded={accountMenuOpen ? 'true' : undefined}
+            >
+              <Avatar
+                sx={{
+                  width: 36,
+                  height: 36,
+                  bgcolor: theme.palette.primary.main,
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  '&:hover': {
+                    transform: 'scale(1.05)',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  },
+                }}
+              >
+                {userInitials}
+              </Avatar>
+            </IconButton>
+
+            <StyledMenu
+              id="account-menu"
+              anchorEl={anchorEl}
+              open={accountMenuOpen}
+              onClose={handleMenuClose}
+              anchorOrigin={{
+                vertical: 'bottom',
+                horizontal: 'right',
+              }}
+              transformOrigin={{
+                vertical: 'top',
+                horizontal: 'right',
+              }}
+              slotProps={{
+                paper: {
+                  sx: {
+                    // Force position to right side of screen
+                    position: 'fixed !important',
+                    right: '16px !important',
+                    left: 'auto !important',
+                    top: '56px !important', // Adjust based on your AppBar height
+                    maxWidth: 320,
+                    minWidth: 280,
+                    overflow: 'visible',
+                    filter: 'drop-shadow(0px 2px 8px rgba(0,0,0,0.15))',
+                    '&:before': {
+                      content: '""',
+                      display: 'block',
+                      position: 'absolute',
+                      top: 0,
+                      right: 28, // Adjust to align with avatar
+                      width: 10,
+                      height: 10,
+                      bgcolor: 'background.paper',
+                      transform: 'translateY(-50%) rotate(45deg)',
+                      zIndex: 0,
+                    },
+                  },
+                },
+              }}
+            >
+    {/* User Info Section */}
+    <UserInfoSection>
+      <Avatar 
+        sx={{ 
+          width: 48, 
+          height: 48, 
+          bgcolor: theme.palette.primary.main,
+          fontWeight: 600,
+        }}
+      >
+        {userInitials}
+      </Avatar>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
+          {displayName}
+        </Typography>
+        <Typography 
+          variant="body2" 
+          sx={{ 
+            color: 'text.secondary', 
+            fontSize: '0.875rem',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {userEmail}
+        </Typography>
+        <Chip 
+          label="Pro Plan" 
+          size="small" 
+          color="primary" 
+          variant="outlined"
+          sx={{ mt: 0.5, height: 20, fontSize: '0.75rem' }}
+        />
+      </Box>
+    </UserInfoSection>
+
+    {/* Menu Items */}
+    <Box sx={{ p: 1 }}>
+      <StyledMenuItem onClick={handleProfile}>
+        <ListItemIcon>
+          <PersonIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText>My Profile</ListItemText>
+      </StyledMenuItem>
+
+      <StyledMenuItem onClick={handleSettings}>
+        <ListItemIcon>
+          <SettingsIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText>Settings</ListItemText>
+      </StyledMenuItem>
+
+      <StyledMenuItem onClick={handleHelp}>
+        <ListItemIcon>
+          <HelpOutlineIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText>Help & Support</ListItemText>
+      </StyledMenuItem>
+
+      <Divider sx={{ my: 1 }} />
+
+      <StyledMenuItem 
+        onClick={handleSignOut}
+        sx={{
+          color: 'error.main',
+          '&:hover': {
+            backgroundColor: alpha(theme.palette.error.main, 0.08),
+          }
+        }}
+      >
+        <ListItemIcon>
+          <LogoutIcon fontSize="small" color="error" />
+        </ListItemIcon>
+        <ListItemText>Sign Out</ListItemText>
+              </StyledMenuItem>
+            </Box>
+            </StyledMenu>
+          </Stack>
         </Toolbar>
       </AppBar>
       <Drawer variant="permanent" open={open}>

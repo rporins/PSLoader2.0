@@ -31,6 +31,9 @@ declare global {
   interface Window {
     ipcApi: {
       sendIpcRequest: (request: string, ...args: unknown[]) => Promise<unknown>;
+      onAuthSuccess: (callback: (event: any, data: any) => void) => void;
+      onAuthError: (callback: (event: any, error: string) => void) => void;
+      onAuthLogout: (callback: (event: any) => void) => void;
     };
   }
 }

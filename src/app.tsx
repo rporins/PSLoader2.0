@@ -6,7 +6,6 @@ import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 
 //import routes
-import Home from "./routes/home";
 import Landing from "./routes/landing";
 import DataTable from "./routes/nestedPages/dataTable";
 import SignedInLanding from "./routes/signedinLanding";
@@ -17,10 +16,6 @@ import CreateNew from "./routes/nestedPages/createNew";
 const router = createBrowserRouter([
   {
     path: "/",
-    element: <Home />,
-  },
-  {
-    path: "/landing",
     element: <Landing />,
   },
   {
