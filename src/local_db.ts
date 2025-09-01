@@ -655,6 +655,271 @@ export async function GeneratedDummyData() {
 }
 
 //------------------------------------------------------------------------------------------------------------------
+//--- GET ALL ACCOUNTS ---------------------------------------------------------------------------------------------
+export async function getAllAccounts(): Promise<string> {
+  try {
+    const query = `
+      SELECT 
+        account_id,
+        a_easy_name,
+        a_is_stat,
+        a_is_locked,
+        a_level_1, a_level_2, a_level_3, a_level_4, a_level_5,
+        a_level_6, a_level_7, a_level_8, a_level_9, a_level_10,
+        a_level_11, a_level_12, a_level_13, a_level_14, a_level_15,
+        a_level_16, a_level_17, a_level_18, a_level_19, a_level_20,
+        a_level_21, a_level_22, a_level_23, a_level_24, a_level_25,
+        a_level_26, a_level_27, a_level_28, a_level_29, a_level_30
+      FROM accounts
+      ORDER BY account_id
+    `;
+
+    const resultSet = await client.execute({ sql: query, args: [] });
+    const rows = resultSet.rows;
+
+    return JSON.stringify(rows);
+  } catch (error) {
+    console.error("Error fetching accounts:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- GET ALL DEPARTMENTS ------------------------------------------------------------------------------------------
+export async function getAllDepartments(): Promise<string> {
+  try {
+    const query = `
+      SELECT 
+        department_id,
+        d_easy_name,
+        d_is_locked,
+        d_level_1, d_level_2, d_level_3, d_level_4, d_level_5,
+        d_level_6, d_level_7, d_level_8, d_level_9, d_level_10,
+        d_level_11, d_level_12, d_level_13, d_level_14, d_level_15,
+        d_level_16, d_level_17, d_level_18, d_level_19, d_level_20,
+        d_level_21, d_level_22, d_level_23, d_level_24, d_level_25,
+        d_level_26, d_level_27, d_level_28, d_level_29, d_level_30
+      FROM departments
+      ORDER BY department_id
+    `;
+
+    const resultSet = await client.execute({ sql: query, args: [] });
+    const rows = resultSet.rows;
+
+    return JSON.stringify(rows);
+  } catch (error) {
+    console.error("Error fetching departments:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- GET ALL COMBO METADATA --------------------------------------------------------------------------------------
+export async function getAllComboMetadata(): Promise<string> {
+  try {
+    const query = `
+      SELECT 
+        da.dep_acc_combo_id,
+        da.department_id,
+        da.account_id,
+        da.is_locked,
+        d.d_easy_name as department_name,
+        a.a_easy_name as account_name,
+        d.d_level_1 as dept_level_1, d.d_level_2 as dept_level_2, d.d_level_3 as dept_level_3,
+        d.d_level_4 as dept_level_4, d.d_level_5 as dept_level_5, d.d_level_6 as dept_level_6,
+        d.d_level_7 as dept_level_7, d.d_level_8 as dept_level_8, d.d_level_9 as dept_level_9,
+        d.d_level_10 as dept_level_10, d.d_level_11 as dept_level_11, d.d_level_12 as dept_level_12,
+        d.d_level_13 as dept_level_13, d.d_level_14 as dept_level_14, d.d_level_15 as dept_level_15,
+        d.d_level_16 as dept_level_16, d.d_level_17 as dept_level_17, d.d_level_18 as dept_level_18,
+        d.d_level_19 as dept_level_19, d.d_level_20 as dept_level_20, d.d_level_21 as dept_level_21,
+        d.d_level_22 as dept_level_22, d.d_level_23 as dept_level_23, d.d_level_24 as dept_level_24,
+        d.d_level_25 as dept_level_25, d.d_level_26 as dept_level_26, d.d_level_27 as dept_level_27,
+        d.d_level_28 as dept_level_28, d.d_level_29 as dept_level_29, d.d_level_30 as dept_level_30,
+        a.a_level_1 as acc_level_1, a.a_level_2 as acc_level_2, a.a_level_3 as acc_level_3,
+        a.a_level_4 as acc_level_4, a.a_level_5 as acc_level_5, a.a_level_6 as acc_level_6,
+        a.a_level_7 as acc_level_7, a.a_level_8 as acc_level_8, a.a_level_9 as acc_level_9,
+        a.a_level_10 as acc_level_10, a.a_level_11 as acc_level_11, a.a_level_12 as acc_level_12,
+        a.a_level_13 as acc_level_13, a.a_level_14 as acc_level_14, a.a_level_15 as acc_level_15,
+        a.a_level_16 as acc_level_16, a.a_level_17 as acc_level_17, a.a_level_18 as acc_level_18,
+        a.a_level_19 as acc_level_19, a.a_level_20 as acc_level_20, a.a_level_21 as acc_level_21,
+        a.a_level_22 as acc_level_22, a.a_level_23 as acc_level_23, a.a_level_24 as acc_level_24,
+        a.a_level_25 as acc_level_25, a.a_level_26 as acc_level_26, a.a_level_27 as acc_level_27,
+        a.a_level_28 as acc_level_28, a.a_level_29 as acc_level_29, a.a_level_30 as acc_level_30
+      FROM department_accounts da
+      JOIN departments d ON da.department_id = d.department_id
+      JOIN accounts a ON da.account_id = a.account_id
+      ORDER BY da.dep_acc_combo_id
+    `;
+
+    const resultSet = await client.execute({ sql: query, args: [] });
+    const rows = resultSet.rows;
+
+    return JSON.stringify(rows);
+  } catch (error) {
+    console.error("Error fetching combo metadata:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- CREATE NEW ACCOUNT ------------------------------------------------------------------------------------------
+export async function createAccount(accountData: Account): Promise<string> {
+  try {
+    const query = `
+      INSERT INTO accounts (
+        account_id, a_easy_name, a_is_stat, a_is_locked,
+        a_level_1, a_level_2, a_level_3, a_level_4, a_level_5,
+        a_level_6, a_level_7, a_level_8, a_level_9, a_level_10,
+        a_level_11, a_level_12, a_level_13, a_level_14, a_level_15,
+        a_level_16, a_level_17, a_level_18, a_level_19, a_level_20,
+        a_level_21, a_level_22, a_level_23, a_level_24, a_level_25,
+        a_level_26, a_level_27, a_level_28, a_level_29, a_level_30
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      )
+    `;
+
+    await client.execute({
+      sql: query,
+      args: [
+        accountData.account_id,
+        accountData.a_easy_name,
+        accountData.a_is_stat,
+        accountData.a_is_locked,
+        accountData.a_level_1 || null,
+        accountData.a_level_2 || null,
+        accountData.a_level_3 || null,
+        accountData.a_level_4 || null,
+        accountData.a_level_5 || null,
+        accountData.a_level_6 || null,
+        accountData.a_level_7 || null,
+        accountData.a_level_8 || null,
+        accountData.a_level_9 || null,
+        accountData.a_level_10 || null,
+        accountData.a_level_11 || null,
+        accountData.a_level_12 || null,
+        accountData.a_level_13 || null,
+        accountData.a_level_14 || null,
+        accountData.a_level_15 || null,
+        accountData.a_level_16 || null,
+        accountData.a_level_17 || null,
+        accountData.a_level_18 || null,
+        accountData.a_level_19 || null,
+        accountData.a_level_20 || null,
+        accountData.a_level_21 || null,
+        accountData.a_level_22 || null,
+        accountData.a_level_23 || null,
+        accountData.a_level_24 || null,
+        accountData.a_level_25 || null,
+        accountData.a_level_26 || null,
+        accountData.a_level_27 || null,
+        accountData.a_level_28 || null,
+        accountData.a_level_29 || null,
+        accountData.a_level_30 || null,
+      ]
+    });
+
+    return JSON.stringify({ success: true, message: "Account created successfully" });
+  } catch (error) {
+    console.error("Error creating account:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- CREATE NEW DEPARTMENT ---------------------------------------------------------------------------------------
+export async function createDepartment(departmentData: Department): Promise<string> {
+  try {
+    const query = `
+      INSERT INTO departments (
+        department_id, d_easy_name, d_is_locked,
+        d_level_1, d_level_2, d_level_3, d_level_4, d_level_5,
+        d_level_6, d_level_7, d_level_8, d_level_9, d_level_10,
+        d_level_11, d_level_12, d_level_13, d_level_14, d_level_15,
+        d_level_16, d_level_17, d_level_18, d_level_19, d_level_20,
+        d_level_21, d_level_22, d_level_23, d_level_24, d_level_25,
+        d_level_26, d_level_27, d_level_28, d_level_29, d_level_30
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      )
+    `;
+
+    await client.execute({
+      sql: query,
+      args: [
+        departmentData.department_id,
+        departmentData.d_easy_name,
+        departmentData.d_is_locked,
+        departmentData.d_level_1 || null,
+        departmentData.d_level_2 || null,
+        departmentData.d_level_3 || null,
+        departmentData.d_level_4 || null,
+        departmentData.d_level_5 || null,
+        departmentData.d_level_6 || null,
+        departmentData.d_level_7 || null,
+        departmentData.d_level_8 || null,
+        departmentData.d_level_9 || null,
+        departmentData.d_level_10 || null,
+        departmentData.d_level_11 || null,
+        departmentData.d_level_12 || null,
+        departmentData.d_level_13 || null,
+        departmentData.d_level_14 || null,
+        departmentData.d_level_15 || null,
+        departmentData.d_level_16 || null,
+        departmentData.d_level_17 || null,
+        departmentData.d_level_18 || null,
+        departmentData.d_level_19 || null,
+        departmentData.d_level_20 || null,
+        departmentData.d_level_21 || null,
+        departmentData.d_level_22 || null,
+        departmentData.d_level_23 || null,
+        departmentData.d_level_24 || null,
+        departmentData.d_level_25 || null,
+        departmentData.d_level_26 || null,
+        departmentData.d_level_27 || null,
+        departmentData.d_level_28 || null,
+        departmentData.d_level_29 || null,
+        departmentData.d_level_30 || null,
+      ]
+    });
+
+    return JSON.stringify({ success: true, message: "Department created successfully" });
+  } catch (error) {
+    console.error("Error creating department:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- CREATE NEW COMBO --------------------------------------------------------------------------------------------
+export async function createCombo(comboData: DepartmentAccount): Promise<string> {
+  try {
+    const query = `
+      INSERT INTO department_accounts (
+        dep_acc_combo_id, department_id, account_id, is_locked
+      ) VALUES (?, ?, ?, ?)
+    `;
+
+    await client.execute({
+      sql: query,
+      args: [
+        comboData.dep_acc_combo_id,
+        comboData.department_id,
+        comboData.account_id,
+        comboData.is_locked
+      ]
+    });
+
+    return JSON.stringify({ success: true, message: "Combo created successfully" });
+  } catch (error) {
+    console.error("Error creating combo:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
 //--- DUMMY DATA ---------------------------------------------------------------------------------------------------
 
 const department_accounts = [
@@ -1059,7 +1324,7 @@ const departments = [
 ];
 
 const financialData = department_accounts.flatMap((depAcc) => {
-  return [2022, 2023, 2024].flatMap((year) => {
+  return [2023, 2024, 2025, 2026].flatMap((year) => {
     return Array.from({ length: 12 }, (_, i) => i + 1).map((month) => {
       const monthPadded = String(month).padStart(2, "0"); // Ensures months in period_combo are 01, 02, ..., 12
       return {

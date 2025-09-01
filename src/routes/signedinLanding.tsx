@@ -40,6 +40,7 @@ import { alpha } from "@mui/material/styles";
 import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import Chip from "@mui/material/Chip";
+import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 
 // IPC API types
 interface IpcApi {
@@ -590,12 +591,12 @@ const handleSignOut = useCallback(async () => {
             </ListItemButton>
           </ListItem>
 
-          <ListItem key="Send email" disablePadding sx={{ display: "block" }}>
-            <ListItemButton sx={listItemButtonStyle}>
+          <ListItem key="COA" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/coa")}>
               <ListItemIcon sx={listItemIconStyle}>
-                <InboxIcon />
+                <AccountBalanceIcon />
               </ListItemIcon>
-              <ListItemText primary="Send email" sx={listItemTextStyle} />
+              <ListItemText primary="COA" sx={listItemTextStyle} />
             </ListItemButton>
           </ListItem>
 

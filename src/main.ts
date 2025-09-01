@@ -10,6 +10,13 @@ import {
   initializeDatabase,
   update12Periods,
   get12Periods,
+  GeneratedDummyData,
+  getAllAccounts,
+  getAllDepartments,
+  getAllComboMetadata,
+  createAccount,
+  createDepartment,
+  createCombo,
 } from "./local_db";
 
 // ────────────────────────────────────────────────────────────
@@ -393,6 +400,13 @@ const startupDeepLink = getDeepLinkFromArgv(process.argv);
 type IpcRequest =
   | "Get12periods"
   | "Update12periods"
+  | "GenerateDummyData"
+  | "db-get-all-accounts"
+  | "db-get-all-departments"
+  | "db-get-all-combo-metadata"
+  | "db-create-account"
+  | "db-create-department"
+  | "db-create-combo"
   | "auth-login"
   | "auth-logout"
   | "auth-check";
@@ -413,6 +427,38 @@ async function handleIpcRequest(
 
       case "Update12periods": {
         return await update12Periods(...args);
+      }
+
+      case "GenerateDummyData": {
+        await GeneratedDummyData();
+        return { success: true, message: "Dummy data generated successfully" };
+      }
+
+      case "db-get-all-accounts": {
+        return await getAllAccounts();
+      }
+
+      case "db-get-all-departments": {
+        return await getAllDepartments();
+      }
+
+      case "db-get-all-combo-metadata": {
+        return await getAllComboMetadata();
+      }
+
+      case "db-create-account": {
+        const accountData = args[0];
+        return await createAccount(accountData);
+      }
+
+      case "db-create-department": {
+        const departmentData = args[0];
+        return await createDepartment(departmentData);
+      }
+
+      case "db-create-combo": {
+        const comboData = args[0];
+        return await createCombo(comboData);
       }
 
       case "auth-login": {

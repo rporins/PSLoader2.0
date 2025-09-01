@@ -11,6 +11,7 @@ import DataTable from "./routes/nestedPages/dataTable";
 import SignedInLanding from "./routes/signedinLanding";
 import Hello from "./routes/nestedPages/hello";
 import CreateNew from "./routes/nestedPages/createNew";
+import COA from "./routes/nestedPages/coa";
 
 // define the route
 const router = createBrowserRouter([
@@ -33,6 +34,10 @@ const router = createBrowserRouter([
       {
         path: "create-new",
         element: <CreateNew />,
+      },
+      {
+        path: "coa",
+        element: <COA />,
       },
     ],
   },
