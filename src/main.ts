@@ -1,23 +1,13 @@
 /**
- * Electron Main Process
+ * Electron Main Process with Modular IPC Architecture
  * -----------------------------------------------------------
  */
 
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, shell } from "electron";
 import path from "path";
 import dotenv from "dotenv";
-import {
-  initializeDatabase,
-  update12Periods,
-  get12Periods,
-  GeneratedDummyData,
-  getAllAccounts,
-  getAllDepartments,
-  getAllComboMetadata,
-  createAccount,
-  createDepartment,
-  createCombo,
-} from "./local_db";
+import { initializeDatabase } from "./local_db";
+import { initializeIpc } from "./ipc";
 
 // ────────────────────────────────────────────────────────────
 // 0) ENV + GLOBAL DECLS (Vite globals, .env loading)
@@ -393,104 +383,12 @@ app.on("open-url", (event, url) => {
 const startupDeepLink = getDeepLinkFromArgv(process.argv);
 
 // ────────────────────────────────────────────────────────────
-// 7) IPC HANDLERS (single, typed entry point)
-//    Keep the surface area minimal; validate inputs as needed.
+// 7) MODULAR IPC SYSTEM INITIALIZATION
+//    Using the new registry-based architecture
 // ────────────────────────────────────────────────────────────
 
-type IpcRequest =
-  | "Get12periods"
-  | "Update12periods"
-  | "GenerateDummyData"
-  | "db-get-all-accounts"
-  | "db-get-all-departments"
-  | "db-get-all-combo-metadata"
-  | "db-create-account"
-  | "db-create-department"
-  | "db-create-combo"
-  | "auth-login"
-  | "auth-logout"
-  | "auth-check";
-
-async function handleIpcRequest(
-  _event: Electron.IpcMainInvokeEvent,
-  request: IpcRequest,
-  ...args: unknown[]
-): Promise<unknown> {
-  logger.debug("IPC request:", request, args);
-
-  try {
-    switch (request) {
-      case "Get12periods": {
-        // args passthrough as in original implementation
-        return await get12Periods(...args);
-      }
-
-      case "Update12periods": {
-        return await update12Periods(...args);
-      }
-
-      case "GenerateDummyData": {
-        await GeneratedDummyData();
-        return { success: true, message: "Dummy data generated successfully" };
-      }
-
-      case "db-get-all-accounts": {
-        return await getAllAccounts();
-      }
-
-      case "db-get-all-departments": {
-        return await getAllDepartments();
-      }
-
-      case "db-get-all-combo-metadata": {
-        return await getAllComboMetadata();
-      }
-
-      case "db-create-account": {
-        const accountData = args[0];
-        return await createAccount(accountData);
-      }
-
-      case "db-create-department": {
-        const departmentData = args[0];
-        return await createDepartment(departmentData);
-      }
-
-      case "db-create-combo": {
-        const comboData = args[0];
-        return await createCombo(comboData);
-      }
-
-      case "auth-login": {
-        await auth.startLogin();
-        return { success: true };
-      }
-
-      case "auth-logout": {
-        auth.logout();
-        sendToRenderer("auth-logout");
-        return { success: true };
-      }
-
-      case "auth-check": {
-        return {
-          isAuthenticated: auth.isAuthenticated(),
-          user: auth.getTokenSet(),
-        };
-      }
-
-      default: {
-        throw new Error(`Unknown IPC request: ${String(request)}`);
-      }
-    }
-  } catch (err: any) {
-    logger.error("IPC error:", err);
-    return {
-      success: false,
-      error: err?.message ?? "Unexpected error",
-    };
-  }
-}
+// The IPC handlers are now organized in separate modules and
+// initialized through the registry system. See src/ipc/ for details.
 
 // ────────────────────────────────────────────────────────────
 // 8) APP LIFECYCLE (create window, register protocol, init DB)
@@ -500,7 +398,8 @@ app.on("ready", async () => {
   try {
     registerProtocolHandler();
 
-    ipcMain.handle("ipcMain", handleIpcRequest);
+    // Initialize the new modular IPC system
+    initializeIpc(auth, sendToRenderer, logger);
 
     // Initialize auth eagerly so first login is snappy.
     await auth.initialize().catch((e) =>

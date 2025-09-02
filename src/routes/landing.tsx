@@ -669,14 +669,18 @@ function useIpcAuth() {
     setState((s) => ({ ...s, error: null }));
   }, []);
 
-  return { ...state, login, clearError };
+  const cancelLogin = useCallback(() => {
+    setState((s) => ({ ...s, loading: false, error: null }));
+  }, []);
+
+  return { ...state, login, clearError, cancelLogin };
 }
 
 // ────────────────────────────────────────────────────────────
 /** 7) UI COMPONENTS */
 // ────────────────────────────────────────────────────────────
 
-function LoadingOverlay({ message }: { message: string }) {
+function LoadingOverlay({ message, onCancel }: { message: string; onCancel?: () => void }) {
   return (
     <Box
       role="status"
@@ -724,6 +728,32 @@ function LoadingOverlay({ message }: { message: string }) {
         >
           {message}
         </Typography>
+        {onCancel && (
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={onCancel}
+            sx={{
+              mt: 1,
+              color: "#ffffff",
+              borderColor: alpha("#ffffff", 0.3),
+              backgroundColor: alpha("#000000", 0.2),
+              backdropFilter: "blur(10px)",
+              borderRadius: 2,
+              textTransform: "none",
+              fontSize: "0.85rem",
+              fontWeight: 500,
+              px: 2,
+              py: 1,
+              "&:hover": {
+                borderColor: alpha("#ffffff", 0.5),
+                backgroundColor: alpha("#ffffff", 0.1),
+              },
+            }}
+          >
+            Cancel
+          </Button>
+        )}
       </Stack>
     </Box>
   );
@@ -738,7 +768,7 @@ export default function Landing() {
   const theme = useTheme();
   const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 
-  const { initialized, loading, isAuthenticated, user, error, login, clearError } = useIpcAuth();
+  const { initialized, loading, isAuthenticated, user, error, login, clearError, cancelLogin } = useIpcAuth();
 
   // Auto-forward once authenticated
   useEffect(() => {
@@ -1002,7 +1032,7 @@ export default function Landing() {
       {!initialized ? (
         <LoadingOverlay message="Initializing secure connection..." />
       ) : loading ? (
-        <LoadingOverlay message="Authenticating..." />
+        <LoadingOverlay message="Authenticating..." onCancel={cancelLogin} />
       ) : null}
     </PageRoot>
   );

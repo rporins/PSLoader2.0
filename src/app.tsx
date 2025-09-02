@@ -9,7 +9,7 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import Landing from "./routes/landing";
 import DataTable from "./routes/nestedPages/dataTable";
 import SignedInLanding from "./routes/signedinLanding";
-import Hello from "./routes/nestedPages/hello";
+import Report from "./routes/nestedPages/report";
 import CreateNew from "./routes/nestedPages/createNew";
 import COA from "./routes/nestedPages/coa";
 
@@ -24,8 +24,8 @@ const router = createBrowserRouter([
     element: <SignedInLanding />,
     children: [
       {
-        path: "hello",
-        element: <Hello />,
+        path: "report",
+        element: <Report />,
       },
       {
         path: "data-table",
