@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef  } from "react";
 import { styled, useTheme, Theme, CSSObject } from "@mui/material/styles";
 // Import specific components from react-router-dom
-import { Routes, Route, Outlet, Link, useNavigate } from "react-router-dom";
+import { Routes, Route, Outlet, Link, useNavigate, useMatches } from "react-router-dom";
 import Button from "@mui/material/Button";
 import MuiAppBar, { AppBarProps as MuiAppBarProps } from "@mui/material/AppBar";
 import MuiDrawer from "@mui/material/Drawer";
@@ -41,6 +41,7 @@ import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import Chip from "@mui/material/Chip";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
+import ThemeToggle from "./customComponents/themeToggle";
 
 // IPC API types
 interface IpcApi {
@@ -283,6 +284,13 @@ export default function SignedInLanding() {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const accountMenuOpen = Boolean(anchorEl);
 
+  // Determine page title from route handle metadata
+  const matches = useMatches();
+  const pageTitle = React.useMemo(() => {
+    const withTitles = [...matches].reverse().find((m: any) => m.handle && (m.handle as any).title);
+    return (withTitles?.handle as any)?.title ?? "Planning Tool";
+  }, [matches]);
+
 
   const handleDrawerOpen = () => {
     setOpen(true);
@@ -378,11 +386,13 @@ const handleSignOut = useCallback(async () => {
             <MenuIcon />
           </IconButton>
           <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1, fontWeight: 600 }}>
-            Planning Tool
+            {pageTitle}
           </Typography>
           
           {/* Modern User menu section */}
           <Stack direction="row" spacing={1} alignItems="center">
+            {/* Theme toggle (global) */}
+            <ThemeToggle />
             {/* Notifications */}
             <Tooltip title="Notifications">
               <IconButton 

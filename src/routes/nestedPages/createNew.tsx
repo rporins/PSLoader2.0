@@ -25,6 +25,7 @@ import VisibilityOff from "@mui/icons-material/VisibilityOff";
 
 import EndAdornment from "../customComponents/adorment";
 import AnimatedButton from "../customComponents/button";
+// Removed RandomAdornment in favor of standard plus adornment
 
 export default function CreateNew() {
   const navigate = useNavigate();
@@ -36,11 +37,21 @@ export default function CreateNew() {
 
   // data values
   const [hotelName, setHotelName] = React.useState<string>(""); // hotel name data value
+  const [testValue, setTestValue] = React.useState<string>(""); // test value data value
+  const [testValueStart, setTestValueStart] = React.useState<string>(""); // test value with start button
 
   // basic callbacks for value updates
   //------------------------------------------
   const handleHotelNameChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setHotelName(e.target.value);
+  }, []);
+
+  const handleTestValueChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setTestValue(e.target.value);
+  }, []);
+
+  const handleTestValueStartChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setTestValueStart(e.target.value);
   }, []);
 
   const setEnableCityChange = React.useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -66,6 +77,24 @@ export default function CreateNew() {
       resolve(true);
     });
   };
+
+  // validate test value based on length
+  //------------------------------------------
+  const handleTestValueValidate = React.useCallback(async (): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const isValid = testValue.length < 10;
+      resolve(isValid);
+    });
+  }, [testValue]);
+
+  const handleTestValueStartValidate = React.useCallback(async (): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const randomNumber = Math.floor(Math.random() * 10) + 1;
+      setTestValueStart(randomNumber.toString());
+      const isValid = randomNumber < 5;
+      resolve(isValid);
+    });
+  }, []);
 
   // demo function to simulate async operation
   //------------------------------------------
@@ -449,6 +478,44 @@ export default function CreateNew() {
                     size="small"
                     renderInput={(params) => <TextField {...params} label="City" />}
                   />
+                </Grid>
+
+                {/* Duplicate field as Test Value with plus button and validation */}
+                <Grid size={{ xs: 12, sm: 12, md: 12 }}>
+                  <FormControl fullWidth required variant="outlined" size="small">
+                    <InputLabel htmlFor="test_value_label">Test Value</InputLabel>
+                    <OutlinedInput
+                      id="test_value_input"
+                      label="Test Value"
+                      value={testValue}
+                      onChange={handleTestValueChange}
+                      endAdornment={
+                        <InputAdornment position="end">
+                          <EndAdornment onClick={handleTestValueValidate} />
+                        </InputAdornment>
+                      }
+                    />
+                    <FormHelperText>Less than 10 chars = tick; more than 10 = cross.</FormHelperText>
+                  </FormControl>
+                </Grid>
+
+                {/* Test Value using standard plus adornment (same generation logic) */}
+                <Grid size={{ xs: 12, sm: 12, md: 12 }}>
+                  <FormControl fullWidth required variant="outlined" size="small">
+                    <InputLabel htmlFor="test_value_start_label">Test Value (Plus Button)</InputLabel>
+                    <OutlinedInput
+                      id="test_value_start_input"
+                      label="Test Value (Plus Button)"
+                      value={testValueStart}
+                      onChange={handleTestValueStartChange}
+                      endAdornment={
+                        <InputAdornment position="end">
+                          <EndAdornment onClick={handleTestValueStartValidate} />
+                        </InputAdornment>
+                      }
+                    />
+                    <FormHelperText>Random number 1-10: less than 5 = green tick, 5 or more = red cross.</FormHelperText>
+                  </FormControl>
                 </Grid>
               </Grid>
             </Box>
