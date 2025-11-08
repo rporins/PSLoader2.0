@@ -1,8 +1,8 @@
 {
-  "name": "planning-tool",
-  "productName": "Planning Tool",
+  "name": "ps-loader",
+  "productName": "PS Loader",
   "version": "1.0.0",
-  "description": "Planning Tool - A comprehensive planning and scheduling application",
+  "description": "PS Loader - A comprehensive planning and scheduling application",
   "main": ".vite/build/main.js",
   "scripts": {
     "start": "electron-forge start",

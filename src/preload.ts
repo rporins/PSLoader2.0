@@ -8,7 +8,11 @@ const IPC_CHANNELS = {
   AUTH_LOGIN: 'auth:login',
   AUTH_LOGOUT: 'auth:logout',
   AUTH_CHECK: 'auth:check',
-  
+
+  // Hardware channels
+  HARDWARE_GET_INFO: 'hardware:get-info',
+  HARDWARE_GET_PERMANENT_SALT: 'hardware:get-permanent-salt',
+
   // Database channels (legacy support)
   DB_GET_PERIODS: 'db:get-periods',
   DB_UPDATE_PERIODS: 'db:update-periods',
@@ -40,6 +44,16 @@ const LEGACY_CHANNEL_MAP: Record<string, string> = {
 // Define the IPC API interface
 export interface IpcApi {
   sendIpcRequest: (request: string, ...args: unknown[]) => Promise<unknown>;
+  getHardwareInfo: () => Promise<{
+    machineId: string;
+    biosSerial: string;
+    motherboardSerial: string;
+    diskSerial: string;
+    macAddresses: string[];
+    cpuInfo: { model: string; cores: number };
+    memoryTotal: number;
+  }>;
+  getPermanentSalt: () => Promise<string>;
   onAuthSuccess: (callback: (event: any, data: any) => void) => void;
   onAuthError: (callback: (event: any, error: string) => void) => void;
   onAuthLogout: (callback: (event: any) => void) => void;
@@ -53,10 +67,10 @@ contextBridge.exposeInMainWorld('ipcApi', {
   sendIpcRequest: async (request: string, ...args: unknown[]): Promise<unknown> => {
     // Map legacy channels to new channels for backward compatibility
     const channel = LEGACY_CHANNEL_MAP[request] || request;
-    
+
     // Use ipcRenderer.invoke to communicate with the main process
     const result = await ipcRenderer.invoke('ipcMain', channel, ...args);
-    
+
     // Handle the new wrapped response format
     if (result && typeof result === 'object' && 'success' in result) {
       if (!result.success) {
@@ -64,8 +78,28 @@ contextBridge.exposeInMainWorld('ipcApi', {
       }
       return result.data !== undefined ? result.data : result;
     }
-    
+
     // Return raw result for backward compatibility
+    return result;
+  },
+  getHardwareInfo: async () => {
+    const result = await ipcRenderer.invoke('ipcMain', IPC_CHANNELS.HARDWARE_GET_INFO);
+    if (result && typeof result === 'object' && 'success' in result) {
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to get hardware info');
+      }
+      return result.data;
+    }
+    return result;
+  },
+  getPermanentSalt: async () => {
+    const result = await ipcRenderer.invoke('ipcMain', IPC_CHANNELS.HARDWARE_GET_PERMANENT_SALT);
+    if (result && typeof result === 'object' && 'success' in result) {
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to get permanent salt');
+      }
+      return result.data;
+    }
     return result;
   },
   onAuthSuccess: (callback: (event: any, data: any) => void) => {

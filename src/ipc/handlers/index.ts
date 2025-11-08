@@ -5,6 +5,7 @@
 
 export * from "./auth";
 export * from "./database";
+export * from "./hardware";
 
 // You can add more handler modules here as your application grows:
 // export * from "./file-system";

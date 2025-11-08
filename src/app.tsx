@@ -8,6 +8,10 @@ import AppThemeProvider from "./components/AppThemeProvider";
 
 //import routes
 import Landing from "./routes/landing";
+import Register from "./routes/register";
+import Login from "./routes/login";
+import DeviceVerify from "./routes/device-verify";
+import TOTPVerify from "./routes/totp-verify";
 import DataTable from "./routes/nestedPages/dataTable";
 import SignedInLanding from "./routes/signedinLanding";
 import Report from "./routes/nestedPages/report";
@@ -15,6 +19,7 @@ import CreateNew from "./routes/nestedPages/createNew";
 import COA from "./routes/nestedPages/coa";
 import Profile from "./routes/nestedPages/profile";
 import Settings from "./routes/nestedPages/settings";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 // define the route
 const router = createBrowserRouter([
@@ -23,8 +28,28 @@ const router = createBrowserRouter([
     element: <Landing />,
   },
   {
+    path: "/register",
+    element: <Register />,
+  },
+  {
+    path: "/login",
+    element: <Login />,
+  },
+  {
+    path: "/auth/device-verify",
+    element: <DeviceVerify />,
+  },
+  {
+    path: "/auth/totp",
+    element: <TOTPVerify />,
+  },
+  {
     path: "/signed-in-landing",
-    element: <SignedInLanding />,
+    element: (
+      <ProtectedRoute>
+        <SignedInLanding />
+      </ProtectedRoute>
+    ),
     handle: { title: "Dashboard" },
     children: [
       {
@@ -62,7 +87,7 @@ const router = createBrowserRouter([
 ]);
 
 // Set the license key
-LicenseInfo.setLicenseKey("37c46c367fae848830b5e2b62f1751feTz05OTg3OCxFPTE3NjAzNjI0NDkwMDAsUz1wcmVtaXVtLExNPXN1YnNjcmlwdGlvbixQVj1pbml0aWFsLEtWPTI=");
+LicenseInfo.setLicenseKey("0170f20369e51857b2536db7dfa0f38eTz0xMTkzODcsRT0xNzkxOTM1OTk5MDAwLFM9cHJlbWl1bSxMTT1zdWJzY3JpcHRpb24sUFY9aW5pdGlhbCxLVj0y");
 
 //root document
 createRoot(document.getElementById("root")).render(

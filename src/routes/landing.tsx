@@ -832,7 +832,7 @@ export default function Landing() {
                   letterSpacing: -0.5,
                 }}
               >
-                Planning Tool
+                PS Loader
               </Typography>
             </Stack>
 
@@ -897,22 +897,22 @@ export default function Landing() {
                   fullWidth
                   size="large"
                   startIcon={<LoginIcon />}
-                  onClick={login}
+                  onClick={() => navigate("/login")}
                   disabled={loading}
-                  aria-label="Sign in with Single Sign-On"
+                  aria-label="Sign in"
                   sx={{ mb: 2, color: 'white' }}
                 >
-                  Sign in with SSO
+                  Sign In
                 </PremiumButton>
 
                 <SecondaryButton
                   fullWidth
                   size="large"
                   startIcon={<PersonAddAltRoundedIcon />}
-                  onClick={() => window.open("https://rebyter.com/register", "_blank")}
+                  onClick={() => navigate("/register")}
                   sx={{ mb: 3 }}
                 >
-                  Create New Account
+                  Request New Account
                 </SecondaryButton>
               </>
             ) : (
@@ -947,7 +947,7 @@ export default function Landing() {
                     letterSpacing: 0.3,
                   }}
                 >
-                  Enterprise-grade security • OpenID Connect & OAuth 2.0
+                  Device-linked authentication • Secure OTP pairing
                 </Typography>
               </Stack>
 
@@ -993,7 +993,7 @@ export default function Landing() {
                   mt: 1,
                 }}
               >
-                Powered by Rebyter
+                Made by EMEA FR&A
               </Typography>
             </Stack>
           </CardContent>

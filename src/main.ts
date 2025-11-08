@@ -282,6 +282,7 @@ function createMainWindow(): void {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
       contextIsolation: true, // critical for security
+      webSecurity: false, // Disable CORS for desktop app - allows API requests to any origin
     },
   });
 
