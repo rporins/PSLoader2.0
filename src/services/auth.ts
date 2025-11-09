@@ -338,6 +338,13 @@ class AuthService {
   isAuthenticated(): boolean {
     return this.accessToken !== null && this.securityLevel >= 3;
   }
+
+  // Development bypass - only use during development!
+  devBypass(): void {
+    this.accessToken = 'dev-bypass-token';
+    this.securityLevel = 3;
+    sessionStorage.setItem('authToken', 'dev-bypass-token');
+  }
 }
 
 export default new AuthService();

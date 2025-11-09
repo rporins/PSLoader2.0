@@ -17,6 +17,7 @@ import SignedInLanding from "./routes/signedinLanding";
 import Report from "./routes/nestedPages/report";
 import CreateNew from "./routes/nestedPages/createNew";
 import COA from "./routes/nestedPages/coa";
+import DataImport from "./routes/nestedPages/dataImport";
 import Profile from "./routes/nestedPages/profile";
 import Settings from "./routes/nestedPages/settings";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -71,6 +72,11 @@ const router = createBrowserRouter([
         path: "coa",
         element: <COA />,
         handle: { title: "COA" },
+      },
+      {
+        path: "data-import",
+        element: <DataImport />,
+        handle: { title: "Data Import" },
       },
       {
         path: "profile",

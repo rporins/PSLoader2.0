@@ -3,8 +3,7 @@
  * Provides access to system hardware information for device fingerprinting
  */
 
-import { ipcMain } from "electron";
-import { createHandler } from "../registry";
+import { IpcHandler } from "../types";
 import os from "os";
 import { execSync } from "child_process";
 import { app } from "electron";
@@ -188,45 +187,49 @@ function getMachineId(): string {
   }
 }
 
-/**
- * Get comprehensive hardware information
- */
-export const getHardwareInfo = createHandler<void, HardwareInfo>(
-  "hardware:get-info",
-  async () => {
+export class HardwareHandlers {
+  /**
+   * Get comprehensive hardware information
+   */
+  getHardwareInfo: IpcHandler<void, HardwareInfo> = async (event) => {
     const cpus = os.cpus();
     const totalMemory = os.totalmem();
 
     return {
-      machineId: getMachineId(),
-      biosSerial: getBiosSerial(),
-      motherboardSerial: getMotherboardSerial(),
-      diskSerial: getDiskSerial(),
-      macAddresses: getMacAddresses(),
-      cpuInfo: {
-        model: cpus[0]?.model || 'Unknown',
-        cores: cpus.length,
+      success: true,
+      data: {
+        machineId: getMachineId(),
+        biosSerial: getBiosSerial(),
+        motherboardSerial: getMotherboardSerial(),
+        diskSerial: getDiskSerial(),
+        macAddresses: getMacAddresses(),
+        cpuInfo: {
+          model: cpus[0]?.model || 'Unknown',
+          cores: cpus.length,
+        },
+        memoryTotal: Math.round(totalMemory / (1024 ** 3)), // Convert to GB
       },
-      memoryTotal: Math.round(totalMemory / (1024 ** 3)), // Convert to GB
+      timestamp: Date.now(),
     };
-  }
-);
+  };
 
-/**
- * Get or create the permanent device salt
- * This salt is generated once per device and never changes
- * Stored in the user data directory for persistence
- */
-export const getPermanentSalt = createHandler<void, string>(
-  "hardware:get-permanent-salt",
-  async () => {
+  /**
+   * Get or create the permanent device salt
+   * This salt is generated once per device and never changes
+   * Stored in the user data directory for persistence
+   */
+  getPermanentSalt: IpcHandler<void, string> = async (event) => {
     try {
       // Check if salt file exists
       if (fs.existsSync(PERMANENT_SALT_FILE)) {
         // Read existing salt
         const salt = fs.readFileSync(PERMANENT_SALT_FILE, 'utf-8').trim();
         if (salt && salt.length === 32) {
-          return salt;
+          return {
+            success: true,
+            data: salt,
+            timestamp: Date.now(),
+          };
         }
         // If invalid, regenerate
         console.warn('Invalid permanent salt found, regenerating...');
@@ -242,10 +245,25 @@ export const getPermanentSalt = createHandler<void, string>(
       });
 
       console.log('Generated new permanent device salt');
-      return salt;
+      return {
+        success: true,
+        data: salt,
+        timestamp: Date.now(),
+      };
     } catch (error) {
       console.error('Error managing permanent salt:', error);
       throw new Error('Failed to get or create permanent salt');
     }
-  }
-);
+  };
+
+}
+
+// Factory function to create and register hardware handlers
+export function createHardwareHandlers() {
+  const handlers = new HardwareHandlers();
+
+  return {
+    'hardware:get-info': handlers.getHardwareInfo,
+    'hardware:get-permanent-salt': handlers.getPermanentSalt,
+  };
+}

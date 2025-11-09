@@ -41,6 +41,7 @@ import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import Chip from "@mui/material/Chip";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
+import FileUploadIcon from "@mui/icons-material/FileUpload";
 import ThemeToggle from "./customComponents/themeToggle";
 
 // IPC API types
@@ -607,6 +608,15 @@ const handleSignOut = useCallback(async () => {
                 <AccountBalanceIcon />
               </ListItemIcon>
               <ListItemText primary="COA" sx={listItemTextStyle} />
+            </ListItemButton>
+          </ListItem>
+
+          <ListItem key="DataImport" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/data-import")}>
+              <ListItemIcon sx={listItemIconStyle}>
+                <FileUploadIcon />
+              </ListItemIcon>
+              <ListItemText primary="Data Import" sx={listItemTextStyle} />
             </ListItemButton>
           </ListItem>
 

@@ -48,15 +48,16 @@
     "@react-three/fiber": "^8.18.0",
     "@types/better-sqlite3": "^7.6.11",
     "@types/openid-client": "^3.1.6",
+    "csv-parse": "^6.1.0",
     "dotenv": "^16.4.7",
     "electron-squirrel-startup": "^1.0.1",
     "framer-motion": "^11.11.11",
     "nodejs-polars": "^0.17.0",
-    "openid-client": "^6.7.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.1",
     "three": "^0.179.1",
-    "uuid": "^11.0.3"
+    "uuid": "^11.0.3",
+    "xlsx": "^0.18.5"
   }
 }
