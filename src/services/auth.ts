@@ -36,6 +36,28 @@ export interface TOTPVerifyResponse {
   security_level_expires_at: string;
 }
 
+export interface UserInfo {
+  email: string;
+  id: number;
+}
+
+export interface OUAccess {
+  id: number;
+  user_id: number;
+  ou: string;
+  granted_by: number;
+  granted_at: string;
+  expires_at: string;
+  access_level: string;
+  is_active: boolean;
+}
+
+export interface Hotel {
+  ou: string;
+  hotel_name: string;
+  room_count: number;
+}
+
 export interface DeviceRegisterResponse {
   message: string;
   device_id: string;
@@ -344,6 +366,96 @@ class AuthService {
     this.accessToken = 'dev-bypass-token';
     this.securityLevel = 3;
     sessionStorage.setItem('authToken', 'dev-bypass-token');
+  }
+
+  // Get current user info
+  async getCurrentUser(): Promise<UserInfo> {
+    if (!this.accessToken) {
+      throw new Error('No access token available');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/auth/me`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${this.accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to get user info');
+    }
+
+    return await response.json();
+  }
+
+  // Get user's OU access
+  async getUserOUAccess(): Promise<OUAccess[]> {
+    if (!this.accessToken) {
+      throw new Error('No access token available');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/users/ou-access/my-access`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${this.accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to get OU access');
+    }
+
+    return await response.json();
+  }
+
+  // Get all hotels
+  async getHotels(): Promise<Hotel[]> {
+    if (!this.accessToken) {
+      throw new Error('No access token available');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/hotels/`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${this.accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to get hotels');
+    }
+
+    const hotels = await response.json();
+
+    // Try to cache the hotels data using IPC if available
+    if (typeof window !== 'undefined' && window.ipcApi) {
+      try {
+        await window.ipcApi.sendIpcRequest('db:cache-hotels', hotels);
+        console.log('Hotels cached successfully');
+      } catch (cacheError) {
+        console.warn('Failed to cache hotels:', cacheError);
+      }
+    }
+
+    return hotels;
+  }
+
+  // Force refresh hotels cache
+  async refreshHotelsCache(): Promise<Hotel[]> {
+    if (typeof window !== 'undefined' && window.ipcApi) {
+      try {
+        // Clear existing cache first
+        await window.ipcApi.sendIpcRequest('db:clear-hotels-cache');
+      } catch (error) {
+        console.warn('Failed to clear hotels cache:', error);
+      }
+    }
+
+    // Fetch and cache new data
+    return this.getHotels();
   }
 }
 

@@ -31,6 +31,11 @@ import {
   alpha,
   Divider,
   CircularProgress,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  SelectChangeEvent,
 } from '@mui/material';
 import { styled, useTheme, keyframes } from '@mui/material/styles';
 import {
@@ -46,6 +51,8 @@ import {
   TaskAlt as TaskAltIcon,
 } from '@mui/icons-material';
 import { DataImportPageConfig, ImportCardConfig } from '../../types/pageConfig';
+import importGroupsService, { ImportGroup, Import } from '../../services/importGroups';
+import authService from '../../services/auth';
 
 // ────────────────────────────────────────────────────────────
 // TYPES
@@ -584,11 +591,98 @@ const DataImport: React.FC = () => {
   const [currentImportIndex, setCurrentImportIndex] = useState(-1);
   const [importSessionStarted, setImportSessionStarted] = useState(false);
 
+  // Import Groups state
+  const [importGroups, setImportGroups] = useState<ImportGroup[]>([]);
+  const [selectedImportGroup, setSelectedImportGroup] = useState<string>('');
+  const [loadingImportGroups, setLoadingImportGroups] = useState(false);
+  const [selectedOU, setSelectedOU] = useState<string>('');
+
+  // Fetch import groups when OU is selected
+  useEffect(() => {
+    const fetchImportGroups = async () => {
+      if (!selectedOU) return;
+
+      setLoadingImportGroups(true);
+      try {
+        // First try to get cached data
+        const cached = await importGroupsService.getCachedImportGroups(selectedOU);
+        if (cached) {
+          setImportGroups(cached);
+          // Set the first group as default if none selected
+          if (!selectedImportGroup && cached.length > 0) {
+            const uniqueGroups = importGroupsService.getUniqueGroupNames(cached);
+            setSelectedImportGroup(uniqueGroups[0]);
+          }
+        }
+
+        // Fetch fresh data from API
+        const groups = await importGroupsService.getImportGroups(selectedOU);
+        setImportGroups(groups);
+
+        // Cache the data
+        await importGroupsService.cacheImportGroups(selectedOU, groups);
+
+        // Set the first group as default if none selected
+        if (!selectedImportGroup && groups.length > 0) {
+          const uniqueGroups = importGroupsService.getUniqueGroupNames(groups);
+          setSelectedImportGroup(uniqueGroups[0]);
+        }
+      } catch (error) {
+        console.error('Failed to fetch import groups:', error);
+        // Use cached data if available
+        const cached = await importGroupsService.getCachedImportGroups(selectedOU);
+        if (cached) {
+          setImportGroups(cached);
+        }
+      } finally {
+        setLoadingImportGroups(false);
+      }
+    };
+
+    fetchImportGroups();
+  }, [selectedOU]);
+
+  // Update import files when import group is selected
+  useEffect(() => {
+    if (selectedImportGroup && importGroups.length > 0) {
+      const imports = importGroupsService.getImportsByGroup(importGroups, selectedImportGroup);
+
+      // Convert imports to ImportFile format
+      const files: ImportFile[] = imports.map((imp) => ({
+        id: imp.name,
+        displayName: imp.displayName,
+        description: imp.description,
+        icon: '',
+        category: '',
+        fileTypes: imp.fileTypes,
+        required: imp.required,
+        order: imp.order,
+        requiredColumns: imp.requiredColumns,
+        optionalColumns: imp.optionalColumns,
+        validationRules: imp.validationRules,
+        status: ImportStatus.Pending,
+      }));
+
+      setImportFiles(files);
+    }
+  }, [selectedImportGroup, importGroups]);
+
   // Fetch page config on mount
   useEffect(() => {
     const fetchPageConfig = async () => {
       try {
         setLoading(true);
+
+        // Get hotels to determine OU
+        try {
+          const hotels = await authService.getHotels();
+          if (hotels.length > 0) {
+            // Set first hotel as default OU
+            setSelectedOU(hotels[0].ou);
+          }
+        } catch (error) {
+          console.error('Failed to fetch hotels:', error);
+        }
 
         // Check if running in Electron
         // @ts-ignore - window.electron is defined in preload
@@ -597,12 +691,7 @@ const DataImport: React.FC = () => {
           const config: DataImportPageConfig = await window.electron.invoke('dataImport:getPageConfig');
           setPageConfig(config);
 
-          // Convert config cards to import files
-          const files: ImportFile[] = config.importCards.map((card) => ({
-            ...card,
-            status: ImportStatus.Pending,
-          }));
-          setImportFiles(files);
+          // Don't set import files here, let the import groups handle it
         } else {
           // Fallback: Load demo config for development
           const demoConfig: DataImportPageConfig = {
@@ -697,11 +786,7 @@ const DataImport: React.FC = () => {
           };
 
           setPageConfig(demoConfig);
-          const files: ImportFile[] = demoConfig.importCards.map((card) => ({
-            ...card,
-            status: ImportStatus.Pending,
-          }));
-          setImportFiles(files);
+          // Don't set import files in demo mode, let import groups handle it
         }
       } catch (error) {
         console.error('Failed to load page config:', error);
@@ -958,6 +1043,60 @@ const DataImport: React.FC = () => {
         </CardContent>
       </HeaderCard>
 
+      {/* Import Groups Dropdown */}
+      <Card
+        sx={{
+          mb: 2,
+          borderRadius: 3,
+          background: alpha(theme.palette.background.paper, 0.7),
+          backdropFilter: 'blur(20px)',
+          border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+        }}
+      >
+        <CardContent sx={{ p: 2 }}>
+          <Stack direction={isMobile ? 'column' : 'row'} spacing={2} alignItems="center">
+            <FormControl fullWidth={isMobile} sx={{ minWidth: 200 }}>
+              <InputLabel id="import-group-select-label">Import Group</InputLabel>
+              <Select
+                labelId="import-group-select-label"
+                id="import-group-select"
+                value={selectedImportGroup}
+                label="Import Group"
+                onChange={(event: SelectChangeEvent) => {
+                  setSelectedImportGroup(event.target.value);
+                  // Reset import session when changing groups
+                  handleRestart();
+                }}
+                disabled={loadingImportGroups || importSessionStarted}
+              >
+                {importGroupsService.getUniqueGroupNames(importGroups).map((groupName) => (
+                  <MenuItem key={groupName} value={groupName}>
+                    {groupName}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {loadingImportGroups && (
+              <Stack direction="row" spacing={1} alignItems="center">
+                <CircularProgress size={20} />
+                <Typography variant="body2" color="text.secondary">
+                  Loading import groups...
+                </Typography>
+              </Stack>
+            )}
+
+            {!loadingImportGroups && selectedImportGroup && (
+              <Box flex={isMobile ? undefined : 1}>
+                <Typography variant="body2" color="text.secondary">
+                  {importFiles.length} imports available • {importFiles.filter(f => f.required).length} required
+                </Typography>
+              </Box>
+            )}
+          </Stack>
+        </CardContent>
+      </Card>
+
       {/* Status Banner */}
       {sessionStatus !== 'idle' && (
         <Fade in>
@@ -997,8 +1136,9 @@ const DataImport: React.FC = () => {
       )}
 
       {/* Import Cards */}
-      <Stack spacing={1.5} mb={3}>
-        {importFiles.map((importFile, index) => {
+      {selectedImportGroup && importFiles.length > 0 ? (
+        <Stack spacing={1.5} mb={3}>
+          {importFiles.map((importFile, index) => {
           let isLocked = false;
           let isNextInLine = false;
 
@@ -1030,6 +1170,22 @@ const DataImport: React.FC = () => {
           );
         })}
       </Stack>
+      ) : (
+        <Card
+          sx={{
+            mb: 3,
+            borderRadius: 3,
+            background: alpha(theme.palette.background.paper, 0.5),
+            border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+            textAlign: 'center',
+            p: 4,
+          }}
+        >
+          <Typography variant="body1" color="text.secondary">
+            {loadingImportGroups ? 'Loading import groups...' : 'Please select an import group to begin'}
+          </Typography>
+        </Card>
+      )}
 
       {/* Action Buttons */}
       <Stack

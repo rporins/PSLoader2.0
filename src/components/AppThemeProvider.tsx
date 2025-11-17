@@ -8,12 +8,8 @@ type Props = { children: React.ReactNode };
 
 const AppThemeProvider: React.FC<Props> = ({ children }) => {
   const themeMode = useSettingsStore((s) => s.themeMode);
-  const loadSettingsFromDb = useSettingsStore((s) => s.loadSettingsFromDb);
 
-  React.useEffect(() => {
-    // Load theme preference on app start
-    loadSettingsFromDb();
-  }, [loadSettingsFromDb]);
+  // Settings are now loaded by AppInitializer before this component renders
 
   const theme = React.useMemo(() => createAppTheme(themeMode), [themeMode]);
 

@@ -37,15 +37,12 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Environment, Float, MeshTransmissionMaterial, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
 
-// Auth service for dev bypass
-import authService from "../services/auth";
-
 // ────────────────────────────────────────────────────────────
 // 0) ROUTING + CONSTANTS
 // ────────────────────────────────────────────────────────────
 
 const REDIRECT_AFTER_LOGIN = "/signed-in-landing";
-const SUPPORT_EMAIL = "support@rebyter.com";
+const SUPPORT_EMAIL = "support@psloader.com";
 
 // ────────────────────────────────────────────────────────────
 /** 1) IPC TYPES + GLOBAL AUGMENTATION */
@@ -913,38 +910,10 @@ export default function Landing() {
                   size="large"
                   startIcon={<PersonAddAltRoundedIcon />}
                   onClick={() => navigate("/register")}
-                  sx={{ mb: 2 }}
+                  sx={{ mb: 3 }}
                 >
                   Request New Account
                 </SecondaryButton>
-
-                {/* Development Bypass Button */}
-                <Button
-                  fullWidth
-                  size="small"
-                  onClick={() => {
-                    authService.devBypass();
-                    navigate(REDIRECT_AFTER_LOGIN);
-                  }}
-                  sx={{
-                    mb: 3,
-                    borderRadius: 2,
-                    textTransform: "none",
-                    fontWeight: 600,
-                    fontSize: "0.85rem",
-                    padding: "10px 20px",
-                    background: alpha("#fbbf24", 0.1),
-                    border: `1px solid ${alpha("#fbbf24", 0.3)}`,
-                    color: "#fbbf24",
-                    backdropFilter: "blur(10px)",
-                    "&:hover": {
-                      background: alpha("#fbbf24", 0.15),
-                      borderColor: alpha("#fbbf24", 0.4),
-                    },
-                  }}
-                >
-                  Dev Bypass (Skip Auth)
-                </Button>
               </>
             ) : (
               <PremiumButton

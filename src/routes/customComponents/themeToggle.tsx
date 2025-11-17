@@ -8,12 +8,10 @@ import { useSettingsStore } from "../../store/settings";
 const ThemeToggle: React.FC = () => {
   const themeMode = useSettingsStore((s) => s.themeMode);
   const toggleTheme = useSettingsStore((s) => s.toggleTheme);
-  const saveSettings = useSettingsStore((s) => s.saveSettingsToDb);
 
   const handleClick = async () => {
-    toggleTheme();
-    // Save preference immediately
-    await saveSettings();
+    await toggleTheme();
+    // Settings are now saved automatically within toggleTheme
   };
 
   return (

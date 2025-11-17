@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Box, Typography, Avatar, Card, CardContent, Divider, Stack, Button, Chip } from "@mui/material";
+import { Box, Typography, Avatar, Card, CardContent, Divider, Stack, Button, Chip, CircularProgress, Alert, List, ListItem, ListItemText } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
+import authService, { UserInfo, OUAccess } from "../../services/auth";
 
 interface IpcApi {
   sendIpcRequest: (channel: string, ...args: any[]) => Promise<any>;
@@ -41,27 +42,52 @@ function extractUser(user: any) {
 
 export default function Profile() {
   const theme = useTheme();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<UserInfo | null>(null);
+  const [ouAccess, setOuAccess] = useState<OUAccess[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchUser = async () => {
+    const fetchUserData = async () => {
       try {
-        if (window.ipcApi) {
-          const authState = await window.ipcApi.sendIpcRequest("auth-check");
-          if (authState?.user) setUser(authState.user);
-        }
-      } catch (e) {
-        // no-op for mock page
+        setLoading(true);
+        setError(null);
+
+        // Fetch user info
+        const userInfo = await authService.getCurrentUser();
+        setUser(userInfo);
+
+        // Fetch OU access
+        const access = await authService.getUserOUAccess();
+        setOuAccess(access);
+      } catch (err: any) {
+        console.error('Failed to load profile data:', err);
+        setError(err.message || 'Failed to load profile data');
+      } finally {
+        setLoading(false);
       }
     };
-    fetchUser();
+    fetchUserData();
   }, []);
 
-  const { name, email } = useMemo(() => extractUser(user), [user]);
-  const initials = useMemo(
-    () => name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2),
-    [name]
-  );
+  const email = user?.email || '';
+  const initials = email ? email.substring(0, 2).toUpperCase() : 'U';
+
+  if (loading) {
+    return (
+      <Box sx={{ maxWidth: 900, mx: "auto", display: "flex", justifyContent: "center", p: 4 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Box sx={{ maxWidth: 900, mx: "auto", p: 2 }}>
+        <Alert severity="error">{error}</Alert>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ maxWidth: 900, mx: "auto" }}>
@@ -73,9 +99,9 @@ export default function Profile() {
             </Avatar>
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
-                {name}
+                {email}
               </Typography>
-              <Typography variant="body2" sx={{ color: "text.secondary" }}>{email}</Typography>
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>User ID: {user?.id}</Typography>
               <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
                 <Chip size="small" color="primary" variant="outlined" label="Pro Plan" />
                 <Chip size="small" variant="outlined" label="Member since 2025" />
@@ -91,7 +117,7 @@ export default function Profile() {
         </CardContent>
       </Card>
 
-      <Card variant="outlined" sx={{ borderRadius: 2 }}>
+      <Card variant="outlined" sx={{ mb: 2, borderRadius: 2 }}>
         <CardContent>
           <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
             Account Details
@@ -99,18 +125,58 @@ export default function Profile() {
           <Divider sx={{ mb: 2 }} />
           <Stack spacing={1.5}>
             <Box>
-              <Typography variant="caption" sx={{ color: "text.secondary" }}>Full Name</Typography>
-              <Typography variant="body1">{name}</Typography>
-            </Box>
-            <Box>
               <Typography variant="caption" sx={{ color: "text.secondary" }}>Email</Typography>
               <Typography variant="body1">{email || "—"}</Typography>
+            </Box>
+            <Box>
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>User ID</Typography>
+              <Typography variant="body1">{user?.id || "—"}</Typography>
             </Box>
             <Box>
               <Typography variant="caption" sx={{ color: "text.secondary" }}>Status</Typography>
               <Typography variant="body1">Active</Typography>
             </Box>
           </Stack>
+        </CardContent>
+      </Card>
+
+      <Card variant="outlined" sx={{ borderRadius: 2 }}>
+        <CardContent>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+            OU Access
+          </Typography>
+          <Divider sx={{ mb: 2 }} />
+          {ouAccess.length === 0 ? (
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              No OU access configured
+            </Typography>
+          ) : (
+            <List dense>
+              {ouAccess.map((access) => (
+                <ListItem key={access.id} sx={{ px: 0 }}>
+                  <ListItemText
+                    primary={
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Typography variant="body1">{access.ou}</Typography>
+                        <Chip
+                          size="small"
+                          label={access.access_level}
+                          color={access.is_active ? "success" : "default"}
+                          variant="outlined"
+                        />
+                      </Stack>
+                    }
+                    secondary={
+                      <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                        Granted: {new Date(access.granted_at).toLocaleDateString()}
+                        {access.expires_at && ` • Expires: ${new Date(access.expires_at).toLocaleDateString()}`}
+                      </Typography>
+                    }
+                  />
+                </ListItem>
+              ))}
+            </List>
+          )}
         </CardContent>
       </Card>
     </Box>

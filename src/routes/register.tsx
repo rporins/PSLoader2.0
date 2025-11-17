@@ -1,11 +1,11 @@
 // Register.tsx — Modern Registration Form
 // ---------------------------------------------------------------------------------
 // Purpose: User registration with clean, modern design
-// API: POST https://fastapi-fafyfgcmaqgsbncg.uksouth-01.azurewebsites.net/auth/register
 // ---------------------------------------------------------------------------------
 
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { API_BASE_URL } from "../config";
 import {
   Alert,
   Box,
@@ -341,7 +341,7 @@ export default function Register() {
 
     try {
       const response = await fetch(
-        "https://fastapi-fafyfgcmaqgsbncg.uksouth-01.azurewebsites.net/auth/register",
+        `${API_BASE_URL}/auth/register`,
         {
           method: "POST",
           headers: {

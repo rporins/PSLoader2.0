@@ -92,6 +92,12 @@ export const IPC_CHANNELS = {
   DB_GET_COMBO_METADATA: 'db:get-combo-metadata',
   DB_CREATE_COMBO: 'db:create-combo',
   DB_GENERATE_DUMMY_DATA: 'db:generate-dummy-data',
+
+  // Hotels cache channels
+  DB_GET_CACHED_HOTELS: 'db:get-cached-hotels',
+  DB_CACHE_HOTELS: 'db:cache-hotels',
+  DB_CLEAR_HOTELS_CACHE: 'db:clear-hotels-cache',
+  DB_IS_HOTELS_CACHE_EXPIRED: 'db:is-hotels-cache-expired',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];

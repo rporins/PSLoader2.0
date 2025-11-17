@@ -7,13 +7,13 @@ import fs from "fs";
 dotenv.config();
 const secretKey = process.env.TEMP_DB_KEY; // will be pulled from the server and used for creation, encryption, and decryption of the database
 const documentsPath = app.getPath("documents");
-const rebyterFolderPath = path.join(documentsPath, "Rebyter");
+const psLoaderFolderPath = path.join(documentsPath, "PSLoader");
 // Set the SQLite database file path
-// Ensure the "rebyter" folder exists, create it if it doesn't
-if (!fs.existsSync(rebyterFolderPath)) {
-  fs.mkdirSync(rebyterFolderPath, { recursive: true });
+// Ensure the "PSLoader" folder exists, create it if it doesn't
+if (!fs.existsSync(psLoaderFolderPath)) {
+  fs.mkdirSync(psLoaderFolderPath, { recursive: true });
 }
-const dbPath = path.join(rebyterFolderPath, "planning-tool.db");
+const dbPath = path.join(psLoaderFolderPath, "planning-tool.db");
 // Enable secret key after testing
 // Create a new SQLite client
 const client = createClient({
@@ -158,10 +158,25 @@ export async function initializeDatabase() {
     // Create necessary tables
     await client.batch([
       `
+        CREATE TABLE IF NOT EXISTS user_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        `,
+      `
+        CREATE TABLE IF NOT EXISTS hotels_cache (
+            ou TEXT PRIMARY KEY,
+            hotel_name TEXT NOT NULL,
+            room_count INTEGER NOT NULL,
+            cached_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        `,
+      `
         CREATE TABLE IF NOT EXISTS departments (
             department_id TEXT PRIMARY KEY,
             d_easy_name TEXT NOT NULL,
-            d_is_locked BOOLEAN NOT NULL DEFAULT 0, 
+            d_is_locked BOOLEAN NOT NULL DEFAULT 0,
             d_level_1 TEXT,
             d_level_2 TEXT,
             d_level_3 TEXT,
@@ -889,6 +904,198 @@ export async function createDepartment(departmentData: Department): Promise<stri
   } catch (error) {
     console.error("Error creating department:", error);
     throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- USER SETTINGS FUNCTIONS -------------------------------------------------------------------------------------
+// Interface for user settings
+interface UserSettings {
+  themeMode?: "light" | "dark";
+  selectedHotelOu?: string | null;
+  [key: string]: any;
+}
+
+// Get a specific setting or all settings
+export async function getUserSettings(key?: string): Promise<string> {
+  try {
+    if (key) {
+      // Get specific setting
+      const result = await client.execute({
+        sql: "SELECT value FROM user_settings WHERE key = ?",
+        args: [key]
+      });
+
+      if (result.rows.length > 0) {
+        const value = result.rows[0].value as string;
+        try {
+          return JSON.parse(value);
+        } catch {
+          return value;
+        }
+      }
+      return JSON.stringify(null);
+    } else {
+      // Get all settings
+      const result = await client.execute({
+        sql: "SELECT key, value FROM user_settings",
+        args: []
+      });
+
+      const settings: UserSettings = {};
+      for (const row of result.rows) {
+        const key = row.key as string;
+        const value = row.value as string;
+        try {
+          settings[key] = JSON.parse(value);
+        } catch {
+          settings[key] = value;
+        }
+      }
+      return JSON.stringify(settings);
+    }
+  } catch (error) {
+    console.error("Error getting user settings:", error);
+    throw error;
+  }
+}
+
+// Set a specific setting or multiple settings
+export async function setUserSettings(settings: UserSettings): Promise<string> {
+  try {
+    const queries = Object.entries(settings).map(([key, value]) => ({
+      sql: `
+        INSERT INTO user_settings (key, value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = CURRENT_TIMESTAMP
+      `,
+      args: [key, JSON.stringify(value)]
+    }));
+
+    await client.batch(queries);
+    return JSON.stringify({ success: true, message: "Settings saved successfully" });
+  } catch (error) {
+    console.error("Error saving user settings:", error);
+    throw error;
+  }
+}
+
+// Delete a specific setting
+export async function deleteUserSetting(key: string): Promise<string> {
+  try {
+    await client.execute({
+      sql: "DELETE FROM user_settings WHERE key = ?",
+      args: [key]
+    });
+    return JSON.stringify({ success: true, message: "Setting deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting user setting:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- HOTELS CACHE FUNCTIONS --------------------------------------------------------------------------------------
+// Interface for cached hotel data
+interface CachedHotel {
+  ou: string;
+  hotel_name: string;
+  room_count: number;
+  cached_at?: string;
+}
+
+// Get all cached hotels
+export async function getCachedHotels(): Promise<string> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT ou, hotel_name, room_count, cached_at FROM hotels_cache ORDER BY hotel_name",
+      args: []
+    });
+
+    const hotels = result.rows.map(row => ({
+      ou: row.ou as string,
+      hotel_name: row.hotel_name as string,
+      room_count: row.room_count as number,
+      cached_at: row.cached_at as string
+    }));
+
+    return JSON.stringify(hotels);
+  } catch (error) {
+    console.error("Error getting cached hotels:", error);
+    // Return empty array if table doesn't exist or other error
+    return JSON.stringify([]);
+  }
+}
+
+// Cache hotels data
+export async function cacheHotels(hotels: CachedHotel[]): Promise<string> {
+  try {
+    // Clear existing cache first
+    await client.execute({
+      sql: "DELETE FROM hotels_cache",
+      args: []
+    });
+
+    // Insert new data
+    if (hotels.length > 0) {
+      const queries = hotels.map(hotel => ({
+        sql: `
+          INSERT INTO hotels_cache (ou, hotel_name, room_count, cached_at)
+          VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        `,
+        args: [hotel.ou, hotel.hotel_name, hotel.room_count]
+      }));
+
+      await client.batch(queries);
+    }
+
+    return JSON.stringify({ success: true, message: "Hotels cached successfully" });
+  } catch (error) {
+    console.error("Error caching hotels:", error);
+    throw error;
+  }
+}
+
+// Clear hotels cache
+export async function clearHotelsCache(): Promise<string> {
+  try {
+    await client.execute({
+      sql: "DELETE FROM hotels_cache",
+      args: []
+    });
+    return JSON.stringify({ success: true, message: "Hotels cache cleared" });
+  } catch (error) {
+    console.error("Error clearing hotels cache:", error);
+    throw error;
+  }
+}
+
+// Check if cache is expired (default: 24 hours)
+export async function isHotelsCacheExpired(hoursThreshold: number = 24): Promise<boolean> {
+  try {
+    const result = await client.execute({
+      sql: `
+        SELECT cached_at FROM hotels_cache
+        ORDER BY cached_at DESC
+        LIMIT 1
+      `,
+      args: []
+    });
+
+    if (result.rows.length === 0) {
+      return true; // No cache exists
+    }
+
+    const cachedAt = new Date(result.rows[0].cached_at as string);
+    const now = new Date();
+    const hoursDiff = (now.getTime() - cachedAt.getTime()) / (1000 * 60 * 60);
+
+    return hoursDiff > hoursThreshold;
+  } catch (error) {
+    console.error("Error checking cache expiry:", error);
+    return true; // Assume expired on error
   }
 }
 

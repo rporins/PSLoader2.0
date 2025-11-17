@@ -5,6 +5,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import AppThemeProvider from "./components/AppThemeProvider";
+import AppInitializer from "./components/AppInitializer";
 
 //import routes
 import Landing from "./routes/landing";
@@ -98,8 +99,10 @@ LicenseInfo.setLicenseKey("0170f20369e51857b2536db7dfa0f38eTz0xMTkzODcsRT0xNzkxO
 //root document
 createRoot(document.getElementById("root")).render(
   <StrictMode>
-    <AppThemeProvider>
-      <RouterProvider router={router} />
-    </AppThemeProvider>
+    <AppInitializer>
+      <AppThemeProvider>
+        <RouterProvider router={router} />
+      </AppThemeProvider>
+    </AppInitializer>
   </StrictMode>
 );

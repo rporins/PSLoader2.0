@@ -14,6 +14,9 @@ import IconButton from "@mui/material/IconButton";
 import MenuIcon from "@mui/icons-material/Menu";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
+import CheckIcon from "@mui/icons-material/Check";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import ListItem from "@mui/material/ListItem";
 import ListItemButton from "@mui/material/ListItemButton";
 import ListItemIcon from "@mui/material/ListItemIcon";
@@ -43,6 +46,8 @@ import Chip from "@mui/material/Chip";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import FileUploadIcon from "@mui/icons-material/FileUpload";
 import ThemeToggle from "./customComponents/themeToggle";
+import { useSettingsStore } from "../store/settings";
+import authService, { Hotel } from "../services/auth";
 
 // IPC API types
 interface IpcApi {
@@ -279,11 +284,18 @@ export default function SignedInLanding() {
   const theme = useTheme();
   const [open, setOpen] = React.useState(false);
   const [user, setUser] = useState<any>(null);
-  const [notificationCount, setNotificationCount] = useState(3); // Example notification count
+  const [notificationCount] = useState(3); // Example notification count
+  const [hotels, setHotels] = useState<Hotel[]>([]);
+  const [currentHotelName, setCurrentHotelName] = useState<string>('');
+  const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
+  const setSelectedHotelOu = useSettingsStore((s) => s.setSelectedHotelOu);
   const navigate = useNavigate();
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const accountMenuOpen = Boolean(anchorEl);
+
+  const [hotelAnchorEl, setHotelAnchorEl] = useState<null | HTMLElement>(null);
+  const hotelMenuOpen = Boolean(hotelAnchorEl);
 
   // Determine page title from route handle metadata
   const matches = useMatches();
@@ -312,6 +324,22 @@ const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
 
 const handleMenuClose = () => {
   setAnchorEl(null);
+};
+
+// Hotel menu handlers
+const handleHotelMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+  setHotelAnchorEl(event.currentTarget);
+};
+
+const handleHotelMenuClose = () => {
+  setHotelAnchorEl(null);
+};
+
+const handleHotelSelect = async (hotel: Hotel) => {
+  await setSelectedHotelOu(hotel.ou);
+  // Settings are now saved automatically within setSelectedHotelOu
+  setCurrentHotelName(hotel.hotel_name);
+  handleHotelMenuClose();
 };
 
 // Menu item handlers
@@ -347,6 +375,8 @@ const handleSignOut = useCallback(async () => {
   useEffect(() => {
     const getCurrentUser = async () => {
       try {
+        // Settings are now loaded by AppInitializer before this component renders
+
         if (window.ipcApi) {
           const authState = await window.ipcApi.sendIpcRequest("auth-check");
           console.log("Auth state from IPC:", authState);
@@ -363,9 +393,74 @@ const handleSignOut = useCallback(async () => {
     getCurrentUser();
   }, []);
 
+  // Load hotels and find current hotel name
+  useEffect(() => {
+    const loadHotels = async () => {
+      try {
+        // First, try to get hotels from cache
+        if (window.ipcApi) {
+          const cachedHotelsResponse = await window.ipcApi.sendIpcRequest("db:get-cached-hotels");
+          let hotelList: Hotel[] = [];
+
+          if (cachedHotelsResponse?.data) {
+            const cachedHotels = JSON.parse(cachedHotelsResponse.data);
+
+            if (cachedHotels && cachedHotels.length > 0) {
+              // Use cached data
+              hotelList = cachedHotels;
+              console.log("Using cached hotels data");
+            } else {
+              // Cache is empty, fetch from API
+              console.log("Cache empty, fetching hotels from API");
+              hotelList = await authService.getHotels();
+
+              // Cache the fetched data
+              await window.ipcApi.sendIpcRequest("db:cache-hotels", hotelList);
+            }
+          } else {
+            // No IPC or cache failed, fetch from API
+            hotelList = await authService.getHotels();
+          }
+
+          setHotels(hotelList);
+
+          // Find the current hotel name based on selected OU
+          if (selectedHotelOu) {
+            const currentHotel = hotelList.find(h => h.ou === selectedHotelOu);
+            if (currentHotel) {
+              setCurrentHotelName(currentHotel.hotel_name);
+            }
+          }
+        } else {
+          // Fallback to direct API call if IPC is not available
+          const hotelList = await authService.getHotels();
+          setHotels(hotelList);
+
+          if (selectedHotelOu) {
+            const currentHotel = hotelList.find(h => h.ou === selectedHotelOu);
+            if (currentHotel) {
+              setCurrentHotelName(currentHotel.hotel_name);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load hotels:", error);
+        // On error, try to fall back to API
+        try {
+          const hotelList = await authService.getHotels();
+          setHotels(hotelList);
+        } catch (apiError) {
+          console.error("Failed to load hotels from API:", apiError);
+        }
+      }
+    };
+
+    loadHotels();
+  }, [selectedHotelOu]);
+
   const displayName = user ? getDisplayName(user) : 'User';
   const userEmail = user ? getUserEmail(user) : '';
-  const userInitials = displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  const userInitials = userEmail ? userEmail.substring(0, 2).toUpperCase() : 'U';
 
   return (
     <Box sx={{ display: "flex" }}>
@@ -392,6 +487,36 @@ const handleSignOut = useCallback(async () => {
           
           {/* Modern User menu section */}
           <Stack direction="row" spacing={1} alignItems="center">
+            {/* Hotel selector button */}
+            {currentHotelName && (
+              <Tooltip title="Switch hotel">
+                <Chip
+                  icon={<ApartmentIcon />}
+                  label={currentHotelName}
+                  size="small"
+                  variant="outlined"
+                  clickable
+                  onClick={handleHotelMenuOpen}
+                  deleteIcon={<ArrowDropDownIcon />}
+                  onDelete={handleHotelMenuOpen}
+                  sx={{
+                    mr: 1,
+                    borderColor: theme.palette.divider,
+                    color: theme.palette.text.secondary,
+                    '&:hover': {
+                      backgroundColor: alpha(theme.palette.primary.main, 0.08),
+                      borderColor: theme.palette.primary.main,
+                    },
+                    '& .MuiChip-deleteIcon': {
+                      color: theme.palette.text.secondary,
+                      '&:hover': {
+                        color: theme.palette.primary.main,
+                      },
+                    },
+                  }}
+                />
+              </Tooltip>
+            )}
             {/* Theme toggle (global) */}
             <ThemeToggle />
             {/* Notifications */}
@@ -499,19 +624,19 @@ const handleSignOut = useCallback(async () => {
       </Avatar>
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
-          {displayName}
+          {userEmail || displayName}
         </Typography>
-        <Typography 
-          variant="body2" 
-          sx={{ 
-            color: 'text.secondary', 
+        <Typography
+          variant="body2"
+          sx={{
+            color: 'text.secondary',
             fontSize: '0.875rem',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap'
           }}
         >
-          {userEmail}
+          User Account
         </Typography>
         <Chip 
           label="Pro Plan" 
@@ -563,6 +688,108 @@ const handleSignOut = useCallback(async () => {
         <ListItemText>Sign Out</ListItemText>
               </StyledMenuItem>
             </Box>
+            </StyledMenu>
+
+            {/* Hotel Selection Menu */}
+            <StyledMenu
+              id="hotel-menu"
+              anchorEl={hotelAnchorEl}
+              open={hotelMenuOpen}
+              onClose={handleHotelMenuClose}
+              anchorOrigin={{
+                vertical: 'bottom',
+                horizontal: 'right',
+              }}
+              transformOrigin={{
+                vertical: 'top',
+                horizontal: 'right',
+              }}
+              slotProps={{
+                paper: {
+                  sx: {
+                    // Force position to right side of screen (same as user menu)
+                    position: 'fixed !important',
+                    right: '16px !important',
+                    left: 'auto !important',
+                    top: '56px !important', // Adjust based on your AppBar height
+                    maxWidth: 320,
+                    minWidth: 280,
+                    maxHeight: 400,
+                    overflow: 'auto',
+                    filter: 'drop-shadow(0px 2px 8px rgba(0,0,0,0.15))',
+                    '&:before': {
+                      content: '""',
+                      display: 'block',
+                      position: 'absolute',
+                      top: 0,
+                      right: 100, // Adjust to align with hotel chip (different from user menu)
+                      width: 10,
+                      height: 10,
+                      bgcolor: 'background.paper',
+                      transform: 'translateY(-50%) rotate(45deg)',
+                      zIndex: 0,
+                    },
+                  },
+                },
+              }}
+            >
+              {/* Hotel Menu Header */}
+              <Box sx={{ p: 2, pb: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.secondary' }}>
+                  Select Hotel
+                </Typography>
+                <Tooltip title="Refresh hotels">
+                  <IconButton
+                    size="small"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        // Refresh cache and reload hotels
+                        const refreshedHotels = await authService.refreshHotelsCache();
+                        setHotels(refreshedHotels);
+                        console.log('Hotels cache refreshed');
+                      } catch (error) {
+                        console.error('Failed to refresh hotels:', error);
+                      }
+                    }}
+                    sx={{
+                      color: 'text.secondary',
+                      '&:hover': {
+                        backgroundColor: alpha(theme.palette.primary.main, 0.08)
+                      }
+                    }}
+                  >
+                    <RefreshIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+              <Divider />
+
+              {/* Hotel List */}
+              <Box sx={{ p: 1 }}>
+                {hotels.map((hotel) => (
+                  <StyledMenuItem
+                    key={hotel.ou}
+                    onClick={() => handleHotelSelect(hotel)}
+                    selected={hotel.ou === selectedHotelOu}
+                  >
+                    <ListItemIcon>
+                      <ApartmentIcon fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={hotel.hotel_name}
+                      secondary={hotel.ou}
+                      secondaryTypographyProps={{
+                        fontSize: '0.75rem',
+                        color: 'text.secondary',
+                      }}
+                    />
+                    {hotel.ou === selectedHotelOu && (
+                      <CheckIcon fontSize="small" color="primary" sx={{ ml: 1 }} />
+                    )}
+                  </StyledMenuItem>
+                ))}
+              </Box>
             </StyledMenu>
           </Stack>
         </Toolbar>
