@@ -30,6 +30,9 @@ export interface ImportFile {
   error?: string;
   required: boolean;
   order: number;
+  requiredColumns?: string[];
+  optionalColumns?: string[];
+  validationRules?: string[];
 }
 
 export interface ImportSession {

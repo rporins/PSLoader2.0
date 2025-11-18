@@ -429,7 +429,19 @@ const handleSignOut = useCallback(async () => {
             const currentHotel = hotelList.find(h => h.ou === selectedHotelOu);
             if (currentHotel) {
               setCurrentHotelName(currentHotel.hotel_name);
+            } else if (hotelList.length > 0) {
+              // If saved hotel not found but we have hotels, select the first one
+              console.log('Saved hotel not found, selecting first available hotel');
+              const firstHotel = hotelList[0];
+              await setSelectedHotelOu(firstHotel.ou);
+              setCurrentHotelName(firstHotel.hotel_name);
             }
+          } else if (hotelList.length > 0) {
+            // No hotel selected yet, auto-select the first one
+            console.log('No hotel selected, auto-selecting first hotel');
+            const firstHotel = hotelList[0];
+            await setSelectedHotelOu(firstHotel.ou);
+            setCurrentHotelName(firstHotel.hotel_name);
           }
         } else {
           // Fallback to direct API call if IPC is not available
@@ -440,7 +452,19 @@ const handleSignOut = useCallback(async () => {
             const currentHotel = hotelList.find(h => h.ou === selectedHotelOu);
             if (currentHotel) {
               setCurrentHotelName(currentHotel.hotel_name);
+            } else if (hotelList.length > 0) {
+              // If saved hotel not found but we have hotels, select the first one
+              console.log('Saved hotel not found (fallback), selecting first available hotel');
+              const firstHotel = hotelList[0];
+              await setSelectedHotelOu(firstHotel.ou);
+              setCurrentHotelName(firstHotel.hotel_name);
             }
+          } else if (hotelList.length > 0) {
+            // No hotel selected yet, auto-select the first one
+            console.log('No hotel selected (fallback), auto-selecting first hotel');
+            const firstHotel = hotelList[0];
+            await setSelectedHotelOu(firstHotel.ou);
+            setCurrentHotelName(firstHotel.hotel_name);
           }
         }
       } catch (error) {

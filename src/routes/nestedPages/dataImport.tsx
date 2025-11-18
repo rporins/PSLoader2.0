@@ -1,18 +1,12 @@
 /**
- * Dynamic Data Import Page
- * =========================
+ * Data Import Page
+ * ================
  *
- * This component is fully JSON-driven. It fetches a page configuration
- * from the backend and generates the entire UI dynamically.
- *
- * Features:
- * - Header, stats, and actions are all defined in JSON
- * - Import cards are generated from backend import registry
- * - Sequential or parallel import modes
- * - Optional data compilation/blending step
+ * Manages the import of various data files using the import processor system.
+ * Uses the ImportCard component for file selection and processing.
  */
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   Box,
   Card,
@@ -20,13 +14,8 @@ import {
   Typography,
   Button,
   Stack,
-  Chip,
-  LinearProgress,
-  IconButton,
-  Collapse,
   Alert,
   Fade,
-  Grow,
   useMediaQuery,
   alpha,
   Divider,
@@ -40,39 +29,14 @@ import {
 import { styled, useTheme, keyframes } from '@mui/material/styles';
 import {
   CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
   Refresh as RefreshIcon,
   Info as InfoIcon,
-  ExpandMore as ExpandMoreIcon,
-  Close as CloseIcon,
-  InsertDriveFile as FileIcon,
-  Upload as UploadIcon,
-  Input as InputIcon,
   TaskAlt as TaskAltIcon,
 } from '@mui/icons-material';
-import { DataImportPageConfig, ImportCardConfig } from '../../types/pageConfig';
-import importGroupsService, { ImportGroup, Import } from '../../services/importGroups';
+import ImportCard from '../../components/dataImport/ImportCard';
+import { ImportFile, ImportStatus } from '../../types/dataImport';
+import importConfigService, { ImportGroup } from '../../services/importConfigService';
 import authService from '../../services/auth';
-
-// ────────────────────────────────────────────────────────────
-// TYPES
-// ────────────────────────────────────────────────────────────
-
-enum ImportStatus {
-  Pending = 'pending',
-  Validating = 'validating',
-  Processing = 'processing',
-  Complete = 'complete',
-  Failed = 'failed',
-}
-
-interface ImportFile extends ImportCardConfig {
-  file?: File;
-  fileName?: string;
-  rowCount?: number;
-  status: ImportStatus;
-  error?: string;
-}
 
 // ────────────────────────────────────────────────────────────
 // ANIMATIONS
@@ -81,23 +45,6 @@ interface ImportFile extends ImportCardConfig {
 const pulse = keyframes`
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
-`;
-
-const slideUp = keyframes`
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-`;
-
-const successPulse = keyframes`
-  0% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.05); opacity: 0.8; }
-  100% { transform: scale(1); opacity: 1; }
 `;
 
 // ────────────────────────────────────────────────────────────
@@ -128,452 +75,6 @@ const HeaderCard = styled(Card)(({ theme }) => ({
   marginBottom: theme.spacing(2),
 }));
 
-const ImportCard = styled(Card)(({ theme }) => ({
-  borderRadius: 14,
-  background: theme.palette.mode === 'dark'
-    ? alpha('#ffffff', 0.03)
-    : alpha('#ffffff', 0.7),
-  backdropFilter: 'blur(20px)',
-  border: `1px solid ${alpha(theme.palette.divider, 0.08)}`,
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  overflow: 'visible',
-  position: 'relative',
-
-  '&:hover': {
-    transform: 'translateY(-2px)',
-    boxShadow: theme.palette.mode === 'dark'
-      ? `0 12px 48px ${alpha('#8b5cf6', 0.15)}`
-      : `0 12px 48px ${alpha('#8b5cf6', 0.1)}`,
-    border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
-  },
-
-  animation: `${slideUp} 0.4s ease-out`,
-}));
-
-const DropZone = styled(Box, {
-  shouldForwardProp: (prop) => prop !== 'isDragActive' && prop !== 'hasFile',
-})<{ isDragActive?: boolean; hasFile?: boolean }>(({ theme, isDragActive, hasFile }) => ({
-  border: `2px dashed ${
-    isDragActive
-      ? theme.palette.primary.main
-      : hasFile
-      ? alpha(theme.palette.success.main, 0.4)
-      : alpha(theme.palette.divider, 0.3)
-  }`,
-  borderRadius: 12,
-  padding: theme.spacing(3),
-  textAlign: 'center',
-  cursor: hasFile ? 'default' : 'pointer',
-  transition: 'all 0.3s ease',
-  background: isDragActive
-    ? alpha(theme.palette.primary.main, 0.05)
-    : hasFile
-    ? alpha(theme.palette.success.main, 0.03)
-    : alpha(theme.palette.background.paper, 0.3),
-
-  '&:hover': !hasFile ? {
-    borderColor: theme.palette.primary.main,
-    background: alpha(theme.palette.primary.main, 0.03),
-  } : {},
-}));
-
-const FilePreview = styled(Box)(({ theme }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  gap: theme.spacing(2),
-  padding: theme.spacing(2),
-  borderRadius: 12,
-  background: alpha(theme.palette.background.paper, 0.4),
-  border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
-}));
-
-// ────────────────────────────────────────────────────────────
-// IMPORT CARD COMPONENT
-// ────────────────────────────────────────────────────────────
-
-interface ImportCardItemProps {
-  importFile: ImportFile;
-  onFileSelect: (importId: string, file: File) => void;
-  onRemoveFile: (importId: string) => void;
-  isProcessing: boolean;
-  index: number;
-  isLocked: boolean;
-  isNextInLine: boolean;
-}
-
-const ImportCardItem: React.FC<ImportCardItemProps> = ({
-  importFile,
-  onFileSelect,
-  onRemoveFile,
-  isProcessing,
-  index,
-  isLocked,
-  isNextInLine,
-}) => {
-  const theme = useTheme();
-  const [isDragActive, setIsDragActive] = useState(false);
-  const [showDetails, setShowDetails] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragActive(false);
-
-      const file = e.dataTransfer.files[0];
-      if (file) {
-        const ext = file.name.split('.').pop()?.toLowerCase();
-        if (ext && importFile.fileTypes.includes(ext)) {
-          onFileSelect(importFile.id, file);
-        }
-      }
-    },
-    [importFile.id, importFile.fileTypes, onFileSelect]
-  );
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragActive(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragActive(false);
-  }, []);
-
-  const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) {
-        const ext = file.name.split('.').pop()?.toLowerCase();
-        if (ext && importFile.fileTypes.includes(ext)) {
-          onFileSelect(importFile.id, file);
-        }
-      }
-    },
-    [importFile.id, importFile.fileTypes, onFileSelect]
-  );
-
-  const getStatusConfig = () => {
-    switch (importFile.status) {
-      case ImportStatus.Validating:
-        return {
-          icon: <RefreshIcon sx={{ fontSize: 20, animation: `${pulse} 1.5s ease-in-out infinite` }} />,
-          color: 'info' as const,
-          label: 'Validating',
-        };
-      case ImportStatus.Processing:
-        return {
-          icon: <RefreshIcon sx={{ fontSize: 20, animation: `${pulse} 1.5s ease-in-out infinite` }} />,
-          color: 'primary' as const,
-          label: 'Processing',
-        };
-      case ImportStatus.Complete:
-        return {
-          icon: <CheckCircleIcon sx={{ fontSize: 20 }} />,
-          color: 'success' as const,
-          label: 'Complete',
-        };
-      case ImportStatus.Failed:
-        return {
-          icon: <ErrorIcon sx={{ fontSize: 20 }} />,
-          color: 'error' as const,
-          label: 'Failed',
-        };
-      default:
-        return null;
-    }
-  };
-
-  const statusConfig = getStatusConfig();
-  const isDisabled = isProcessing || importFile.status === ImportStatus.Processing || isLocked;
-  const isFileChangeAllowed = !isLocked && importFile.status !== ImportStatus.Complete && importFile.status !== ImportStatus.Processing;
-
-  return (
-    <Grow in timeout={(index + 1) * 150}>
-      <ImportCard
-        sx={{
-          opacity: isLocked ? 0.6 : 1,
-          position: 'relative',
-          '&:hover': isLocked ? {
-            transform: 'none !important',
-            boxShadow: 'inherit !important',
-            border: 'inherit !important',
-          } : {},
-          '&::before': isLocked ? {
-            content: '""',
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: alpha(theme.palette.background.default, 0.6),
-            borderRadius: 'inherit',
-            zIndex: 10,
-            cursor: 'not-allowed',
-          } : {},
-        }}
-      >
-        <CardContent sx={{ p: 2 }}>
-          {/* Header */}
-          <Stack direction="row" alignItems="flex-start" justifyContent="space-between" mb={1.5}>
-            <Box flex={1}>
-              <Stack direction="row" alignItems="center" spacing={1} mb={0.5}>
-                {importFile.icon && (
-                  <Typography component="span" fontSize="1.5rem">
-                    {importFile.icon}
-                  </Typography>
-                )}
-                <Typography variant="h6" fontWeight={700} fontSize="1rem">
-                  {importFile.displayName}
-                </Typography>
-                {importFile.required && (
-                  <Chip
-                    label="Required"
-                    size="small"
-                    color="warning"
-                    variant="outlined"
-                    sx={{
-                      height: 20,
-                      fontSize: '0.7rem',
-                      fontWeight: 700,
-                      borderRadius: 1,
-                    }}
-                  />
-                )}
-                {isLocked && (
-                  <Chip
-                    label="Locked"
-                    size="small"
-                    color="default"
-                    variant="filled"
-                    sx={{
-                      height: 20,
-                      fontSize: '0.7rem',
-                      fontWeight: 700,
-                      borderRadius: 1,
-                      background: alpha(theme.palette.text.secondary, 0.2),
-                    }}
-                  />
-                )}
-                {isNextInLine && !isLocked && (
-                  <Chip
-                    label="Next"
-                    size="small"
-                    color="info"
-                    variant="outlined"
-                    sx={{
-                      height: 20,
-                      fontSize: '0.7rem',
-                      fontWeight: 700,
-                      borderRadius: 1,
-                      animation: `${pulse} 2s ease-in-out infinite`,
-                    }}
-                  />
-                )}
-              </Stack>
-              <Typography variant="body2" color="text.secondary" fontSize="0.8rem">
-                {importFile.description}
-              </Typography>
-            </Box>
-            {statusConfig && (
-              <Chip
-                icon={statusConfig.icon}
-                label={statusConfig.label}
-                color={statusConfig.color}
-                size="small"
-                sx={{
-                  fontWeight: 600,
-                  fontSize: '0.75rem',
-                  animation: importFile.status === ImportStatus.Complete ? `${successPulse} 0.6s ease-out` : 'none'
-                }}
-              />
-            )}
-          </Stack>
-
-          {/* File Upload Zone or File Preview */}
-          {!importFile.file ? (
-            <DropZone
-              isDragActive={isDragActive && !isLocked}
-              hasFile={false}
-              onDrop={isLocked ? undefined : handleDrop}
-              onDragOver={isLocked ? undefined : handleDragOver}
-              onDragLeave={isLocked ? undefined : handleDragLeave}
-              onClick={isLocked ? undefined : () => !isDisabled && fileInputRef.current?.click()}
-              sx={{
-                cursor: isLocked ? 'not-allowed !important' : undefined,
-                pointerEvents: isLocked ? 'none' : 'auto',
-              }}
-            >
-              <InputIcon
-                sx={{
-                  fontSize: 36,
-                  color: isDragActive ? 'primary.main' : 'text.secondary',
-                  mb: 1,
-                  opacity: isDragActive ? 1 : 0.6,
-                  transition: 'all 0.3s ease',
-                }}
-              />
-              <Typography variant="body2" fontWeight={600} mb={0.5} fontSize="0.9rem">
-                {isDragActive ? 'Drop file here' : 'Drop file or click to browse'}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" fontSize="0.75rem">
-                Accepts: {importFile.fileTypes.map((ft) => `.${ft.toUpperCase()}`).join(', ')}
-              </Typography>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept={importFile.fileTypes.map((ft) => `.${ft}`).join(',')}
-                onChange={handleFileChange}
-                style={{ display: 'none' }}
-                disabled={isDisabled}
-              />
-            </DropZone>
-          ) : (
-            <FilePreview>
-              <FileIcon sx={{ fontSize: 40, color: 'primary.main', opacity: 0.8 }} />
-              <Box flex={1} minWidth={0}>
-                <Typography variant="body2" fontWeight={600} noWrap>
-                  {importFile.fileName}
-                </Typography>
-                {importFile.rowCount !== undefined && (
-                  <Typography variant="caption" color="text.secondary">
-                    {importFile.rowCount.toLocaleString()} rows detected
-                  </Typography>
-                )}
-              </Box>
-              {isFileChangeAllowed && (
-                <IconButton
-                  size="small"
-                  onClick={() => onRemoveFile(importFile.id)}
-                  sx={{
-                    background: alpha(theme.palette.error.main, 0.1),
-                    '&:hover': {
-                      background: alpha(theme.palette.error.main, 0.2),
-                    },
-                  }}
-                >
-                  <CloseIcon fontSize="small" />
-                </IconButton>
-              )}
-            </FilePreview>
-          )}
-
-          {/* Validation Progress */}
-          {importFile.status === ImportStatus.Validating && (
-            <Box mt={2}>
-              <Stack direction="row" alignItems="center" spacing={1} mb={1}>
-                <RefreshIcon sx={{ fontSize: 16, animation: `${pulse} 1.5s ease-in-out infinite` }} />
-                <Typography variant="caption" color="primary" fontWeight={600}>
-                  Validating file structure...
-                </Typography>
-              </Stack>
-              <LinearProgress
-                sx={{
-                  height: 4,
-                  borderRadius: 2,
-                  background: alpha(theme.palette.primary.main, 0.1),
-                }}
-              />
-            </Box>
-          )}
-
-          {/* Error Message */}
-          {importFile.error && (
-            <Alert
-              severity="error"
-              sx={{
-                mt: 2,
-                borderRadius: 2,
-                fontSize: '0.875rem',
-              }}
-            >
-              {importFile.error}
-            </Alert>
-          )}
-
-          {/* Expandable Details */}
-          {(importFile.requiredColumns || importFile.optionalColumns || importFile.validationRules) && (
-            <>
-              <Button
-                size="small"
-                onClick={() => setShowDetails(!showDetails)}
-                endIcon={
-                  <ExpandMoreIcon
-                    sx={{
-                      transform: showDetails ? 'rotate(180deg)' : 'rotate(0deg)',
-                      transition: 'transform 0.3s',
-                    }}
-                  />
-                }
-                sx={{
-                  mt: 1.5,
-                  textTransform: 'none',
-                  fontSize: '0.8rem',
-                  color: 'text.secondary',
-                }}
-              >
-                {showDetails ? 'Hide' : 'Show'} Requirements
-              </Button>
-              <Collapse in={showDetails}>
-                <Box
-                  mt={1}
-                  p={2}
-                  sx={{
-                    background: alpha(theme.palette.background.paper, 0.3),
-                    borderRadius: 2,
-                    border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
-                  }}
-                >
-                  {importFile.requiredColumns && (
-                    <>
-                      <Typography variant="caption" fontWeight={600} component="div" mb={1}>
-                        Required Columns:
-                      </Typography>
-                      <Stack direction="row" flexWrap="wrap" gap={0.5} mb={1}>
-                        {importFile.requiredColumns.map((col) => (
-                          <Chip key={col} label={col} size="small" color="primary" variant="outlined" sx={{ height: 22 }} />
-                        ))}
-                      </Stack>
-                    </>
-                  )}
-                  {importFile.optionalColumns && (
-                    <>
-                      <Typography variant="caption" fontWeight={600} component="div" mb={1} mt={1}>
-                        Optional Columns:
-                      </Typography>
-                      <Stack direction="row" flexWrap="wrap" gap={0.5}>
-                        {importFile.optionalColumns.map((col) => (
-                          <Chip key={col} label={col} size="small" variant="outlined" sx={{ height: 22 }} />
-                        ))}
-                      </Stack>
-                    </>
-                  )}
-                  {importFile.validationRules && (
-                    <>
-                      <Typography variant="caption" fontWeight={600} component="div" mb={1} mt={2}>
-                        Validation Rules:
-                      </Typography>
-                      {importFile.validationRules.map((rule, i) => (
-                        <Typography key={i} variant="caption" color="text.secondary" component="div">
-                          • {rule}
-                        </Typography>
-                      ))}
-                    </>
-                  )}
-                </Box>
-              </Collapse>
-            </>
-          )}
-        </CardContent>
-      </ImportCard>
-    </Grow>
-  );
-};
-
 // ────────────────────────────────────────────────────────────
 // MAIN COMPONENT
 // ────────────────────────────────────────────────────────────
@@ -582,13 +83,11 @@ const DataImport: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
-  const [pageConfig, setPageConfig] = useState<DataImportPageConfig | null>(null);
+  // State
   const [loading, setLoading] = useState(true);
   const [importFiles, setImportFiles] = useState<ImportFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [sessionStatus, setSessionStatus] = useState<'idle' | 'importing' | 'compiling' | 'complete'>('idle');
-  const [compilationProgress, setCompilationProgress] = useState(0);
-  const [currentImportIndex, setCurrentImportIndex] = useState(-1);
+  const [sessionStatus, setSessionStatus] = useState<'idle' | 'importing' | 'complete'>('idle');
   const [importSessionStarted, setImportSessionStarted] = useState(false);
 
   // Import Groups state
@@ -596,6 +95,11 @@ const DataImport: React.FC = () => {
   const [selectedImportGroup, setSelectedImportGroup] = useState<string>('');
   const [loadingImportGroups, setLoadingImportGroups] = useState(false);
   const [selectedOU, setSelectedOU] = useState<string>('');
+
+  // Sequential processing state
+  const [currentProcessingId, setCurrentProcessingId] = useState<string | null>(null);
+  const [currentActiveIndex, setCurrentActiveIndex] = useState(0); // Track which import is currently active
+  const [completedImports, setCompletedImports] = useState<Set<string>>(new Set()); // Track completed imports
 
   // Fetch import groups when OU is selected
   useEffect(() => {
@@ -605,32 +109,32 @@ const DataImport: React.FC = () => {
       setLoadingImportGroups(true);
       try {
         // First try to get cached data
-        const cached = await importGroupsService.getCachedImportGroups(selectedOU);
+        const cached = await importConfigService.getCachedImportGroups(selectedOU);
         if (cached) {
           setImportGroups(cached);
           // Set the first group as default if none selected
           if (!selectedImportGroup && cached.length > 0) {
-            const uniqueGroups = importGroupsService.getUniqueGroupNames(cached);
+            const uniqueGroups = importConfigService.getUniqueGroupNames(cached);
             setSelectedImportGroup(uniqueGroups[0]);
           }
         }
 
         // Fetch fresh data from API
-        const groups = await importGroupsService.getImportGroups(selectedOU);
+        const groups = await importConfigService.getImportGroups(selectedOU);
         setImportGroups(groups);
 
         // Cache the data
-        await importGroupsService.cacheImportGroups(selectedOU, groups);
+        await importConfigService.cacheImportGroups(selectedOU, groups);
 
         // Set the first group as default if none selected
         if (!selectedImportGroup && groups.length > 0) {
-          const uniqueGroups = importGroupsService.getUniqueGroupNames(groups);
+          const uniqueGroups = importConfigService.getUniqueGroupNames(groups);
           setSelectedImportGroup(uniqueGroups[0]);
         }
       } catch (error) {
         console.error('Failed to fetch import groups:', error);
         // Use cached data if available
-        const cached = await importGroupsService.getCachedImportGroups(selectedOU);
+        const cached = await importConfigService.getCachedImportGroups(selectedOU);
         if (cached) {
           setImportGroups(cached);
         }
@@ -645,15 +149,15 @@ const DataImport: React.FC = () => {
   // Update import files when import group is selected
   useEffect(() => {
     if (selectedImportGroup && importGroups.length > 0) {
-      const imports = importGroupsService.getImportsByGroup(importGroups, selectedImportGroup);
+      const imports = importConfigService.getImportsByGroup(importGroups, selectedImportGroup);
 
       // Convert imports to ImportFile format
-      const files: ImportFile[] = imports.map((imp) => ({
-        id: imp.name,
+      // Use a combination of import name and index to ensure unique IDs
+      const files: ImportFile[] = imports.map((imp, index) => ({
+        id: `${imp.name}_${index}_${Date.now()}`, // Ensure unique ID even for duplicate names
+        name: imp.name, // Keep the original import name for IPC calls
         displayName: imp.displayName,
         description: imp.description,
-        icon: '',
-        category: '',
         fileTypes: imp.fileTypes,
         required: imp.required,
         order: imp.order,
@@ -667,9 +171,9 @@ const DataImport: React.FC = () => {
     }
   }, [selectedImportGroup, importGroups]);
 
-  // Fetch page config on mount
+  // Fetch initial data on mount
   useEffect(() => {
-    const fetchPageConfig = async () => {
+    const fetchInitialData = async () => {
       try {
         setLoading(true);
 
@@ -683,175 +187,90 @@ const DataImport: React.FC = () => {
         } catch (error) {
           console.error('Failed to fetch hotels:', error);
         }
-
-        // Check if running in Electron
-        // @ts-ignore - window.electron is defined in preload
-        if (window.electron?.invoke) {
-          // @ts-ignore
-          const config: DataImportPageConfig = await window.electron.invoke('dataImport:getPageConfig');
-          setPageConfig(config);
-
-          // Don't set import files here, let the import groups handle it
-        } else {
-          // Fallback: Load demo config for development
-          const demoConfig: DataImportPageConfig = {
-            header: {
-              title: 'Import Data',
-              subtitle: 'Upload and process your hotel data files',
-              icon: '',
-              gradient: {
-                from: '#667eea',
-                to: '#764ba2',
-              },
-            },
-            importCards: [
-              {
-                id: 'guest_roster',
-                displayName: 'Guest Roster',
-                description: 'Primary guest information and booking details',
-                icon: '',
-                category: 'Customer Management',
-                fileTypes: ['xlsx', 'xls', 'csv'],
-                required: true,
-                order: 1,
-                requiredColumns: ['guest_name', 'check_in', 'check_out', 'room_number'],
-                optionalColumns: ['email', 'phone', 'special_requests'],
-                validationRules: ['Check-in date must be before check-out date', 'Room number must be valid'],
-              },
-              {
-                id: 'room_inventory',
-                displayName: 'Room Inventory',
-                description: 'Available rooms and their configurations',
-                icon: '',
-                category: 'Operations',
-                fileTypes: ['xlsx', 'xls', 'csv'],
-                required: true,
-                order: 2,
-                requiredColumns: ['room_number', 'room_type', 'capacity'],
-                optionalColumns: ['amenities', 'floor', 'view'],
-              },
-              {
-                id: 'rate_plans',
-                displayName: 'Rate Plans',
-                description: 'Pricing structures and seasonal rates',
-                icon: '',
-                category: 'Financial',
-                fileTypes: ['xlsx', 'xls', 'csv'],
-                required: false,
-                order: 3,
-                requiredColumns: ['plan_name', 'rate', 'effective_date'],
-                optionalColumns: ['season', 'discount'],
-              },
-            ],
-            actions: [
-              {
-                id: 'restart',
-                label: 'Restart Import',
-                icon: 'refresh',
-                variant: 'secondary',
-                action: 'restart',
-                disabled: {
-                  condition: 'processing',
-                },
-              },
-              {
-                id: 'start',
-                label: 'Complete Import',
-                icon: 'check_circle',
-                variant: 'primary',
-                action: 'startImport',
-                disabled: {
-                  condition: 'requiredMissing',
-                },
-                gradient: {
-                  from: '#667eea',
-                  to: '#764ba2',
-                },
-              },
-            ],
-            infoSection: {
-              severity: 'info',
-              title: 'Sequential Import Process',
-              items: [
-                'Files are validated automatically upon selection',
-                'Required files must be uploaded before starting import',
-                'Imports must be completed sequentially - each import is locked until the previous one completes',
-                'Each import includes pre-processing, import, and post-processing steps',
-                'Data from all imports is blended together into a unified dataset',
-              ],
-            },
-            importMode: 'sequential',
-            enableCompilation: true,
-            compilationMessage: 'Blending data from all imports...',
-          };
-
-          setPageConfig(demoConfig);
-          // Don't set import files in demo mode, let import groups handle it
-        }
       } catch (error) {
-        console.error('Failed to load page config:', error);
+        console.error('Failed to load initial data:', error);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchPageConfig();
+    fetchInitialData();
   }, []);
 
+  // Handle file selection from ImportCard
   const handleFileSelect = useCallback((importId: string, file: File) => {
-    if (importSessionStarted) return;
+    console.log(`File selected for import ${importId}:`, file.name);
+    // The ImportCard component handles its own state
+    // We just track the overall session status here
+  }, []);
 
-    setImportFiles((prev) =>
-      prev.map((imp) =>
-        imp.id === importId
-          ? {
-              ...imp,
-              file,
-              fileName: file.name,
-              status: ImportStatus.Validating,
-            }
-          : imp
-      )
-    );
-
-    // Simulate validation
-    setTimeout(() => {
-      setImportFiles((prev) =>
-        prev.map((imp) =>
-          imp.id === importId
-            ? {
-                ...imp,
-                status: ImportStatus.Pending,
-                rowCount: Math.floor(Math.random() * 1000) + 100,
-              }
-            : imp
-        )
-      );
-    }, 1500);
-  }, [importSessionStarted]);
-
+  // Handle file removal from ImportCard
   const handleRemoveFile = useCallback((importId: string) => {
-    if (importSessionStarted) return;
+    console.log(`File removed for import ${importId}`);
+    // The ImportCard component handles its own state
+  }, []);
 
-    setImportFiles((prev) =>
-      prev.map((imp) =>
-        imp.id === importId
-          ? {
-              ...imp,
-              file: undefined,
-              fileName: undefined,
-              status: ImportStatus.Pending,
-              rowCount: undefined,
-              error: undefined,
-            }
-          : imp
+  // Handle status change from ImportCard
+  const handleStatusChange = useCallback((importId: string, status: ImportStatus, additionalData?: { fileName?: string; rowCount?: number }) => {
+    console.log(`Status changed for import ${importId}:`, status, additionalData);
+
+    setImportFiles(prev =>
+      prev.map(file =>
+        file.id === importId
+          ? { ...file, status, ...additionalData }
+          : file
       )
     );
-  }, [importSessionStarted]);
 
+    // Handle completion and unlock next import
+    if (status === ImportStatus.Complete) {
+      // Add to completed set
+      setCompletedImports(prev => new Set(prev).add(importId));
+
+      // Find and activate next import in sequence
+      const sortedImports = [...importFiles].sort((a, b) => a.order - b.order);
+      const currentIndex = sortedImports.findIndex(f => f.id === importId);
+      const nextImport = sortedImports[currentIndex + 1];
+
+      if (nextImport) {
+        // Move to next import
+        setCurrentProcessingId(nextImport.id);
+        setCurrentActiveIndex(currentIndex + 1);
+        setIsProcessing(false); // Allow the next import to be processed
+      } else {
+        // All imports complete
+        setCurrentProcessingId(null);
+        setSessionStatus('complete');
+        setImportSessionStarted(false);
+        setIsProcessing(false);
+        setCurrentActiveIndex(-1);
+      }
+
+      // Check if all required imports are complete
+      const allRequiredComplete = importFiles
+        .filter(f => f.required)
+        .every(f => f.id === importId || f.status === ImportStatus.Complete || completedImports.has(f.id));
+
+      if (allRequiredComplete && !nextImport) {
+        setSessionStatus('complete');
+        setImportSessionStarted(false);
+        setIsProcessing(false);
+      }
+    } else if (status === ImportStatus.Processing) {
+      // Set as processing
+      setIsProcessing(true);
+      setCurrentProcessingId(importId);
+    } else if (status === ImportStatus.Failed) {
+      // Stop processing on failure
+      setIsProcessing(false);
+      // Keep the current import active for retry
+    }
+  }, [importFiles, completedImports]);
+
+  // Handle restart
   const handleRestart = useCallback(() => {
-    setImportFiles((prev) =>
-      prev.map((imp) => ({
+    setImportFiles(prev =>
+      prev.map(imp => ({
         ...imp,
         file: undefined as File | undefined,
         fileName: undefined as string | undefined,
@@ -863,107 +282,37 @@ const DataImport: React.FC = () => {
     setImportSessionStarted(false);
     setSessionStatus('idle');
     setIsProcessing(false);
-    setCurrentImportIndex(-1);
-    setCompilationProgress(0);
+    setCurrentProcessingId(null);
+    setCurrentActiveIndex(0);
+    setCompletedImports(new Set());
   }, []);
 
-  const handleStartImport = async () => {
-    if (!pageConfig) return;
-
+  // Handle start import session
+  const handleStartImport = useCallback(() => {
     setImportSessionStarted(true);
     setSessionStatus('importing');
-    setIsProcessing(true);
+    setIsProcessing(false); // Don't block the first import
 
-    const filesToImport = importFiles.filter((f) => f.file).sort((a, b) => a.order - b.order);
-
-    for (let i = 0; i < filesToImport.length; i++) {
-      const importFile = filesToImport[i];
-      setCurrentImportIndex(i);
-
-      setImportFiles((prev) =>
-        prev.map((imp) =>
-          imp.id === importFile.id
-            ? { ...imp, status: ImportStatus.Processing, error: undefined }
-            : imp
-        )
-      );
-
-      try {
-        // Simulate processing
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-
-        setImportFiles((prev) =>
-          prev.map((imp) =>
-            imp.id === importFile.id ? { ...imp, status: ImportStatus.Complete } : imp
-          )
-        );
-      } catch (error) {
-        setImportFiles((prev) =>
-          prev.map((imp) =>
-            imp.id === importFile.id
-              ? { ...imp, status: ImportStatus.Failed, error: 'Import failed' }
-              : imp
-          )
-        );
-        setIsProcessing(false);
-        setSessionStatus('idle');
-        return;
-      }
+    // In sequential mode, set the first import as current
+    const sortedImports = [...importFiles].sort((a, b) => a.order - b.order);
+    if (sortedImports.length > 0) {
+      setCurrentProcessingId(sortedImports[0].id);
+      setCurrentActiveIndex(0);
     }
+  }, [importFiles]);
 
-    // Compilation phase if enabled
-    if (pageConfig.enableCompilation) {
-      setCurrentImportIndex(-1);
-      setSessionStatus('compiling');
-      setCompilationProgress(0);
-
-      const interval = setInterval(() => {
-        setCompilationProgress((prev) => {
-          if (prev >= 100) {
-            clearInterval(interval);
-            return 100;
-          }
-          return prev + 10;
-        });
-      }, 300);
-
-      setTimeout(() => {
-        clearInterval(interval);
-        setCompilationProgress(100);
-        setSessionStatus('complete');
-        setIsProcessing(false);
-      }, 3500);
-    } else {
-      setSessionStatus('complete');
-      setIsProcessing(false);
-    }
-  };
-
-  const canStartImport =
-    importFiles.filter((f) => f.required).every((f) => f.file) &&
-    !importSessionStarted;
-
+  // Stats calculation
   const stats = {
     completed: importFiles.filter((f) => f.status === ImportStatus.Complete).length,
     total: importFiles.length,
-    uploaded: importFiles.filter((f) => f.file).length,
+    uploaded: importFiles.filter((f) => f.fileName).length,
   };
 
-  const getStatusMessage = () => {
-    if (sessionStatus === 'importing' && currentImportIndex >= 0) {
-      const currentFile = importFiles.filter((f) => f.file).sort((a, b) => a.order - b.order)[currentImportIndex];
-      return `Processing: ${currentFile?.displayName || ''} (${currentImportIndex + 1}/${stats.uploaded})`;
-    }
-    if (sessionStatus === 'compiling') {
-      return `${pageConfig?.compilationMessage || 'Compiling data...'} ${compilationProgress}%`;
-    }
-    if (sessionStatus === 'complete') {
-      return 'Import complete! All data has been successfully processed.';
-    }
-    return '';
-  };
+  const canStartImport =
+    importFiles.filter((f) => f.required).every((f) => f.fileName) &&
+    !importSessionStarted;
 
-  if (loading || !pageConfig) {
+  if (loading) {
     return (
       <PageContainer>
         <Box display="flex" justifyContent="center" alignItems="center" minHeight="50vh">
@@ -980,43 +329,21 @@ const DataImport: React.FC = () => {
         <CardContent sx={{ p: 2.5 }}>
           <Stack direction={isMobile ? 'column' : 'row'} alignItems="flex-start" justifyContent="space-between" spacing={2}>
             <Box>
-              <Stack direction="row" alignItems="center" spacing={1.5}>
-                {pageConfig.header.icon && (
-                  <Box
-                    sx={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 2,
-                      background: `linear-gradient(135deg, ${pageConfig.header.gradient.from}, ${pageConfig.header.gradient.to})`,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      boxShadow: `0 6px 18px ${alpha(pageConfig.header.gradient.from, 0.3)}`,
-                    }}
-                  >
-                    <Typography fontSize="1.25rem">{pageConfig.header.icon}</Typography>
-                  </Box>
-                )}
-                <Box>
-                  <Typography
-                    variant="h5"
-                    fontWeight={800}
-                    sx={{
-                      background: `linear-gradient(135deg, ${pageConfig.header.gradient.from}, ${pageConfig.header.gradient.to})`,
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      fontSize: { xs: '1.25rem', sm: '1.5rem' },
-                    }}
-                  >
-                    {pageConfig.header.title}
-                  </Typography>
-                  {pageConfig.header.subtitle && (
-                    <Typography variant="body2" color="text.secondary" fontWeight={500} fontSize="0.8rem">
-                      {pageConfig.header.subtitle}
-                    </Typography>
-                  )}
-                </Box>
-              </Stack>
+              <Typography
+                variant="h5"
+                fontWeight={800}
+                sx={{
+                  background: `linear-gradient(135deg, #667eea, #764ba2)`,
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  fontSize: { xs: '1.25rem', sm: '1.5rem' },
+                }}
+              >
+                Import Data
+              </Typography>
+              <Typography variant="body2" color="text.secondary" fontWeight={500} fontSize="0.8rem">
+                Upload and process your data files
+              </Typography>
             </Box>
 
             {/* Stats */}
@@ -1043,7 +370,7 @@ const DataImport: React.FC = () => {
         </CardContent>
       </HeaderCard>
 
-      {/* Import Groups Dropdown */}
+      {/* Import Groups Selector */}
       <Card
         sx={{
           mb: 2,
@@ -1064,12 +391,11 @@ const DataImport: React.FC = () => {
                 label="Import Group"
                 onChange={(event: SelectChangeEvent) => {
                   setSelectedImportGroup(event.target.value);
-                  // Reset import session when changing groups
                   handleRestart();
                 }}
                 disabled={loadingImportGroups || importSessionStarted}
               >
-                {importGroupsService.getUniqueGroupNames(importGroups).map((groupName) => (
+                {importConfigService.getUniqueGroupNames(importGroups).map((groupName) => (
                   <MenuItem key={groupName} value={groupName}>
                     {groupName}
                   </MenuItem>
@@ -1116,60 +442,131 @@ const DataImport: React.FC = () => {
               fontWeight: 600,
             }}
           >
-            {getStatusMessage()}
+            {sessionStatus === 'complete'
+              ? 'Import complete! All data has been successfully processed.'
+              : 'Processing imports...'}
           </Alert>
         </Fade>
       )}
 
-      {sessionStatus === 'compiling' && (
-        <Box mb={3}>
-          <LinearProgress
-            variant="determinate"
-            value={compilationProgress}
-            sx={{
-              height: 8,
-              borderRadius: 4,
-              background: alpha(theme.palette.primary.main, 0.1),
-            }}
-          />
-        </Box>
-      )}
-
       {/* Import Cards */}
       {selectedImportGroup && importFiles.length > 0 ? (
-        <Stack spacing={1.5} mb={3}>
-          {importFiles.map((importFile, index) => {
-          let isLocked = false;
-          let isNextInLine = false;
+        <Stack spacing={2} mb={3} sx={{ pl: 7, position: 'relative' }}>
+          {importFiles
+            .sort((a, b) => a.order - b.order)
+            .map((importFile, idx) => {
+              // Determine if this card should be locked and next in line
+              let isLocked = false;
+              let isNextInLine = false;
 
-          if (pageConfig.importMode === 'sequential') {
-            const sortedImports = [...importFiles].sort((a, b) => a.order - b.order);
-            const activeImport = sortedImports.find((f) => f.status !== ImportStatus.Complete);
+              if (importSessionStarted) {
+                // Sequential mode: lock all cards except the current active one
+                if (importFile.status === ImportStatus.Complete) {
+                  // Completed imports stay locked
+                  isLocked = true;
+                } else if (currentProcessingId === importFile.id) {
+                  // Current active import is unlocked and marked as next
+                  isLocked = false;
+                  isNextInLine = true;
+                } else {
+                  // All other imports are locked
+                  isLocked = true;
+                }
+              } else {
+                // Before starting import session, enforce sequential order
+                // Only the first incomplete import should be unlocked
+                const sortedImports = [...importFiles].sort((a, b) => a.order - b.order);
 
-            if (importFile.status === ImportStatus.Complete) {
-              isLocked = true;
-            } else if (activeImport && importFile.id === activeImport.id) {
-              isLocked = false;
-              isNextInLine = true;
-            } else {
-              isLocked = true;
-            }
-          }
+                // Find the first import that isn't complete
+                const firstIncompleteIndex = sortedImports.findIndex(f => f.status !== ImportStatus.Complete);
 
-          return (
-            <ImportCardItem
-              key={importFile.id}
-              importFile={importFile}
-              onFileSelect={handleFileSelect}
-              onRemoveFile={handleRemoveFile}
-              isProcessing={isProcessing}
-              index={index}
-              isLocked={isLocked}
-              isNextInLine={isNextInLine}
-            />
-          );
-        })}
-      </Stack>
+                if (firstIncompleteIndex !== -1) {
+                  // Lock all imports except the first incomplete one
+                  isLocked = sortedImports[firstIncompleteIndex].id !== importFile.id;
+                  isNextInLine = sortedImports[firstIncompleteIndex].id === importFile.id;
+                } else {
+                  // All imports are complete, lock everything
+                  isLocked = true;
+                }
+              }
+
+              return (
+                <Box
+                  key={importFile.id}
+                  sx={{ position: 'relative', mb: idx < importFiles.length - 1 ? 2 : 0 }}
+                >
+                  {/* Step indicator */}
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      left: -50,
+                      top: 16, // Fixed offset from top of card
+                      width: 32,
+                      height: 32,
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: importFile.status === ImportStatus.Complete
+                        ? theme.palette.success.main
+                        : isNextInLine
+                        ? theme.palette.primary.main
+                        : alpha(theme.palette.action.disabled, 0.12),
+                      color: importFile.status === ImportStatus.Complete || isNextInLine
+                        ? 'white'
+                        : theme.palette.text.disabled,
+                      fontWeight: 700,
+                      fontSize: '0.875rem',
+                      border: `2px solid ${
+                        importFile.status === ImportStatus.Complete
+                          ? theme.palette.success.dark
+                          : isNextInLine
+                          ? theme.palette.primary.dark
+                          : 'transparent'
+                      }`,
+                      boxShadow: isNextInLine
+                        ? `0 0 0 4px ${alpha(theme.palette.primary.main, 0.2)}`
+                        : 'none',
+                    }}
+                  >
+                    {importFile.status === ImportStatus.Complete ? (
+                      <CheckCircleIcon sx={{ fontSize: 18 }} />
+                    ) : (
+                      idx + 1
+                    )}
+                  </Box>
+
+                  {/* Connecting line */}
+                  {idx < importFiles.length - 1 && (
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        left: -35,
+                        top: 48, // Start even further down from the circle
+                        height: 'calc(100% - 24px)', // Reduced height to compensate for the lower starting point
+                        width: 2,
+                        background: idx < completedImports.size
+                          ? theme.palette.success.main
+                          : alpha(theme.palette.divider, 0.3),
+                        zIndex: -1,
+                      }}
+                    />
+                  )}
+
+                  <ImportCard
+                    importFile={importFile}
+                    importProcessorName={importFile.name} // Use the original import name for IPC
+                    onFileSelect={handleFileSelect}
+                    onRemoveFile={handleRemoveFile}
+                    onStatusChange={handleStatusChange}
+                    isProcessing={isProcessing && currentProcessingId === importFile.id}
+                    isLocked={isLocked}
+                    isNextInLine={isNextInLine}
+                  />
+                </Box>
+              );
+            })}
+        </Stack>
       ) : (
         <Card
           sx={{
@@ -1202,101 +599,47 @@ const DataImport: React.FC = () => {
           border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
         }}
       >
-        {pageConfig.actions.map((action) => {
-          let disabled = false;
-          if (action.disabled) {
-            switch (action.disabled.condition) {
-              case 'processing':
-                disabled = isProcessing;
-                break;
-              case 'requiredMissing':
-                disabled = !canStartImport;
-                break;
-              case 'sessionStarted':
-                disabled = !importSessionStarted;
-                break;
-            }
-          }
-
-          const handleClick = () => {
-            switch (action.action) {
-              case 'startImport':
-                handleStartImport();
-                break;
-              case 'restart':
-                handleRestart();
-                break;
-            }
-          };
-
-          const baseStyles = {
+        <Button
+          variant="outlined"
+          startIcon={<RefreshIcon />}
+          onClick={handleRestart}
+          disabled={isProcessing}
+          fullWidth={isMobile}
+          sx={{
             borderRadius: 2,
-            textTransform: 'none' as const,
+            textTransform: 'none',
             fontWeight: 600,
             fontSize: '0.9rem',
-          };
+          }}
+        >
+          Restart Import
+        </Button>
 
-          // Get icon component based on icon name
-          const getIconComponent = (iconName?: string) => {
-            if (!iconName) return undefined;
-            switch (iconName) {
-              case 'refresh':
-                return <RefreshIcon />;
-              case 'upload':
-                return <UploadIcon />;
-              case 'check_circle':
-                return <TaskAltIcon />;
-              default:
-                return undefined;
-            }
-          };
-
-          if (action.variant === 'primary') {
-            return (
-              <Button
-                key={action.id}
-                variant="contained"
-                startIcon={getIconComponent(action.icon)}
-                onClick={handleClick}
-                disabled={disabled || isProcessing}
-                fullWidth={isMobile}
-                sx={{
-                  ...baseStyles,
-                  background: action.gradient
-                    ? `linear-gradient(135deg, ${action.gradient.from}, ${action.gradient.to})`
-                    : undefined,
-                  '&:hover': action.gradient
-                    ? {
-                        background: `linear-gradient(135deg, ${action.gradient.to}, ${action.gradient.from})`,
-                      }
-                    : undefined,
-                }}
-              >
-                {importSessionStarted && action.action === 'startImport' ? 'Import in Progress...' : action.label}
-              </Button>
-            );
-          } else {
-            return (
-              <Button
-                key={action.id}
-                variant="outlined"
-                startIcon={getIconComponent(action.icon)}
-                onClick={handleClick}
-                disabled={disabled}
-                fullWidth={isMobile}
-                sx={baseStyles}
-              >
-                {action.label}
-              </Button>
-            );
-          }
-        })}
+        <Button
+          variant="contained"
+          startIcon={importSessionStarted ? <RefreshIcon /> : <TaskAltIcon />}
+          onClick={handleStartImport}
+          disabled={!canStartImport || isProcessing}
+          fullWidth={isMobile}
+          sx={{
+            borderRadius: 2,
+            textTransform: 'none',
+            fontWeight: 600,
+            fontSize: '0.9rem',
+            background: 'linear-gradient(135deg, #667eea, #764ba2)',
+            '&:hover': {
+              background: 'linear-gradient(135deg, #764ba2, #667eea)',
+            },
+          }}
+        >
+          {importSessionStarted ? 'Import in Progress...' : 'Start Import Session'}
+        </Button>
       </Stack>
 
       {/* Info Section */}
       <Box mt={3}>
         <Alert
-          severity={pageConfig.infoSection.severity}
+          severity="info"
           icon={<InfoIcon />}
           sx={{
             borderRadius: 3,
@@ -1305,15 +648,13 @@ const DataImport: React.FC = () => {
           }}
         >
           <Typography variant="body2" fontWeight={600} mb={1}>
-            {pageConfig.infoSection.title}
+            Import Process
           </Typography>
           <Typography variant="caption" component="div" color="text.secondary" sx={{ lineHeight: 1.6 }}>
-            {pageConfig.infoSection.items.map((item, idx) => (
-              <React.Fragment key={idx}>
-                • {item}
-                {idx < pageConfig.infoSection.items.length - 1 && <br />}
-              </React.Fragment>
-            ))}
+            • Files are processed using the import processor system<br />
+            • Test imports use quick row counting without validation<br />
+            • Required files must be uploaded before starting import<br />
+            • Each import includes validation and processing steps
           </Typography>
         </Alert>
       </Box>
