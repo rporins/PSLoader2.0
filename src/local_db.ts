@@ -13,7 +13,7 @@ const psLoaderFolderPath = path.join(documentsPath, "PSLoader");
 if (!fs.existsSync(psLoaderFolderPath)) {
   fs.mkdirSync(psLoaderFolderPath, { recursive: true });
 }
-const dbPath = path.join(psLoaderFolderPath, "planning-tool.db");
+const dbPath = path.join(psLoaderFolderPath, "psloader.db");
 // Enable secret key after testing
 // Create a new SQLite client
 const client = createClient({
@@ -129,6 +129,10 @@ interface FinancialData {
   amount: number;
   count: number;
   currency: string;
+  ou?: string;
+  department?: string;
+  account?: string;
+  version?: string;
   last_modified: string;
   item_version: number;
 }
@@ -139,6 +143,40 @@ interface DepartmentAccount {
   department_id: string;
   account_id: string;
   is_locked: number;
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- MIGRATE DATABASE FOR NEW COLUMNS ---------------------------------------------------------------------------
+async function migrateFinancialDataTable() {
+  try {
+    // Check if the new columns already exist
+    const tableInfo = await client.execute({
+      sql: "PRAGMA table_info(financial_data)",
+      args: []
+    });
+
+    const columnNames = tableInfo.rows.map(row => row.name as string);
+    const newColumns = ['ou', 'department', 'account', 'version'];
+    const columnsToAdd = newColumns.filter(col => !columnNames.includes(col));
+
+    if (columnsToAdd.length > 0) {
+      console.log("Migrating financial_data table to add new columns:", columnsToAdd.join(', '));
+
+      // Add new columns one by one
+      const alterQueries = columnsToAdd.map(col => ({
+        sql: `ALTER TABLE financial_data ADD COLUMN ${col} TEXT`,
+        args: [] as any[]
+      }));
+
+      await client.batch(alterQueries);
+      console.log("Successfully added new columns to financial_data table");
+    } else {
+      console.log("Financial_data table already has all required columns");
+    }
+  } catch (error) {
+    console.error("Error during financial_data migration:", error);
+    // If table doesn't exist, it will be created with the new schema
+  }
 }
 
 //------------------------------------------------------------------------------------------------------------------
@@ -267,6 +305,10 @@ export async function initializeDatabase() {
             amount REAL NOT NULL,
             count REAL,
             currency TEXT NOT NULL,
+            ou TEXT,
+            department TEXT,
+            account TEXT,
+            version TEXT,
             last_modified TEXT DEFAULT CURRENT_TIMESTAMP,
             item_version INTEGER DEFAULT 1,
             FOREIGN KEY(dep_acc_combo_id) REFERENCES department_accounts(dep_acc_combo_id),
@@ -276,6 +318,9 @@ export async function initializeDatabase() {
     ]);
 
     console.log("All necessary tables have been created or already exist.");
+
+    // Run migration to add new columns to existing databases
+    await migrateFinancialDataTable();
   } catch (error) {
     console.error("Error during database initialization:", error);
   }
@@ -410,10 +455,15 @@ export async function update12Periods(...args: unknown[]): Promise<string> {
 
   const upsertQuery = `
       INSERT INTO financial_data (
-        dep_acc_combo_id, month, year, period_combo, scenario, amount, count, currency, last_modified, item_version
-      ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'USD', CURRENT_TIMESTAMP, 1)
+        dep_acc_combo_id, month, year, period_combo, scenario, amount, count, currency,
+        ou, department, account, version, last_modified, item_version
+      ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'USD', ?, ?, ?, ?, CURRENT_TIMESTAMP, 1)
       ON CONFLICT (dep_acc_combo_id, period_combo, scenario) DO UPDATE SET
         amount = excluded.amount,
+        ou = excluded.ou,
+        department = excluded.department,
+        account = excluded.account,
+        version = excluded.version,
         last_modified = CURRENT_TIMESTAMP,
         item_version = financial_data.item_version + 1;
     `;
@@ -437,7 +487,18 @@ export async function update12Periods(...args: unknown[]): Promise<string> {
 
     batchQueries.push({
       sql: upsertQuery,
-      args: [dep_acc_combo_id, month, year, currentPeriod, scenario, amount],
+      args: [
+        dep_acc_combo_id,
+        month,
+        year,
+        currentPeriod,
+        scenario,
+        amount,
+        data.ou || null,
+        data.department || null,
+        data.account || null,
+        data.version || null
+      ],
     });
   }
 
@@ -633,9 +694,10 @@ export async function insertBatchFinancialData(batchData: FinancialData[]) {
       return {
         sql: `
             INSERT INTO financial_data (
-              dep_acc_combo_id, month, year, period_combo, scenario, amount, count, currency, last_modified, item_version
+              dep_acc_combo_id, month, year, period_combo, scenario, amount, count, currency,
+              ou, department, account, version, last_modified, item_version
             ) VALUES (
-              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
           `,
         args: [
@@ -647,6 +709,10 @@ export async function insertBatchFinancialData(batchData: FinancialData[]) {
           item.amount,
           item.count,
           item.currency,
+          item.ou || null,
+          item.department || null,
+          item.account || null,
+          item.version || null,
           item.last_modified || new Date().toISOString(),
           item.item_version || 1,
         ],

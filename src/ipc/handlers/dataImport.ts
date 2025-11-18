@@ -8,11 +8,12 @@
 
 import { IpcHandler } from "../types";
 import { ImportColumn } from "../../types/dataImport";
-import ImportRegistry, {
+import {
+  ImportRegistry,
   ImportProcessorMetadata,
   ValidationResult as ProcessorValidationResult,
   ImportResult
-} from "../../services/importProcessors";
+} from "../../services/imports";
 import { DataImportPageConfig, ImportCardConfig } from "../../types/pageConfig";
 
 export class DataImportHandlers {
