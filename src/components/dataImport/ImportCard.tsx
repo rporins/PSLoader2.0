@@ -201,11 +201,16 @@ interface ImportCardProps {
   importProcessorName?: string;
   onFileSelect?: (importId: string, file: File) => void;
   onRemoveFile?: (importId: string) => void;
-  onStatusChange?: (importId: string, status: ImportStatus, additionalData?: { fileName?: string; rowCount?: number }) => void;
+  onStatusChange?: (importId: string, status: ImportStatus, additionalData?: { fileName?: string; rowCount?: number; error?: string }) => void;
   isProcessing?: boolean;
   isLocked?: boolean;
   isNextInLine?: boolean;
   fileInputRef?: (ref: HTMLInputElement | null) => void;
+  importOptions?: {
+    ou?: string;
+    year?: number;
+    month?: number;
+  };
 }
 
 // ────────────────────────────────────────────────────────────
@@ -222,6 +227,7 @@ const ImportCard: React.FC<ImportCardProps> = ({
   isLocked = false,
   isNextInLine = false,
   fileInputRef,
+  importOptions,
 }) => {
   const theme = useTheme();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -310,7 +316,7 @@ const ImportCard: React.FC<ImportCardProps> = ({
     if (!importProcessorName || isLocked) return;
 
     try {
-      setImportFile((prev) => ({ ...prev, status: ImportStatus.Processing }));
+      setImportFile((prev) => ({ ...prev, status: ImportStatus.Processing, error: undefined }));
       onStatusChange?.(importFile.id, ImportStatus.Processing);
 
       // @ts-ignore - window.ipcApi is defined in preload
@@ -331,7 +337,14 @@ const ImportCard: React.FC<ImportCardProps> = ({
             // @ts-ignore
             result = await window.ipcApi.sendIpcRequest(
               'imports:execute',
-              importProcessorName
+              importProcessorName,
+              {
+                custom: {
+                  ou: importOptions?.ou,
+                  year: importOptions?.year,
+                  month: importOptions?.month
+                }
+              }
             );
           }
 
@@ -365,21 +378,26 @@ const ImportCard: React.FC<ImportCardProps> = ({
             }));
             onStatusChange?.(importFile.id, ImportStatus.Pending);
           } else {
+            // Extract error message from result
+            const errorMessage = result?.error || result?.message || 'Import failed';
+            console.error(`[ImportCard] Import failed:`, errorMessage);
+
             setImportFile((prev) => ({
               ...prev,
               status: ImportStatus.Failed,
-              error: result?.message || 'Import failed',
+              error: errorMessage,
             }));
-            onStatusChange?.(importFile.id, ImportStatus.Failed);
+            onStatusChange?.(importFile.id, ImportStatus.Failed, { error: errorMessage });
           }
         } catch (ipcError) {
           console.error('IPC error:', ipcError);
+          const errorMessage = ipcError instanceof Error ? ipcError.message : 'Failed to process file';
           setImportFile((prev) => ({
             ...prev,
             status: ImportStatus.Failed,
-            error: 'Failed to process file',
+            error: errorMessage,
           }));
-          onStatusChange?.(importFile.id, ImportStatus.Failed);
+          onStatusChange?.(importFile.id, ImportStatus.Failed, { error: errorMessage });
         }
       } else {
         console.warn('IPC not available - running in development mode without proper IPC setup');
@@ -419,7 +437,7 @@ const ImportCard: React.FC<ImportCardProps> = ({
       }));
       onStatusChange?.(importFile.id, ImportStatus.Failed);
     }
-  }, [importProcessorName, importFile.id, onStatusChange, isLocked]);
+  }, [importProcessorName, importFile.id, importFile.fileName, onStatusChange, isLocked, importOptions]);
 
   const handleDrop = async (event: React.DragEvent) => {
     event.preventDefault();
@@ -505,7 +523,7 @@ const ImportCard: React.FC<ImportCardProps> = ({
           <Box flex={1}>
             <Stack direction="row" alignItems="center" spacing={1} mb={0.5}>
               <Typography variant="h6" fontWeight={700} fontSize="1rem">
-                {importFile.displayName}
+                {importFile.description}
               </Typography>
               {importFile.required && (
                 <Chip
@@ -554,11 +572,9 @@ const ImportCard: React.FC<ImportCardProps> = ({
                 />
               )}
             </Stack>
-            {importFile.description && (
-              <Typography variant="body2" color="text.secondary" fontSize="0.8rem">
-                {importFile.description}
-              </Typography>
-            )}
+            <Typography variant="body2" color="text.secondary" fontSize="0.75rem" sx={{ textTransform: 'lowercase' }}>
+              {importFile.name}
+            </Typography>
           </Box>
           {statusConfig && (
             <Chip
@@ -601,7 +617,7 @@ const ImportCard: React.FC<ImportCardProps> = ({
               {isDragActive ? 'Drop file here' : 'Drop file or click to browse'}
             </Typography>
             <Typography variant="caption" color="text.secondary" fontSize="0.75rem">
-              Accepts: {importFile.fileTypes.map((ft) => `.${ft.toUpperCase()}`).join(', ')}
+              Accepts: {(importFile.fileTypes || []).map((ft) => `.${ft.toUpperCase()}`).join(', ') || 'All files'}
             </Typography>
             <input
               ref={(ref) => {
@@ -609,7 +625,7 @@ const ImportCard: React.FC<ImportCardProps> = ({
                 if (fileInputRef) fileInputRef(ref);
               }}
               type="file"
-              accept={importFile.fileTypes.map((ft) => `.${ft}`).join(',')}
+              accept={(importFile.fileTypes || []).map((ft) => `.${ft}`).join(',')}
               onChange={() => {}}
               style={{ display: 'none' }}
               disabled={isDisabled}

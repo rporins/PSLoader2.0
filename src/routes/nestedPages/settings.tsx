@@ -19,11 +19,16 @@ import {
   Stack,
   Tooltip,
   IconButton,
+  TextField,
+  Grid,
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import CachedIcon from "@mui/icons-material/Cached";
+import SyncIcon from "@mui/icons-material/Sync";
 import { useSettingsStore } from "../../store/settings";
 import authService, { Hotel } from "../../services/auth";
+import importConfigService from "../../services/importConfigService";
+import mappingConfigService from "../../services/mappingConfigService";
 
 // IPC API types
 interface IpcApi {
@@ -47,6 +52,8 @@ export default function Settings() {
   const [hotelsError, setHotelsError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [usingCache, setUsingCache] = useState(false);
+  const [syncingMappings, setSyncingMappings] = useState(false);
+  const [mappingSyncMessage, setMappingSyncMessage] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
   const loadHotels = async (forceRefresh = false) => {
     try {
@@ -112,6 +119,45 @@ export default function Settings() {
     const ou = event.target.value;
     await setSelectedHotelOu(ou);
     // Settings are now saved automatically within setSelectedHotelOu
+  };
+
+  const handleSyncMappingConfigs = async () => {
+    setSyncingMappings(true);
+    setMappingSyncMessage(null);
+
+    try {
+      // Get the selected hotel OU or use the first one
+      let ou = selectedHotelOu;
+
+      if (!ou && hotels.length > 0) {
+        ou = hotels[0].ou;
+      }
+
+      if (!ou) {
+        throw new Error('No hotel selected. Please select a hotel first.');
+      }
+
+      // Sync all mapping configs for this OU
+      await importConfigService.syncMappingConfigsForOU(ou);
+
+      // Get the count of synced configs
+      const configs = await mappingConfigService.getAllStoredMappingConfigs();
+
+      setMappingSyncMessage({
+        type: 'success',
+        message: `Successfully synced ${configs.length} mapping configuration(s) for ${ou}`
+      });
+    } catch (err: any) {
+      console.error('Failed to sync mapping configs:', err);
+      setMappingSyncMessage({
+        type: 'error',
+        message: err.message || 'Failed to sync mapping configurations'
+      });
+    } finally {
+      setSyncingMappings(false);
+      // Clear message after 5 seconds
+      setTimeout(() => setMappingSyncMessage(null), 5000);
+    }
   };
 
   return (
@@ -217,7 +263,16 @@ export default function Settings() {
               </MenuItem>
               {hotels.map((hotel) => (
                 <MenuItem key={hotel.ou} value={hotel.ou}>
-                  {hotel.hotel_name} ({hotel.ou}) - {hotel.room_count} rooms
+                  <Box>
+                    <Typography variant="body1">
+                      {hotel.hotel_name} ({hotel.ou})
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {hotel.room_count} rooms
+                      {hotel.city && hotel.country && ` • ${hotel.city}, ${hotel.country}`}
+                      {hotel.currency && ` • ${hotel.currency}`}
+                    </Typography>
+                  </Box>
                 </MenuItem>
               ))}
             </Select>
@@ -227,6 +282,124 @@ export default function Settings() {
               </Box>
             )}
           </FormControl>
+
+          {selectedHotelOu && hotels.find(h => h.ou === selectedHotelOu) && (
+            <>
+              <Divider sx={{ my: 3 }} />
+              <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
+                Hotel Details
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Currency"
+                    value={hotels.find(h => h.ou === selectedHotelOu)?.currency || ''}
+                    InputProps={{
+                      readOnly: true,
+                    }}
+                    variant="outlined"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Country"
+                    value={hotels.find(h => h.ou === selectedHotelOu)?.country || ''}
+                    InputProps={{
+                      readOnly: true,
+                    }}
+                    variant="outlined"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="City"
+                    value={hotels.find(h => h.ou === selectedHotelOu)?.city || ''}
+                    InputProps={{
+                      readOnly: true,
+                    }}
+                    variant="outlined"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Local ID 1"
+                    value={hotels.find(h => h.ou === selectedHotelOu)?.local_id_1 || ''}
+                    InputProps={{
+                      readOnly: true,
+                    }}
+                    variant="outlined"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Local ID 2"
+                    value={hotels.find(h => h.ou === selectedHotelOu)?.local_id_2 || ''}
+                    InputProps={{
+                      readOnly: true,
+                    }}
+                    variant="outlined"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Local ID 3"
+                    value={hotels.find(h => h.ou === selectedHotelOu)?.local_id_3 || ''}
+                    InputProps={{
+                      readOnly: true,
+                    }}
+                    variant="outlined"
+                  />
+                </Grid>
+              </Grid>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card variant="outlined" sx={{ mt: 2, borderRadius: 2, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+        <CardContent>
+          <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+            Data Synchronization
+          </Typography>
+          <Divider sx={{ mb: 3 }} />
+
+          {mappingSyncMessage && (
+            <Alert severity={mappingSyncMessage.type} sx={{ mb: 2 }}>
+              {mappingSyncMessage.message}
+            </Alert>
+          )}
+
+          <Box>
+            <Typography variant="body1" sx={{ mb: 1 }}>
+              Mapping Configurations
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Sync all mapping configurations from the server for the selected hotel. This includes all mapping rules used for data imports.
+            </Typography>
+            <Button
+              variant="outlined"
+              startIcon={syncingMappings ? <CircularProgress size={20} /> : <SyncIcon />}
+              onClick={handleSyncMappingConfigs}
+              disabled={syncingMappings || !selectedHotelOu}
+              sx={{
+                borderRadius: 1,
+                textTransform: 'none',
+              }}
+            >
+              {syncingMappings ? 'Syncing...' : 'Sync Mapping Configs'}
+            </Button>
+            {!selectedHotelOu && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                Please select a hotel first
+              </Typography>
+            )}
+          </Box>
         </CardContent>
       </Card>
     </Box>

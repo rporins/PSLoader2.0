@@ -45,6 +45,7 @@ import Stack from "@mui/material/Stack";
 import Chip from "@mui/material/Chip";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import FileUploadIcon from "@mui/icons-material/FileUpload";
+import TableRowsIcon from "@mui/icons-material/TableRows";
 import ThemeToggle from "./customComponents/themeToggle";
 import { useSettingsStore } from "../store/settings";
 import authService, { Hotel } from "../services/auth";
@@ -868,6 +869,15 @@ const handleSignOut = useCallback(async () => {
                 <FileUploadIcon />
               </ListItemIcon>
               <ListItemText primary="Data Import" sx={listItemTextStyle} />
+            </ListItemButton>
+          </ListItem>
+
+          <ListItem key="MappingReview" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/mapping-review")}>
+              <ListItemIcon sx={listItemIconStyle}>
+                <TableRowsIcon />
+              </ListItemIcon>
+              <ListItemText primary="Mapping Review" sx={listItemTextStyle} />
             </ListItemButton>
           </ListItem>
 

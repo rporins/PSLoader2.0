@@ -85,6 +85,7 @@ function createMainWindow(): void {
     width: 1100,
     height: 800,
     show: false, // show when ready-to-show for smoother UX
+    icon: path.join(__dirname, "../src/images/marriott_logo.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,

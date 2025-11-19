@@ -56,6 +56,12 @@ export interface Hotel {
   ou: string;
   hotel_name: string;
   room_count: number;
+  currency?: string;
+  country?: string;
+  city?: string;
+  local_id_1?: string;
+  local_id_2?: string;
+  local_id_3?: string;
 }
 
 export interface DeviceRegisterResponse {
@@ -75,15 +81,17 @@ class AuthService {
   }
 
   private async initializeDevice() {
-    // Load or generate device credentials
-    const stored = localStorage.getItem('deviceCredentials');
-    if (stored) {
-      const creds = JSON.parse(stored);
-      this.deviceId = creds.deviceId;
-      this.deviceSecret = creds.deviceSecret;
-    } else {
-      await this.generateDeviceCredentials();
+    // Ensure permanent salt exists in database (create if needed)
+    // This must happen before any credentials are generated or used
+    try {
+      await this.getOrCreatePermanentSalt();
+    } catch (error) {
+      console.error('Failed to initialize permanent salt:', error);
     }
+
+    // Always generate device credentials dynamically from hardware fingerprint
+    // Never store them - only the permanent salt is stored in SQLite
+    await this.generateDeviceCredentials();
   }
 
   private async getOrCreatePermanentSalt(): Promise<string> {
@@ -98,78 +106,97 @@ class AuthService {
   }
 
   private async generateDeviceCredentials() {
-    // Get permanent salt unique to this device (stored securely in Electron main process)
+    // Get permanent salt from database (created once, never changes)
     const permanentSalt = await this.getOrCreatePermanentSalt();
 
-    // Collect stable browser fingerprint data
-    const userAgent = navigator.userAgent;
-    const platform = navigator.platform;
-    const vendor = navigator.vendor;
-    const hardwareConcurrency = navigator.hardwareConcurrency || 0;
+    // Check if device ID already exists in database
+    let storedDeviceId: string | null = null;
+    try {
+      const result = await window.ipcApi.sendIpcRequest('settings-get-single', { key: 'deviceId' });
+      if (result.success && result.data) {
+        storedDeviceId = result.data;
+        console.log('Loaded existing device ID from database');
+      }
+    } catch (error) {
+      console.log('No existing device ID found, generating new one...');
+    }
 
-    // Get hardware info from Electron main process
+    // If device ID exists, use it; otherwise generate and store it
+    if (storedDeviceId) {
+      this.deviceId = storedDeviceId;
+    } else {
+      // Generate device ID only once from hardware info
+      const platform = navigator.platform;
+
+      // Get hardware info from Electron main process
+      let hardwareInfo = null;
+      try {
+        hardwareInfo = await window.ipcApi.getHardwareInfo();
+      } catch (error) {
+        console.warn('Failed to get hardware info from main process:', error);
+      }
+
+      // Create stable device ID from permanent hardware identifiers
+      const deviceIdComponents = [
+        platform,
+        hardwareInfo?.machineId || 'UNKNOWN',
+        hardwareInfo?.biosSerial || 'UNKNOWN',
+        hardwareInfo?.motherboardSerial || 'UNKNOWN',
+        hardwareInfo?.cpuInfo.model || 'UNKNOWN',
+        hardwareInfo?.hostname || 'UNKNOWN',
+        hardwareInfo?.username || 'UNKNOWN'
+      ];
+
+      // Generate device ID using Web Crypto API
+      const encoder = new TextEncoder();
+      const deviceIdData = encoder.encode(deviceIdComponents.join('||'));
+      const deviceIdHash = await crypto.subtle.digest('SHA-256', deviceIdData);
+      const deviceIdArray = Array.from(new Uint8Array(deviceIdHash));
+      this.deviceId = deviceIdArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+      // Store device ID in database - ONLY ONCE
+      try {
+        await window.ipcApi.sendIpcRequest('settings-set-single', {
+          key: 'deviceId',
+          value: this.deviceId
+        });
+        console.log('Stored new device ID in database');
+      } catch (error) {
+        console.error('Failed to store device ID:', error);
+      }
+    }
+
+    // Always generate device secret from many hardware values + permanent salt
+    // This is a hash, not stored, regenerated each time from hardware
+    // Get fresh hardware info for device secret generation
+    const platform = navigator.platform;
     let hardwareInfo = null;
     try {
       hardwareInfo = await window.ipcApi.getHardwareInfo();
     } catch (error) {
-      console.warn('Failed to get hardware info from main process:', error);
+      console.warn('Failed to get hardware info for device secret:', error);
     }
 
-    // Create stable device fingerprint for Device ID
-    // Only include permanent hardware identifiers that never change
-    const deviceIdComponents = [
-      platform,
-      permanentSalt
-    ];
-
-    // Add real hardware identifiers if available (stable across reboots/updates)
-    if (hardwareInfo) {
-      deviceIdComponents.push(
-        hardwareInfo.machineId,
-        hardwareInfo.biosSerial,
-        hardwareInfo.motherboardSerial,
-        hardwareInfo.cpuInfo.model
-      );
-    }
-
-    // Generate device ID using Web Crypto API
+    // Device secret includes ALL hardware identifiers (more than device ID)
     const encoder = new TextEncoder();
-    const deviceIdData = encoder.encode(deviceIdComponents.join('||'));
-    const deviceIdHash = await crypto.subtle.digest('SHA-256', deviceIdData);
-    const deviceIdArray = Array.from(new Uint8Array(deviceIdHash));
-    this.deviceId = deviceIdArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-    // Create device secret with additional hardware info
-    // Include everything from Device ID plus disk and memory info
     const deviceSecretComponents = [
       platform,
-      permanentSalt
+      permanentSalt,
+      hardwareInfo?.machineId || 'UNKNOWN',
+      hardwareInfo?.biosSerial || 'UNKNOWN',
+      hardwareInfo?.motherboardSerial || 'UNKNOWN',
+      hardwareInfo?.diskSerial || 'UNKNOWN',
+      hardwareInfo?.cpuInfo.model || 'UNKNOWN',
+      hardwareInfo?.cpuInfo.cores.toString() || 'UNKNOWN',
+      hardwareInfo?.memoryTotal.toString() || 'UNKNOWN',
+      hardwareInfo?.hostname || 'UNKNOWN',        // Computer name
+      hardwareInfo?.username || 'UNKNOWN',        // Logged-in user
+      hardwareInfo?.macAddresses.join(',') || 'UNKNOWN'  // MAC addresses
     ];
-
-    // Add real hardware identifiers (stable hardware components)
-    if (hardwareInfo) {
-      deviceSecretComponents.push(
-        hardwareInfo.machineId,
-        hardwareInfo.biosSerial,
-        hardwareInfo.motherboardSerial,
-        hardwareInfo.diskSerial,
-        hardwareInfo.cpuInfo.model,
-        hardwareInfo.cpuInfo.cores.toString(),
-        hardwareInfo.memoryTotal.toString()
-      );
-    }
-
-    // Generate device secret
     const deviceSecretData = encoder.encode(deviceSecretComponents.join('||'));
     const deviceSecretHash = await crypto.subtle.digest('SHA-256', deviceSecretData);
     const deviceSecretArray = Array.from(new Uint8Array(deviceSecretHash));
     this.deviceSecret = deviceSecretArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-    // Store credentials
-    localStorage.setItem('deviceCredentials', JSON.stringify({
-      deviceId: this.deviceId,
-      deviceSecret: this.deviceSecret
-    }));
   }
 
   // Stage 1: User Login
@@ -265,11 +292,21 @@ class AuthService {
       mac_addresses: realHardwareInfo?.macAddresses || []
     };
 
+    // Get system info for identification (NOT used in hash - can change)
+    const hostname = realHardwareInfo?.hostname || window.location.hostname || 'localhost';
+    const username = realHardwareInfo?.username || 'Unknown User';
+    const osVersion = userAgent.match(/\(([^)]+)\)/)?.[1] || 'Unknown OS';
+
+    // Get the permanent salt to include in device details
+    const permanentSalt = await this.getOrCreatePermanentSalt();
+
     const deviceInfo = {
-      device_name: platform || 'Unknown Device',
-      os_version: userAgent.match(/\(([^)]+)\)/)?.[1] || 'Unknown OS',
-      hostname: window.location.hostname || 'localhost',
-      user_agent: userAgent
+      device_name: `${hostname}, ${username}, ${osVersion}`,
+      os_version: osVersion,
+      hostname: hostname,
+      user_agent: userAgent,
+      username: username,
+      details: `${hostname}, ${username}, Salt:${permanentSalt.substring(0, 8)}...` // Comma-separated string with salt preview
     };
 
     const response = await fetch(`${API_BASE_URL}/devices/register`, {

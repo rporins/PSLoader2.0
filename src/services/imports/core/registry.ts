@@ -19,6 +19,7 @@ import { getFileType, validateFile } from '../utils/fileParser';
 
 // Import processors
 import { TestImportProcessor } from '../processors/testImport';
+import { AccpacLineItemsProcessor } from '../processors/accpac_line_items';
 
 /**
  * Import execution request
@@ -92,7 +93,10 @@ export class ImportRegistry {
     // Test processor (always first)
     this.register(new TestImportProcessor());
 
-    // TODO: Register production processors here
+    // Production processors
+    this.register(new AccpacLineItemsProcessor());
+
+    // TODO: Register additional processors here
     // this.register(new CustomerDataImportProcessor());
     // this.register(new InventoryImportProcessor());
     // this.register(new TransactionHistoryImportProcessor());

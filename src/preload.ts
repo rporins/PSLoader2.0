@@ -71,12 +71,19 @@ contextBridge.exposeInMainWorld('ipcApi', {
     // Use ipcRenderer.invoke to communicate with the main process
     const result = await ipcRenderer.invoke('ipcMain', channel, ...args);
 
+    // Debug logging for db:get-all-mapping-configs
+    if (request === 'db:get-all-mapping-configs') {
+      console.log('[preload] db:get-all-mapping-configs raw result:', result);
+      console.log('[preload] db:get-all-mapping-configs has data?:', result?.data);
+    }
+
     // Handle the new wrapped response format
     if (result && typeof result === 'object' && 'success' in result) {
       if (!result.success) {
         throw new Error(result.error || 'Unknown error occurred');
       }
-      return result.data !== undefined ? result.data : result;
+      // Always return the full result object for consistency
+      return result;
     }
 
     // Return raw result for backward compatibility

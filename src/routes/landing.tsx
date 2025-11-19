@@ -30,7 +30,7 @@ import LoginIcon from "@mui/icons-material/Login";
 import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import PersonAddAltRoundedIcon from "@mui/icons-material/PersonAddAltRounded";
 import HelpOutlineRoundedIcon from "@mui/icons-material/HelpOutlineRounded";
-import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import marriottLogo from "../images/marriott_logo.png";
 
 // 3D imports
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -795,44 +795,35 @@ export default function Landing() {
         <HolographicCard elevation={0}>
           <CardContent sx={{ p: 5 }}>
             {/* Logo and branding */}
-            <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 4, justifyContent: "center" }}>
+            <Stack spacing={2.5} alignItems="center" sx={{ mb: 5 }}>
               <Box
+                component="img"
+                src={marriottLogo}
+                alt="Marriott Logo"
                 sx={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: "20%",
-                  background: `linear-gradient(135deg, #667eea, #764ba2, #f093fb)`,
-                  boxShadow: `0 20px 40px rgba(118,75,162,0.4)`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  position: "relative",
-                  animation: `${magneticFloat} 6s ease-in-out infinite`,
-                  "&::after": {
-                    content: '""',
-                    position: "absolute",
-                    inset: -4,
-                    borderRadius: "20%",
-                    background: "inherit",
-                    filter: "blur(12px)",
-                    opacity: 0.4,
-                    zIndex: -1,
-                  },
+                  width: 72,
+                  height: 72,
+                  objectFit: "contain",
+                  filter: 'drop-shadow(0 4px 12px rgba(0, 102, 178, 0.15))',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    transform: 'scale(1.05)',
+                    filter: 'drop-shadow(0 6px 16px rgba(0, 102, 178, 0.25))',
+                  }
                 }}
-              >
-                <AutoAwesomeIcon sx={{ color: "#ffffff", fontSize: 28 }} />
-              </Box>
+              />
               <Typography
-                variant="h5"
+                variant="body2"
                 sx={{
-                  fontWeight: 800,
-                  background: `linear-gradient(135deg, #667eea, #764ba2)`,
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  letterSpacing: -0.5,
+                  fontWeight: 500,
+                  fontSize: '0.8rem',
+                  color: theme.palette.text.secondary,
+                  letterSpacing: 2,
+                  textTransform: 'uppercase',
+                  opacity: 0.6,
                 }}
               >
-                PS Loader
+                PS Loader 2.0
               </Typography>
             </Stack>
 

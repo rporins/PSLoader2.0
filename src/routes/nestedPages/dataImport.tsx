@@ -25,6 +25,7 @@ import {
   Select,
   MenuItem,
   SelectChangeEvent,
+  Snackbar,
 } from '@mui/material';
 import { styled, useTheme, keyframes } from '@mui/material/styles';
 import {
@@ -89,17 +90,26 @@ const DataImport: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [sessionStatus, setSessionStatus] = useState<'idle' | 'importing' | 'complete'>('idle');
   const [importSessionStarted, setImportSessionStarted] = useState(false);
+  const [currentImportSessionId, setCurrentImportSessionId] = useState<number | null>(null);
 
   // Import Groups state
   const [importGroups, setImportGroups] = useState<ImportGroup[]>([]);
   const [selectedImportGroup, setSelectedImportGroup] = useState<string>('');
   const [loadingImportGroups, setLoadingImportGroups] = useState(false);
   const [selectedOU, setSelectedOU] = useState<string>('');
+  const [hotels, setHotels] = useState<any[]>([]);
+
+  // Period selection state (required for imports - must be set before importing)
+  const [selectedYear, setSelectedYear] = useState<number | ''>('');
+  const [selectedMonth, setSelectedMonth] = useState<number | ''>('');
 
   // Sequential processing state
   const [currentProcessingId, setCurrentProcessingId] = useState<string | null>(null);
   const [currentActiveIndex, setCurrentActiveIndex] = useState(0); // Track which import is currently active
   const [completedImports, setCompletedImports] = useState<Set<string>>(new Set()); // Track completed imports
+
+  // Error notification state
+  const [errorSnackbar, setErrorSnackbar] = useState<{ open: boolean; message: string }>({ open: false, message: '' });
 
   // Fetch import groups when OU is selected
   useEffect(() => {
@@ -119,12 +129,9 @@ const DataImport: React.FC = () => {
           }
         }
 
-        // Fetch fresh data from API
-        const groups = await importConfigService.getImportGroups(selectedOU);
+        // Fetch fresh data from API and sync mapping configs
+        const groups = await importConfigService.fetchAndSyncImportGroups(selectedOU);
         setImportGroups(groups);
-
-        // Cache the data
-        await importConfigService.cacheImportGroups(selectedOU, groups);
 
         // Set the first group as default if none selected
         if (!selectedImportGroup && groups.length > 0) {
@@ -177,15 +184,44 @@ const DataImport: React.FC = () => {
       try {
         setLoading(true);
 
-        // Get hotels to determine OU
+        // Get hotels to determine OU and local_id values
         try {
-          const hotels = await authService.getHotels();
-          if (hotels.length > 0) {
+          // First get from cache
+          // @ts-ignore
+          const cachedResult = await window.ipcApi.sendIpcRequest('db:get-cached-hotels');
+
+          let hotelsList = [];
+          if (cachedResult?.success && cachedResult.data) {
+            hotelsList = JSON.parse(cachedResult.data);
+            setHotels(hotelsList);
+          }
+
+          // Then fetch fresh from API
+          const freshHotels = await authService.getHotels();
+          if (freshHotels.length > 0) {
+            setHotels(freshHotels);
             // Set first hotel as default OU
-            setSelectedOU(hotels[0].ou);
+            setSelectedOU(freshHotels[0].ou);
+          } else if (hotelsList.length > 0) {
+            // Use cached hotels if API fails
+            setSelectedOU(hotelsList[0].ou);
           }
         } catch (error) {
           console.error('Failed to fetch hotels:', error);
+          // Try to use cached hotels
+          try {
+            // @ts-ignore
+            const cachedResult = await window.ipcApi.sendIpcRequest('db:get-cached-hotels');
+            if (cachedResult?.success && cachedResult.data) {
+              const hotelsList = JSON.parse(cachedResult.data);
+              setHotels(hotelsList);
+              if (hotelsList.length > 0) {
+                setSelectedOU(hotelsList[0].ou);
+              }
+            }
+          } catch (cacheError) {
+            console.error('Failed to get cached hotels:', cacheError);
+          }
         }
       } catch (error) {
         console.error('Failed to load initial data:', error);
@@ -210,17 +246,60 @@ const DataImport: React.FC = () => {
     // The ImportCard component handles its own state
   }, []);
 
+  // Create import session when first import starts
+  const createImportSession = useCallback(async () => {
+    if (currentImportSessionId !== null || selectedYear === '' || selectedMonth === '' || !selectedOU || !selectedImportGroup) {
+      return; // Session already created or missing required data
+    }
+
+    try {
+      const periodCombo = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
+      // @ts-ignore
+      const result = await window.ipcApi.sendIpcRequest('db:create-import-session', {
+        ou: selectedOU,
+        import_group_name: selectedImportGroup,
+        year: selectedYear,
+        month: selectedMonth,
+        period_combo: periodCombo,
+      });
+
+      if (result && result.success && result.data) {
+        const sessionId = result.data as number;
+        setCurrentImportSessionId(sessionId);
+        console.log(`Import session created: ${sessionId} for period ${periodCombo}`);
+      }
+    } catch (error) {
+      console.error('Failed to create import session:', error);
+    }
+  }, [currentImportSessionId, selectedYear, selectedMonth, selectedOU, selectedImportGroup]);
+
   // Handle status change from ImportCard
-  const handleStatusChange = useCallback((importId: string, status: ImportStatus, additionalData?: { fileName?: string; rowCount?: number }) => {
+  const handleStatusChange = useCallback(async (importId: string, status: ImportStatus, additionalData?: { fileName?: string; rowCount?: number; error?: string }) => {
     console.log(`Status changed for import ${importId}:`, status, additionalData);
 
     setImportFiles(prev =>
       prev.map(file =>
         file.id === importId
-          ? { ...file, status, ...additionalData }
+          ? {
+              ...file,
+              status,
+              ...additionalData,
+              // Explicitly clear error on success
+              error: status === ImportStatus.Complete ? undefined : additionalData?.error
+            }
           : file
       )
     );
+
+    // Show error snackbar if status is Failed
+    if (status === ImportStatus.Failed && additionalData?.error) {
+      setErrorSnackbar({ open: true, message: additionalData.error });
+    }
+
+    // Create import session when first import starts processing
+    if (status === ImportStatus.Processing && !importSessionStarted) {
+      await createImportSession();
+    }
 
     // Handle completion and unlock next import
     if (status === ImportStatus.Complete) {
@@ -255,6 +334,20 @@ const DataImport: React.FC = () => {
         setSessionStatus('complete');
         setImportSessionStarted(false);
         setIsProcessing(false);
+
+        // Update import session status to completed
+        if (currentImportSessionId !== null) {
+          try {
+            // @ts-ignore
+            await window.ipcApi.sendIpcRequest('db:update-import-session-status', {
+              sessionId: currentImportSessionId,
+              status: 'completed',
+            });
+            console.log(`Import session ${currentImportSessionId} marked as completed`);
+          } catch (error) {
+            console.error('Failed to update import session status:', error);
+          }
+        }
       }
     } else if (status === ImportStatus.Processing) {
       // Set as processing
@@ -264,8 +357,22 @@ const DataImport: React.FC = () => {
       // Stop processing on failure
       setIsProcessing(false);
       // Keep the current import active for retry
+
+      // Update import session status to failed
+      if (currentImportSessionId !== null) {
+        try {
+          // @ts-ignore
+          await window.ipcApi.sendIpcRequest('db:update-import-session-status', {
+            sessionId: currentImportSessionId,
+            status: 'failed',
+          });
+          console.log(`Import session ${currentImportSessionId} marked as failed`);
+        } catch (error) {
+          console.error('Failed to update import session status:', error);
+        }
+      }
     }
-  }, [importFiles, completedImports]);
+  }, [importFiles, completedImports, currentImportSessionId]);
 
   // Handle restart
   const handleRestart = useCallback(() => {
@@ -285,6 +392,7 @@ const DataImport: React.FC = () => {
     setCurrentProcessingId(null);
     setCurrentActiveIndex(0);
     setCompletedImports(new Set());
+    setCurrentImportSessionId(null); // Clear the import session ID for a fresh start
   }, []);
 
   // Handle start import session
@@ -381,44 +489,119 @@ const DataImport: React.FC = () => {
         }}
       >
         <CardContent sx={{ p: 2 }}>
-          <Stack direction={isMobile ? 'column' : 'row'} spacing={2} alignItems="center">
-            <FormControl fullWidth={isMobile} sx={{ minWidth: 200 }}>
-              <InputLabel id="import-group-select-label">Import Group</InputLabel>
-              <Select
-                labelId="import-group-select-label"
-                id="import-group-select"
-                value={selectedImportGroup}
-                label="Import Group"
-                onChange={(event: SelectChangeEvent) => {
-                  setSelectedImportGroup(event.target.value);
-                  handleRestart();
-                }}
-                disabled={loadingImportGroups || importSessionStarted}
+          <Stack spacing={2}>
+            {/* First row: Import Group selector */}
+            <Stack direction={isMobile ? 'column' : 'row'} spacing={2} alignItems="center">
+              <FormControl fullWidth={isMobile} sx={{ minWidth: 200 }}>
+                <InputLabel id="import-group-select-label">Import Group</InputLabel>
+                <Select
+                  labelId="import-group-select-label"
+                  id="import-group-select"
+                  value={selectedImportGroup}
+                  label="Import Group"
+                  onChange={(event: SelectChangeEvent) => {
+                    setSelectedImportGroup(event.target.value);
+                    handleRestart();
+                  }}
+                  disabled={loadingImportGroups || importSessionStarted}
+                >
+                  {importConfigService.getUniqueGroupNames(importGroups).map((groupName) => (
+                    <MenuItem key={groupName} value={groupName}>
+                      {groupName}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {loadingImportGroups && (
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <CircularProgress size={20} />
+                  <Typography variant="body2" color="text.secondary">
+                    Loading import groups...
+                  </Typography>
+                </Stack>
+              )}
+
+              {!loadingImportGroups && selectedImportGroup && (
+                <Box flex={isMobile ? undefined : 1}>
+                  <Typography variant="body2" color="text.secondary">
+                    {importFiles.length} imports available • {importFiles.filter(f => f.required).length} required
+                  </Typography>
+                </Box>
+              )}
+            </Stack>
+
+            {/* Second row: Period selection (Year and Month) */}
+            <Stack direction={isMobile ? 'column' : 'row'} spacing={2} alignItems="center">
+              <FormControl
+                fullWidth={isMobile}
+                sx={{ minWidth: 150 }}
+                required
+                error={selectedYear === '' && importFiles.length > 0}
               >
-                {importConfigService.getUniqueGroupNames(importGroups).map((groupName) => (
-                  <MenuItem key={groupName} value={groupName}>
-                    {groupName}
+                <InputLabel id="year-select-label">Year *</InputLabel>
+                <Select
+                  labelId="year-select-label"
+                  id="year-select"
+                  value={selectedYear}
+                  label="Year *"
+                  onChange={(event: SelectChangeEvent<number | ''>) => {
+                    setSelectedYear(event.target.value as number | '');
+                  }}
+                  disabled={importSessionStarted}
+                >
+                  <MenuItem value="" disabled>
+                    <em>Select Year</em>
                   </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+                  {/* Generate years from 2020 to current year + 2 */}
+                  {Array.from({ length: new Date().getFullYear() - 2020 + 3 }, (_, i) => 2020 + i).map((year) => (
+                    <MenuItem key={year} value={year}>
+                      {year}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
 
-            {loadingImportGroups && (
-              <Stack direction="row" spacing={1} alignItems="center">
-                <CircularProgress size={20} />
-                <Typography variant="body2" color="text.secondary">
-                  Loading import groups...
-                </Typography>
-              </Stack>
-            )}
+              <FormControl
+                fullWidth={isMobile}
+                sx={{ minWidth: 150 }}
+                required
+                error={selectedMonth === '' && importFiles.length > 0}
+              >
+                <InputLabel id="month-select-label">Month *</InputLabel>
+                <Select
+                  labelId="month-select-label"
+                  id="month-select"
+                  value={selectedMonth}
+                  label="Month *"
+                  onChange={(event: SelectChangeEvent<number | ''>) => {
+                    setSelectedMonth(event.target.value as number | '');
+                  }}
+                  disabled={importSessionStarted}
+                >
+                  <MenuItem value="" disabled>
+                    <em>Select Month</em>
+                  </MenuItem>
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+                    <MenuItem key={month} value={month}>
+                      {month}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
 
-            {!loadingImportGroups && selectedImportGroup && (
               <Box flex={isMobile ? undefined : 1}>
-                <Typography variant="body2" color="text.secondary">
-                  {importFiles.length} imports available • {importFiles.filter(f => f.required).length} required
-                </Typography>
+                {selectedYear !== '' && selectedMonth !== '' ? (
+                  <Typography variant="body2" color="text.secondary" fontWeight={500}>
+                    Period: {selectedYear}-{String(selectedMonth).padStart(2, '0')}
+                  </Typography>
+                ) : (
+                  <Typography variant="body2" color="error" fontWeight={500}>
+                    Please select year and month to begin imports
+                  </Typography>
+                )}
               </Box>
-            )}
+            </Stack>
           </Stack>
         </CardContent>
       </Card>
@@ -455,11 +638,18 @@ const DataImport: React.FC = () => {
           {importFiles
             .sort((a, b) => a.order - b.order)
             .map((importFile, idx) => {
+              // Check if period is selected (required for all imports)
+              const isPeriodSelected = selectedYear !== '' && selectedMonth !== '';
+
               // Determine if this card should be locked and next in line
               let isLocked = false;
               let isNextInLine = false;
 
-              if (importSessionStarted) {
+              // If period is not selected, lock ALL imports
+              if (!isPeriodSelected) {
+                isLocked = true;
+                isNextInLine = false;
+              } else if (importSessionStarted) {
                 // Sequential mode: lock all cards except the current active one
                 if (importFile.status === ImportStatus.Complete) {
                   // Completed imports stay locked
@@ -562,6 +752,12 @@ const DataImport: React.FC = () => {
                     isProcessing={isProcessing && currentProcessingId === importFile.id}
                     isLocked={isLocked}
                     isNextInLine={isNextInLine}
+                    importOptions={{
+                      ou: selectedOU,
+                      year: selectedYear === '' ? undefined : selectedYear,
+                      month: selectedMonth === '' ? undefined : selectedMonth,
+                      localId1: hotels.find(h => h.ou === selectedOU)?.local_id_1
+                    }}
                   />
                 </Box>
               );
@@ -658,6 +854,28 @@ const DataImport: React.FC = () => {
           </Typography>
         </Alert>
       </Box>
+
+      {/* Error Notification Snackbar */}
+      <Snackbar
+        open={errorSnackbar.open}
+        autoHideDuration={8000}
+        onClose={() => setErrorSnackbar({ open: false, message: '' })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={() => setErrorSnackbar({ open: false, message: '' })}
+          severity="error"
+          variant="filled"
+          sx={{
+            maxWidth: 600,
+            boxShadow: 8,
+          }}
+        >
+          <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
+            {errorSnackbar.message}
+          </Typography>
+        </Alert>
+      </Snackbar>
     </PageContainer>
   );
 };

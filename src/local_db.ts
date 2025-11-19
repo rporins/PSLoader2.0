@@ -81,6 +81,68 @@ interface Department {
   d_level_30: string;
 }
 
+// Mapping Config interface
+interface MappingConfig {
+  config_id: number;
+  version: string;
+  is_locked: boolean;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  last_synced?: string;
+}
+
+// Mapping interface
+interface Mapping {
+  id: number;
+  mapping_config_id: number;
+  source_account: string | null;
+  source_department: string | null;
+  source_account_department: string | null;
+  target_account: string | null;
+  target_department: string | null;
+  target_account_department: string | null;
+  priority: number;
+  is_active: boolean;
+}
+
+// Import Group interface
+interface ImportGroup {
+  id?: number;
+  ou: string;
+  group_name: string;
+  cached_at?: string;
+}
+
+// Import interface
+interface Import {
+  id: number;
+  import_group_id?: number;
+  name: string;
+  display_name: string;
+  description: string;
+  order_index: number;
+  mapping_config_id: number | null;
+  required: boolean;
+  file_types: string[];
+  required_columns: string[];
+  optional_columns: string[];
+  validation_rules: string[];
+}
+
+// Import Session interface
+interface ImportSession {
+  id?: number;
+  ou: string;
+  import_group_name: string;
+  year: number;
+  month: number;
+  period_combo: string;
+  started_at?: string;
+  completed_at?: string;
+  status: 'in_progress' | 'completed' | 'failed';
+}
+
 // base account interface matching the database
 interface Account {
   account_id: string;
@@ -179,6 +241,38 @@ async function migrateFinancialDataTable() {
   }
 }
 
+async function migrateHotelsCacheTable() {
+  try {
+    // Check if the new columns already exist
+    const tableInfo = await client.execute({
+      sql: "PRAGMA table_info(hotels_cache)",
+      args: []
+    });
+
+    const columnNames = tableInfo.rows.map(row => row.name as string);
+    const newColumns = ['currency', 'country', 'city', 'local_id_1', 'local_id_2', 'local_id_3'];
+    const columnsToAdd = newColumns.filter(col => !columnNames.includes(col));
+
+    if (columnsToAdd.length > 0) {
+      console.log("Migrating hotels_cache table to add new columns:", columnsToAdd.join(', '));
+
+      // Add new columns one by one
+      const alterQueries = columnsToAdd.map(col => ({
+        sql: `ALTER TABLE hotels_cache ADD COLUMN ${col} TEXT`,
+        args: [] as any[]
+      }));
+
+      await client.batch(alterQueries);
+      console.log("Successfully added new columns to hotels_cache table");
+    } else {
+      console.log("Hotels_cache table already has all required columns");
+    }
+  } catch (error) {
+    console.error("Error during hotels_cache migration:", error);
+    // If table doesn't exist, it will be created with the new schema
+  }
+}
+
 //------------------------------------------------------------------------------------------------------------------
 //--- INITIALIZE DATABASE ---------------------------------------------------------------------------------------
 //create database if it doesn't exist
@@ -207,6 +301,12 @@ export async function initializeDatabase() {
             ou TEXT PRIMARY KEY,
             hotel_name TEXT NOT NULL,
             room_count INTEGER NOT NULL,
+            currency TEXT,
+            country TEXT,
+            city TEXT,
+            local_id_1 TEXT,
+            local_id_2 TEXT,
+            local_id_3 TEXT,
             cached_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
         `,
@@ -315,12 +415,120 @@ export async function initializeDatabase() {
             PRIMARY KEY (dep_acc_combo_id, period_combo, scenario)
         )
         `,
+      `
+        CREATE TABLE IF NOT EXISTS financial_data_staging (
+            dep_acc_combo_id TEXT NOT NULL,
+            month INTEGER NOT NULL,
+            year INTEGER NOT NULL,
+            period_combo TEXT NOT NULL,
+            scenario TEXT NOT NULL,
+            amount REAL NOT NULL,
+            count REAL,
+            currency TEXT NOT NULL,
+            ou TEXT,
+            department TEXT,
+            account TEXT,
+            version TEXT,
+            import_batch_id TEXT,
+            last_modified TEXT DEFAULT CURRENT_TIMESTAMP,
+            item_version INTEGER DEFAULT 1
+        )
+        `,
+      `
+        CREATE TABLE IF NOT EXISTS mapping_configs (
+            config_id INTEGER PRIMARY KEY,
+            version TEXT NOT NULL,
+            is_locked BOOLEAN NOT NULL DEFAULT 0,
+            description TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_synced TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(config_id)
+        )
+        `,
+      `
+        CREATE TABLE IF NOT EXISTS mappings (
+            id INTEGER PRIMARY KEY,
+            mapping_config_id INTEGER NOT NULL,
+            source_account TEXT,
+            source_department TEXT,
+            source_account_department TEXT,
+            target_account TEXT,
+            target_department TEXT,
+            target_account_department TEXT,
+            priority INTEGER DEFAULT 0,
+            is_active BOOLEAN NOT NULL DEFAULT 1,
+            FOREIGN KEY(mapping_config_id) REFERENCES mapping_configs(config_id) ON DELETE CASCADE
+        )
+        `,
+      `
+        CREATE INDEX IF NOT EXISTS idx_mapping_config ON mappings(mapping_config_id)
+        `,
+      `
+        CREATE INDEX IF NOT EXISTS idx_mapping_source ON mappings(source_account, source_department)
+        `,
+      `
+        CREATE INDEX IF NOT EXISTS idx_mapping_target ON mappings(target_account, target_department)
+        `,
+      `
+        CREATE TABLE IF NOT EXISTS import_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ou TEXT NOT NULL,
+            group_name TEXT NOT NULL,
+            cached_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(ou, group_name)
+        )
+        `,
+      `
+        CREATE TABLE IF NOT EXISTS imports (
+            id INTEGER PRIMARY KEY,
+            import_group_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            description TEXT,
+            order_index INTEGER DEFAULT 0,
+            mapping_config_id INTEGER,
+            required BOOLEAN DEFAULT 0,
+            file_types TEXT,
+            required_columns TEXT,
+            optional_columns TEXT,
+            validation_rules TEXT,
+            FOREIGN KEY(import_group_id) REFERENCES import_groups(id) ON DELETE CASCADE,
+            FOREIGN KEY(mapping_config_id) REFERENCES mapping_configs(config_id)
+        )
+        `,
+      `
+        CREATE INDEX IF NOT EXISTS idx_imports_group ON imports(import_group_id)
+        `,
+      `
+        CREATE INDEX IF NOT EXISTS idx_imports_mapping_config ON imports(mapping_config_id)
+        `,
+      `
+        CREATE TABLE IF NOT EXISTS import_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ou TEXT NOT NULL,
+            import_group_name TEXT NOT NULL,
+            year INTEGER NOT NULL,
+            month INTEGER NOT NULL,
+            period_combo TEXT NOT NULL,
+            started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            completed_at TEXT,
+            status TEXT DEFAULT 'in_progress'
+        )
+        `,
+      `
+        CREATE INDEX IF NOT EXISTS idx_import_sessions_ou ON import_sessions(ou)
+        `,
+      `
+        CREATE INDEX IF NOT EXISTS idx_import_sessions_period ON import_sessions(year, month)
+        `,
     ]);
 
     console.log("All necessary tables have been created or already exist.");
 
     // Run migration to add new columns to existing databases
     await migrateFinancialDataTable();
+    await migrateHotelsCacheTable();
   } catch (error) {
     console.error("Error during database initialization:", error);
   }
@@ -979,7 +1187,47 @@ export async function createDepartment(departmentData: Department): Promise<stri
 interface UserSettings {
   themeMode?: "light" | "dark";
   selectedHotelOu?: string | null;
+  permanentSalt?: string;
   [key: string]: any;
+}
+
+// Get or create the permanent device salt
+export async function getPermanentSalt(): Promise<string> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT value FROM user_settings WHERE key = ?",
+      args: ['permanentSalt']
+    });
+
+    if (result.rows.length > 0) {
+      const salt = result.rows[0].value as string;
+      // ALWAYS return existing salt, even if it appears invalid
+      // Changing the salt would break device authentication
+      if (salt) {
+        return salt;
+      }
+    }
+
+    // Only generate new salt if none exists
+    const crypto = await import('crypto');
+    const newSalt = crypto.randomBytes(16).toString('hex');
+
+    // Store it in the database - INSERT only, never update
+    // This should only run once per device, ever
+    await client.execute({
+      sql: `
+        INSERT INTO user_settings (key, value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+      `,
+      args: ['permanentSalt', newSalt]
+    });
+
+    console.log('Generated and stored new permanent device salt in database');
+    return newSalt;
+  } catch (error) {
+    console.error('Error getting/creating permanent salt:', error);
+    throw error;
+  }
 }
 
 // Get a specific setting or all settings
@@ -1069,6 +1317,12 @@ interface CachedHotel {
   ou: string;
   hotel_name: string;
   room_count: number;
+  currency?: string;
+  country?: string;
+  city?: string;
+  local_id_1?: string;
+  local_id_2?: string;
+  local_id_3?: string;
   cached_at?: string;
 }
 
@@ -1076,7 +1330,7 @@ interface CachedHotel {
 export async function getCachedHotels(): Promise<string> {
   try {
     const result = await client.execute({
-      sql: "SELECT ou, hotel_name, room_count, cached_at FROM hotels_cache ORDER BY hotel_name",
+      sql: "SELECT ou, hotel_name, room_count, currency, country, city, local_id_1, local_id_2, local_id_3, cached_at FROM hotels_cache ORDER BY hotel_name",
       args: []
     });
 
@@ -1084,6 +1338,12 @@ export async function getCachedHotels(): Promise<string> {
       ou: row.ou as string,
       hotel_name: row.hotel_name as string,
       room_count: row.room_count as number,
+      currency: row.currency as string | null,
+      country: row.country as string | null,
+      city: row.city as string | null,
+      local_id_1: row.local_id_1 as string | null,
+      local_id_2: row.local_id_2 as string | null,
+      local_id_3: row.local_id_3 as string | null,
       cached_at: row.cached_at as string
     }));
 
@@ -1108,10 +1368,20 @@ export async function cacheHotels(hotels: CachedHotel[]): Promise<string> {
     if (hotels.length > 0) {
       const queries = hotels.map(hotel => ({
         sql: `
-          INSERT INTO hotels_cache (ou, hotel_name, room_count, cached_at)
-          VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+          INSERT INTO hotels_cache (ou, hotel_name, room_count, currency, country, city, local_id_1, local_id_2, local_id_3, cached_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `,
-        args: [hotel.ou, hotel.hotel_name, hotel.room_count]
+        args: [
+          hotel.ou,
+          hotel.hotel_name,
+          hotel.room_count,
+          hotel.currency || null,
+          hotel.country || null,
+          hotel.city || null,
+          hotel.local_id_1 || null,
+          hotel.local_id_2 || null,
+          hotel.local_id_3 || null
+        ]
       }));
 
       await client.batch(queries);
@@ -1615,3 +1885,604 @@ const financialData = department_accounts.flatMap((depAcc) => {
     });
   });
 });
+
+//------------------------------------------------------------------------------------------------------------------
+//----------------- MAPPING CONFIG FUNCTIONS ---------------------------------------------------------------------
+
+// Store mapping config in database
+export async function storeMappingConfig(config: {
+  config_id: number;
+  version: string;
+  is_locked: boolean;
+  description: string;
+  created_at: string;
+  updated_at: string;
+}): Promise<void> {
+  try {
+    await client.execute({
+      sql: `
+        INSERT OR REPLACE INTO mapping_configs (
+          config_id, version, is_locked, description,
+          created_at, updated_at, last_synced
+        ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `,
+      args: [
+        config.config_id,
+        config.version,
+        config.is_locked ? 1 : 0,
+        config.description,
+        config.created_at,
+        config.updated_at,
+      ],
+    });
+    console.log("Mapping config stored successfully");
+  } catch (error) {
+    console.error("Error storing mapping config:", error);
+    throw error;
+  }
+}
+
+// Retrieve mapping config from database
+export async function getMappingConfig(configId: number): Promise<MappingConfig | null> {
+  try {
+    const result = await client.execute({
+      sql: `
+        SELECT config_id, version, is_locked, description,
+               created_at, updated_at, last_synced
+        FROM mapping_configs
+        WHERE config_id = ?
+      `,
+      args: [configId],
+    });
+
+    if (result.rows.length > 0) {
+      const row = result.rows[0];
+      return {
+        config_id: row.config_id as number,
+        version: row.version as string,
+        is_locked: Boolean(row.is_locked),
+        description: row.description as string,
+        created_at: row.created_at as string,
+        updated_at: row.updated_at as string,
+        last_synced: row.last_synced as string,
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error("Error retrieving mapping config:", error);
+    throw error;
+  }
+}
+
+// Get all mapping configs
+export async function getAllMappingConfigs(): Promise<MappingConfig[]> {
+  try {
+    const result = await client.execute({
+      sql: `
+        SELECT config_id, version, is_locked, description,
+               created_at, updated_at, last_synced
+        FROM mapping_configs
+        ORDER BY config_id
+      `,
+      args: [],
+    });
+
+    return result.rows.map((row) => ({
+      config_id: row.config_id as number,
+      version: row.version as string,
+      is_locked: Boolean(row.is_locked),
+      description: row.description as string,
+      created_at: row.created_at as string,
+      updated_at: row.updated_at as string,
+      last_synced: row.last_synced as string,
+    }));
+  } catch (error) {
+    console.error("Error retrieving all mapping configs:", error);
+    throw error;
+  }
+}
+
+// Update last synced timestamp for a config
+export async function updateMappingConfigSyncTime(configId: number): Promise<void> {
+  try {
+    await client.execute({
+      sql: `
+        UPDATE mapping_configs
+        SET last_synced = CURRENT_TIMESTAMP
+        WHERE config_id = ?
+      `,
+      args: [configId],
+    });
+  } catch (error) {
+    console.error("Error updating mapping config sync time:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//----------------- MAPPING FUNCTIONS ----------------------------------------------------------------------------
+
+// Replace all mappings for a specific config (deletes existing and inserts new)
+export async function replaceMappings(configId: number, mappings: Array<{
+  id: number;
+  mapping_config_id: number;
+  source_account: string | null;
+  source_department: string | null;
+  source_account_department: string | null;
+  target_account: string | null;
+  target_department: string | null;
+  target_account_department: string | null;
+  priority: number;
+  is_active: boolean;
+}>): Promise<void> {
+  try {
+    // Start a transaction to ensure atomicity
+    await client.execute("BEGIN TRANSACTION");
+
+    try {
+      // Delete existing mappings for this config
+      await client.execute({
+        sql: "DELETE FROM mappings WHERE mapping_config_id = ?",
+        args: [configId],
+      });
+
+      // Insert new mappings
+      for (const mapping of mappings) {
+        await client.execute({
+          sql: `
+            INSERT INTO mappings (
+              id, mapping_config_id, source_account, source_department,
+              source_account_department, target_account, target_department,
+              target_account_department, priority, is_active
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          args: [
+            mapping.id,
+            mapping.mapping_config_id,
+            mapping.source_account,
+            mapping.source_department,
+            mapping.source_account_department,
+            mapping.target_account,
+            mapping.target_department,
+            mapping.target_account_department,
+            mapping.priority,
+            mapping.is_active ? 1 : 0,
+          ],
+        });
+      }
+
+      // Commit transaction
+      await client.execute("COMMIT");
+      console.log(`Successfully replaced ${mappings.length} mappings for config ${configId}`);
+    } catch (error) {
+      // Rollback on error
+      await client.execute("ROLLBACK");
+      throw error;
+    }
+  } catch (error) {
+    console.error("Error replacing mappings:", error);
+    throw error;
+  }
+}
+
+// Get all mappings for a specific config
+export async function getMappings(configId: number): Promise<Mapping[]> {
+  try {
+    const result = await client.execute({
+      sql: `
+        SELECT id, mapping_config_id, source_account, source_department,
+               source_account_department, target_account, target_department,
+               target_account_department, priority, is_active
+        FROM mappings
+        WHERE mapping_config_id = ?
+        ORDER BY priority DESC, id
+      `,
+      args: [configId],
+    });
+
+    return result.rows.map((row) => ({
+      id: row.id as number,
+      mapping_config_id: row.mapping_config_id as number,
+      source_account: row.source_account as string | null,
+      source_department: row.source_department as string | null,
+      source_account_department: row.source_account_department as string | null,
+      target_account: row.target_account as string | null,
+      target_department: row.target_department as string | null,
+      target_account_department: row.target_account_department as string | null,
+      priority: row.priority as number,
+      is_active: Boolean(row.is_active),
+    }));
+  } catch (error) {
+    console.error("Error retrieving mappings:", error);
+    throw error;
+  }
+}
+
+// Get mapping count for a specific config
+export async function getMappingCount(configId: number): Promise<number> {
+  try {
+    const result = await client.execute({
+      sql: `
+        SELECT COUNT(*) as count
+        FROM mappings
+        WHERE mapping_config_id = ?
+      `,
+      args: [configId],
+    });
+
+    return result.rows[0].count as number;
+  } catch (error) {
+    console.error("Error getting mapping count:", error);
+    throw error;
+  }
+}
+
+// Find mapping by source account and department
+export async function findMapping(
+  configId: number,
+  sourceAccount: string | null,
+  sourceDepartment: string | null
+): Promise<Mapping | null> {
+  try {
+    const result = await client.execute({
+      sql: `
+        SELECT id, mapping_config_id, source_account, source_department,
+               source_account_department, target_account, target_department,
+               target_account_department, priority, is_active
+        FROM mappings
+        WHERE mapping_config_id = ?
+          AND (source_account = ? OR (source_account IS NULL AND ? IS NULL))
+          AND (source_department = ? OR (source_department IS NULL AND ? IS NULL))
+          AND is_active = 1
+        ORDER BY priority DESC, id
+        LIMIT 1
+      `,
+      args: [configId, sourceAccount, sourceAccount, sourceDepartment, sourceDepartment],
+    });
+
+    if (result.rows.length > 0) {
+      const row = result.rows[0];
+      return {
+        id: row.id as number,
+        mapping_config_id: row.mapping_config_id as number,
+        source_account: row.source_account as string | null,
+        source_department: row.source_department as string | null,
+        source_account_department: row.source_account_department as string | null,
+        target_account: row.target_account as string | null,
+        target_department: row.target_department as string | null,
+        target_account_department: row.target_account_department as string | null,
+        priority: row.priority as number,
+        is_active: Boolean(row.is_active),
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error("Error finding mapping:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//----------------- IMPORT GROUP FUNCTIONS -----------------------------------------------------------------------
+
+// Store import groups and their imports
+export async function storeImportGroups(ou: string, importGroups: Array<{
+  group_name: string;
+  imports: Array<{
+    id: number;
+    name: string;
+    displayName: string;
+    description: string;
+    order: number;
+    mapping_config_id: number;
+    required: boolean;
+    fileTypes: string[];
+    requiredColumns: string[];
+    optionalColumns: string[];
+    validationRules: string[];
+  }>;
+}>): Promise<void> {
+  try {
+    await client.execute("BEGIN TRANSACTION");
+
+    try {
+      // Delete existing import groups for this OU
+      await client.execute({
+        sql: "DELETE FROM import_groups WHERE ou = ?",
+        args: [ou],
+      });
+
+      // Insert new import groups and their imports
+      for (const group of importGroups) {
+        // Insert the group
+        const groupResult = await client.execute({
+          sql: `
+            INSERT INTO import_groups (ou, group_name, cached_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+          `,
+          args: [ou, group.group_name],
+        });
+
+        const groupId = groupResult.lastInsertRowid;
+
+        // Insert imports for this group
+        for (const imp of group.imports) {
+          await client.execute({
+            sql: `
+              INSERT INTO imports (
+                id, import_group_id, name, display_name, description,
+                order_index, mapping_config_id, required,
+                file_types, required_columns, optional_columns, validation_rules
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+            args: [
+              imp.id,
+              groupId,
+              imp.name,
+              imp.displayName,
+              imp.description,
+              imp.order,
+              imp.mapping_config_id,
+              imp.required ? 1 : 0,
+              JSON.stringify(imp.fileTypes),
+              JSON.stringify(imp.requiredColumns),
+              JSON.stringify(imp.optionalColumns),
+              JSON.stringify(imp.validationRules),
+            ],
+          });
+        }
+      }
+
+      await client.execute("COMMIT");
+      console.log(`Successfully stored ${importGroups.length} import groups for OU ${ou}`);
+    } catch (error) {
+      await client.execute("ROLLBACK");
+      throw error;
+    }
+  } catch (error) {
+    console.error("Error storing import groups:", error);
+    throw error;
+  }
+}
+
+// Get import groups for an OU
+export async function getImportGroups(ou: string): Promise<Array<{
+  group_name: string;
+  imports: Import[];
+}>> {
+  try {
+    const groupsResult = await client.execute({
+      sql: "SELECT id, group_name FROM import_groups WHERE ou = ?",
+      args: [ou],
+    });
+
+    const groups = [];
+
+    for (const groupRow of groupsResult.rows) {
+      const importsResult = await client.execute({
+        sql: `
+          SELECT id, name, display_name, description, order_index,
+                 mapping_config_id, required, file_types, required_columns,
+                 optional_columns, validation_rules
+          FROM imports
+          WHERE import_group_id = ?
+          ORDER BY order_index, id
+        `,
+        args: [groupRow.id],
+      });
+
+      const imports = importsResult.rows.map((row) => ({
+        id: row.id as number,
+        name: row.name as string,
+        display_name: row.display_name as string,
+        description: row.description as string,
+        order_index: row.order_index as number,
+        mapping_config_id: row.mapping_config_id as number | null,
+        required: Boolean(row.required),
+        file_types: JSON.parse(row.file_types as string),
+        required_columns: JSON.parse(row.required_columns as string),
+        optional_columns: JSON.parse(row.optional_columns as string),
+        validation_rules: JSON.parse(row.validation_rules as string),
+      }));
+
+      groups.push({
+        group_name: groupRow.group_name as string,
+        imports,
+      });
+    }
+
+    return groups;
+  } catch (error) {
+    console.error("Error retrieving import groups:", error);
+    throw error;
+  }
+}
+
+// Get all unique mapping config IDs from imports for an OU
+export async function getMappingConfigIdsForOU(ou: string): Promise<number[]> {
+  try {
+    const result = await client.execute({
+      sql: `
+        SELECT DISTINCT i.mapping_config_id
+        FROM imports i
+        JOIN import_groups ig ON i.import_group_id = ig.id
+        WHERE ig.ou = ? AND i.mapping_config_id IS NOT NULL
+      `,
+      args: [ou],
+    });
+
+    return result.rows
+      .map((row) => row.mapping_config_id as number)
+      .filter((id) => id !== null);
+  } catch (error) {
+    console.error("Error getting mapping config IDs for OU:", error);
+    throw error;
+  }
+}
+
+// Check if import groups are cached for an OU
+export async function hasImportGroupsCached(ou: string): Promise<boolean> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT COUNT(*) as count FROM import_groups WHERE ou = ?",
+      args: [ou],
+    });
+
+    return (result.rows[0].count as number) > 0;
+  } catch (error) {
+    console.error("Error checking import groups cache:", error);
+    return false;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//----------------- IMPORT SESSION FUNCTIONS ---------------------------------------------------------------------
+
+// Create a new import session
+export async function createImportSession(session: Omit<ImportSession, 'id'>): Promise<number> {
+  try {
+    const result = await client.execute({
+      sql: `
+        INSERT INTO import_sessions (
+          ou, import_group_name, year, month, period_combo, started_at, status
+        ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 'in_progress')
+      `,
+      args: [
+        session.ou,
+        session.import_group_name,
+        session.year,
+        session.month,
+        session.period_combo,
+      ],
+    });
+
+    const sessionId = result.lastInsertRowid as number;
+    console.log(`Import session created with ID: ${sessionId} for period ${session.period_combo}`);
+    return sessionId;
+  } catch (error) {
+    console.error("Error creating import session:", error);
+    throw error;
+  }
+}
+
+// Update import session status
+export async function updateImportSessionStatus(
+  sessionId: number,
+  status: 'in_progress' | 'completed' | 'failed'
+): Promise<void> {
+  try {
+    await client.execute({
+      sql: `
+        UPDATE import_sessions
+        SET status = ?, completed_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `,
+      args: [status, sessionId],
+    });
+    console.log(`Import session ${sessionId} updated to status: ${status}`);
+  } catch (error) {
+    console.error("Error updating import session status:", error);
+    throw error;
+  }
+}
+
+// Get the most recent import session for an OU
+export async function getLatestImportSession(ou: string): Promise<ImportSession | null> {
+  try {
+    const result = await client.execute({
+      sql: `
+        SELECT id, ou, import_group_name, year, month, period_combo,
+               started_at, completed_at, status
+        FROM import_sessions
+        WHERE ou = ?
+        ORDER BY started_at DESC
+        LIMIT 1
+      `,
+      args: [ou],
+    });
+
+    if (result.rows.length > 0) {
+      const row = result.rows[0];
+      return {
+        id: row.id as number,
+        ou: row.ou as string,
+        import_group_name: row.import_group_name as string,
+        year: row.year as number,
+        month: row.month as number,
+        period_combo: row.period_combo as string,
+        started_at: row.started_at as string,
+        completed_at: row.completed_at as string | undefined,
+        status: row.status as 'in_progress' | 'completed' | 'failed',
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error("Error getting latest import session:", error);
+    throw error;
+  }
+}
+
+// Get import session by ID
+export async function getImportSession(sessionId: number): Promise<ImportSession | null> {
+  try {
+    const result = await client.execute({
+      sql: `
+        SELECT id, ou, import_group_name, year, month, period_combo,
+               started_at, completed_at, status
+        FROM import_sessions
+        WHERE id = ?
+      `,
+      args: [sessionId],
+    });
+
+    if (result.rows.length > 0) {
+      const row = result.rows[0];
+      return {
+        id: row.id as number,
+        ou: row.ou as string,
+        import_group_name: row.import_group_name as string,
+        year: row.year as number,
+        month: row.month as number,
+        period_combo: row.period_combo as string,
+        started_at: row.started_at as string,
+        completed_at: row.completed_at as string | undefined,
+        status: row.status as 'in_progress' | 'completed' | 'failed',
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error("Error getting import session:", error);
+    throw error;
+  }
+}
+
+// Get all import sessions for an OU
+export async function getImportSessions(ou: string): Promise<ImportSession[]> {
+  try {
+    const result = await client.execute({
+      sql: `
+        SELECT id, ou, import_group_name, year, month, period_combo,
+               started_at, completed_at, status
+        FROM import_sessions
+        WHERE ou = ?
+        ORDER BY started_at DESC
+      `,
+      args: [ou],
+    });
+
+    return result.rows.map((row) => ({
+      id: row.id as number,
+      ou: row.ou as string,
+      import_group_name: row.import_group_name as string,
+      year: row.year as number,
+      month: row.month as number,
+      period_combo: row.period_combo as string,
+      started_at: row.started_at as string,
+      completed_at: row.completed_at as string | undefined,
+      status: row.status as 'in_progress' | 'completed' | 'failed',
+    }));
+  } catch (error) {
+    console.error("Error getting import sessions:", error);
+    throw error;
+  }
+}

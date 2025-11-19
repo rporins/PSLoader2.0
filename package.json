@@ -1,6 +1,6 @@
 {
   "name": "ps-loader",
-  "productName": "PS Loader",
+  "productName": "PS Loader 2.0",
   "version": "1.0.0",
   "description": "PS Loader - A comprehensive planning and scheduling application",
   "main": ".vite/build/main.js",
@@ -52,10 +52,12 @@
     "dotenv": "^16.4.7",
     "electron-squirrel-startup": "^1.0.1",
     "framer-motion": "^11.11.11",
+    "node-machine-id": "^1.1.12",
     "nodejs-polars": "^0.17.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.1",
+    "systeminformation": "^5.27.11",
     "three": "^0.179.1",
     "uuid": "^11.0.3",
     "xlsx": "^0.18.5"

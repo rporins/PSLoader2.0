@@ -98,6 +98,31 @@ export const IPC_CHANNELS = {
   DB_CACHE_HOTELS: 'db:cache-hotels',
   DB_CLEAR_HOTELS_CACHE: 'db:clear-hotels-cache',
   DB_IS_HOTELS_CACHE_EXPIRED: 'db:is-hotels-cache-expired',
+
+  // Mapping config channels
+  DB_STORE_MAPPING_CONFIG: 'db:store-mapping-config',
+  DB_GET_MAPPING_CONFIG: 'db:get-mapping-config',
+  DB_GET_ALL_MAPPING_CONFIGS: 'db:get-all-mapping-configs',
+  DB_UPDATE_MAPPING_CONFIG_SYNC_TIME: 'db:update-mapping-config-sync-time',
+
+  // Mapping channels
+  DB_REPLACE_MAPPINGS: 'db:replace-mappings',
+  DB_GET_MAPPINGS: 'db:get-mappings',
+  DB_GET_MAPPING_COUNT: 'db:get-mapping-count',
+  DB_FIND_MAPPING: 'db:find-mapping',
+
+  // Import group channels
+  DB_STORE_IMPORT_GROUPS: 'db:store-import-groups',
+  DB_GET_IMPORT_GROUPS: 'db:get-import-groups',
+  DB_GET_MAPPING_CONFIG_IDS_FOR_OU: 'db:get-mapping-config-ids-for-ou',
+  DB_HAS_IMPORT_GROUPS_CACHED: 'db:has-import-groups-cached',
+
+  // Import session channels
+  DB_CREATE_IMPORT_SESSION: 'db:create-import-session',
+  DB_UPDATE_IMPORT_SESSION_STATUS: 'db:update-import-session-status',
+  DB_GET_LATEST_IMPORT_SESSION: 'db:get-latest-import-session',
+  DB_GET_IMPORT_SESSION: 'db:get-import-session',
+  DB_GET_IMPORT_SESSIONS: 'db:get-import-sessions',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];

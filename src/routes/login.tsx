@@ -20,7 +20,9 @@ import { styled, useTheme, keyframes } from '@mui/material/styles';
 import LoginIcon from '@mui/icons-material/Login';
 import PersonAddAltRoundedIcon from '@mui/icons-material/PersonAddAltRounded';
 import LockRoundedIcon from '@mui/icons-material/LockRounded';
-import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import IconButton from '@mui/material/IconButton';
+import marriottLogo from '../images/marriott_logo.png';
 
 // Animations from landing page
 const liquidMorph = keyframes`
@@ -318,6 +320,21 @@ const StyledTextField = styled(TextField)(({ theme }) => ({
   },
 }));
 
+const BackButton = styled(IconButton)(({ theme }) => ({
+  position: 'absolute',
+  top: 20,
+  left: 20,
+  backgroundColor: alpha(theme.palette.background.paper, 0.1),
+  backdropFilter: 'blur(10px)',
+  border: `1px solid ${alpha(theme.palette.divider, 0.2)}`,
+  transition: 'all 0.3s',
+
+  '&:hover': {
+    backgroundColor: alpha(theme.palette.background.paper, 0.2),
+    transform: 'translateX(-4px)',
+  },
+}));
+
 const Login: React.FC = () => {
   const navigate = useNavigate();
   const theme = useTheme();
@@ -359,58 +376,35 @@ const Login: React.FC = () => {
         <div className="metal-orb orb3" />
       </LiquidMetalOrbs>
 
+      {/* Back button */}
+      <BackButton onClick={() => navigate('/')} aria-label="Go back">
+        <ArrowBackIcon />
+      </BackButton>
+
       <Box sx={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 480, px: 2 }}>
         <HolographicCard elevation={0}>
           <CardContent sx={{ p: 5 }}>
-            <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 4, justifyContent: 'center' }}>
+            <Stack spacing={2} alignItems="center" sx={{ mb: 4 }}>
               <Box
                 sx={{
                   width: 56,
                   height: 56,
-                  borderRadius: '20%',
-                  background: `linear-gradient(135deg, #667eea, #764ba2, #f093fb)`,
+                  borderRadius: '50%',
+                  background: `linear-gradient(135deg, #667eea, #764ba2)`,
                   boxShadow: `0 20px 40px rgba(118,75,162,0.4)`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  position: 'relative',
-                  animation: `${magneticFloat} 6s ease-in-out infinite`,
-                  '&::after': {
-                    content: '""',
-                    position: 'absolute',
-                    inset: -4,
-                    borderRadius: '20%',
-                    background: 'inherit',
-                    filter: 'blur(12px)',
-                    opacity: 0.4,
-                    zIndex: -1,
-                  },
                 }}
               >
-                <AutoAwesomeIcon sx={{ color: '#ffffff', fontSize: 28 }} />
+                <LoginIcon sx={{ color: '#ffffff', fontSize: 28 }} />
               </Box>
-              <Typography
-                variant="h5"
-                sx={{
-                  fontWeight: 800,
-                  background: `linear-gradient(135deg, #667eea, #764ba2)`,
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  letterSpacing: -0.5,
-                }}
-              >
-                PS Loader
-              </Typography>
-            </Stack>
-
-            <Box sx={{ textAlign: 'center', mb: 4 }}>
               <Typography
                 variant="h4"
                 sx={{
                   fontWeight: 800,
                   fontSize: '2.2rem',
                   lineHeight: 1.1,
-                  mb: 1.5,
                   background: theme.palette.mode === 'dark'
                     ? `linear-gradient(135deg, #ffffff, #c9b8ff)`
                     : `linear-gradient(135deg, #1a1a2e, #764ba2)`,
@@ -420,6 +414,9 @@ const Login: React.FC = () => {
               >
                 Welcome Back
               </Typography>
+            </Stack>
+
+            <Box sx={{ textAlign: 'center', mb: 4 }}>
               <Typography
                 variant="body1"
                 sx={{

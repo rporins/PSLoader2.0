@@ -43,6 +43,7 @@ export function createImportsHandlers(): Record<string, IpcHandler> {
           message: response.error ||
                   (response.result?.metadata?.message as string) ||
                   `Import ${response.success ? 'completed' : 'failed'}`,
+          error: response.error,
           data: response.result?.data,
           filePath: response.filePath
         };
@@ -81,6 +82,7 @@ export function createImportsHandlers(): Record<string, IpcHandler> {
           message: response.error ||
                   (response.result?.metadata?.message as string) ||
                   `Import ${response.success ? 'completed' : 'failed'}`,
+          error: response.error,
           data: response.result?.data,
           filePath: response.filePath
         };
