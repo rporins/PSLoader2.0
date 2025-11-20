@@ -270,36 +270,104 @@ export class AccpacLineItemsProcessor extends BaseImportProcessor {
   protected async processRows(parsed: ParsedFile, options?: ImportOptions): Promise<ImportResult> {
     console.log(`[${this.metadata.id}] Processing ${parsed.rowCount} rows`);
 
-    // TODO: Implement processing logic
-    // 1. Transform each row
-    // 2. Save to database
-    // 3. Update related records
-    // 4. Generate reports
+    const startTime = new Date();
+    const warnings: string[] = [];
+    let processedRows = 0;
+    let mappedRows = 0;
+    let unmappedRows = 0;
 
-    const actualRowCount = parsed.rowCount;
+    try {
+      // Step 1: Get import configuration
+      const year = options?.custom?.year;
+      const month = options?.custom?.month;
+      const ou = options?.custom?.ou;
 
-    return {
-      success: true,
-      rowCount: actualRowCount,
-      processedRows: actualRowCount,
-      skippedRows: 0,
-      failedRows: 0,
-      metadata: {
-        importType: this.metadata.id,
-        message: `ACCPAC line items import completed: ${actualRowCount} rows processed`,
-        columns: parsed.columns,
-        sampleData: parsed.data.slice(0, 5),
-        fileInfo: {
-          totalRows: actualRowCount,
-          totalColumns: parsed.columns.length,
-          columnNames: parsed.columns
-        }
-      },
-      stats: {
-        startTime: new Date(),
-        endTime: new Date()
+      if (!year || !month || !ou) {
+        throw new Error('Missing required import options: year, month, or ou');
       }
-    };
+
+      // Generate import batch ID: "accpac_line_items_YYYY-MM-DD_HH-MM-SS"
+      const now = new Date();
+      const batchId = `accpac_line_items_${now.toISOString().replace(/[:.]/g, '-')}`;
+
+      // Step 2: Get hotel currency from metadata
+      const currency = await this.getHotelCurrency(ou);
+      if (!currency) {
+        warnings.push('Hotel currency not found, defaulting to USD');
+      }
+      const finalCurrency = currency || 'USD';
+
+      // Step 3: Truncate staging table
+      console.log(`[${this.metadata.id}] Truncating staging table...`);
+      await db.clearStagingTable();
+
+      // Step 4: Group rows by mapped combo and aggregate ACTIVITY
+      // This handles the case where multiple source rows map to the same target combo
+      const aggregatedData = await this.aggregateAndMapRows(parsed.data, year, month, ou, finalCurrency, batchId);
+
+      // Step 5: Batch insert into staging table
+      console.log(`[${this.metadata.id}] Inserting ${aggregatedData.length} aggregated rows into staging...`);
+      const batchSize = 100;
+
+      for (let i = 0; i < aggregatedData.length; i += batchSize) {
+        const batch = aggregatedData.slice(i, i + batchSize);
+        await db.insertBatchStagingData(batch);
+        processedRows += batch.length;
+      }
+
+      // Step 6: Count mapped vs unmapped
+      const mappingStats = await db.getStagingMappingStats();
+      mappedRows = mappingStats.mapped || 0;
+      unmappedRows = mappingStats.unmapped || 0;
+
+      console.log(`[${this.metadata.id}] Import completed: ${processedRows} rows processed (${mappedRows} mapped, ${unmappedRows} unmapped)`);
+
+      // Step 7: Generate report
+      const unmappedAccounts = await db.getUnmappedAccounts();
+
+      const endTime = new Date();
+
+      return {
+        success: true,
+        rowCount: parsed.rowCount,
+        processedRows,
+        skippedRows: 0,
+        failedRows: 0,
+        warnings: warnings.length > 0 ? warnings : undefined,
+        metadata: {
+          importType: this.metadata.id,
+          batchId,
+          message: `ACCPAC line items import completed successfully`,
+          mappingStats: {
+            total: processedRows,
+            mapped: mappedRows,
+            unmapped: unmappedRows,
+            unmappedPercentage: processedRows > 0 ? ((unmappedRows / processedRows) * 100).toFixed(2) + '%' : '0%'
+          },
+          unmappedAccounts: unmappedAccounts.length > 0 ? unmappedAccounts : undefined,
+          period: `${year}-${String(month).padStart(2, '0')}`,
+          currency: finalCurrency
+        },
+        stats: {
+          startTime,
+          endTime,
+          duration: endTime.getTime() - startTime.getTime()
+        }
+      };
+    } catch (error) {
+      console.error(`[${this.metadata.id}] Processing error:`, error);
+      return {
+        success: false,
+        rowCount: parsed.rowCount,
+        processedRows,
+        failedRows: parsed.rowCount - processedRows,
+        errors: [error instanceof Error ? error.message : 'Unknown processing error'],
+        stats: {
+          startTime,
+          endTime: new Date()
+        }
+      };
+    }
   }
 
   /**
@@ -363,6 +431,131 @@ export class AccpacLineItemsProcessor extends BaseImportProcessor {
   /**
    * HELPER METHODS
    */
+
+  /**
+   * Get hotel currency from metadata
+   */
+  private async getHotelCurrency(ou: string): Promise<string | null> {
+    try {
+      const hotelsJson = await db.getCachedHotels();
+      const hotels = JSON.parse(hotelsJson);
+      const hotel = hotels.find((h: any) => h.ou === ou);
+
+      if (hotel && hotel.currency) {
+        console.log(`[${this.metadata.id}] Found currency for OU ${ou}: ${hotel.currency}`);
+        return hotel.currency;
+      }
+
+      console.warn(`[${this.metadata.id}] No currency found for OU ${ou}`);
+      return null;
+    } catch (error) {
+      console.error(`[${this.metadata.id}] Error getting hotel currency:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Aggregate rows by mapped combo and sum ACTIVITY amounts
+   * Handles multiple source rows mapping to the same target combo
+   */
+  private async aggregateAndMapRows(
+    rows: any[],
+    year: number,
+    month: number,
+    ou: string,
+    currency: string,
+    batchId: string
+  ): Promise<any[]> {
+    console.log(`[${this.metadata.id}] Aggregating and mapping ${rows.length} rows...`);
+
+    // Get all mappings for config_id = 10
+    const mappings = await db.getMappings(10);
+    console.log(`[${this.metadata.id}] Loaded ${mappings.length} mappings for config_id = 10`);
+
+    // Build a lookup map for faster access
+    const mappingLookup = new Map<string, any>();
+    for (const mapping of mappings) {
+      if (mapping.source_account && mapping.is_active) {
+        mappingLookup.set(mapping.source_account, mapping);
+      }
+    }
+
+    // Aggregate data by combo key
+    const aggregationMap = new Map<string, any>();
+
+    for (const row of rows) {
+      const sourceAccount = row.ACCTCODE?.trim();
+      const sourceDescription = row.ACCTDESC?.trim() || '';
+      const activity = parseFloat(row.ACTIVITY) || 0;
+
+      // Skip rows with no ACCTCODE or zero activity
+      if (!sourceAccount) {
+        console.warn(`[${this.metadata.id}] Skipping row with missing ACCTCODE`);
+        continue;
+      }
+
+      if (activity === 0) {
+        continue; // Skip rows with zero activity
+      }
+
+      // Lookup mapping
+      const mapping = mappingLookup.get(sourceAccount);
+
+      let targetAccount: string | null = null;
+      let targetDepartment: string | null = null;
+      let mappingStatus = 'unmapped';
+      let comboId: string | null = null;
+
+      if (mapping && mapping.target_account && mapping.target_department) {
+        targetAccount = mapping.target_account;
+        targetDepartment = mapping.target_department;
+        mappingStatus = 'mapped';
+        comboId = `${targetDepartment}_${targetAccount}`;
+      } else if (mapping && (mapping.target_account || mapping.target_department)) {
+        targetAccount = mapping.target_account;
+        targetDepartment = mapping.target_department;
+        mappingStatus = 'partial';
+        comboId = targetAccount && targetDepartment ? `${targetDepartment}_${targetAccount}` : null;
+      }
+
+      // Create aggregation key: combo_id + source_account (to track source separately)
+      const aggKey = `${comboId || 'UNMAPPED'}_${sourceAccount}`;
+
+      if (aggregationMap.has(aggKey)) {
+        // Add to existing aggregate
+        const existing = aggregationMap.get(aggKey);
+        existing.amount += activity;
+      } else {
+        // Create new aggregate entry
+        const periodCombo = `${year}-${String(month).padStart(2, '0')}`;
+
+        aggregationMap.set(aggKey, {
+          dep_acc_combo_id: comboId || 'UNMAPPED',
+          month,
+          year,
+          period_combo: periodCombo,
+          scenario: 'ACT',
+          amount: activity,
+          count: 1,
+          currency,
+          ou,
+          department: targetDepartment,
+          account: targetAccount,
+          version: 'MAIN',
+          source_account: sourceAccount,
+          source_department: null,
+          source_description: sourceDescription,
+          mapping_status: mappingStatus,
+          import_batch_id: batchId
+        });
+      }
+    }
+
+    const result = Array.from(aggregationMap.values());
+    console.log(`[${this.metadata.id}] Aggregated ${rows.length} rows into ${result.length} staging records`);
+
+    return result;
+  }
 
   /**
    * Validate email format

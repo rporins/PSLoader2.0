@@ -123,6 +123,9 @@ export const IPC_CHANNELS = {
   DB_GET_LATEST_IMPORT_SESSION: 'db:get-latest-import-session',
   DB_GET_IMPORT_SESSION: 'db:get-import-session',
   DB_GET_IMPORT_SESSIONS: 'db:get-import-sessions',
+
+  // Staging table channels
+  DB_CLEAR_STAGING_TABLE: 'db:clear-staging-table',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];

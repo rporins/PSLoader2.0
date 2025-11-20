@@ -291,6 +291,16 @@ export class DatabaseHandlers {
       timestamp: Date.now(),
     };
   };
+
+  // Staging table handlers
+  clearStagingTableHandler: IpcHandler = async (event) => {
+    await db.clearStagingTable();
+    return {
+      success: true,
+      data: { message: "Staging table cleared successfully" },
+      timestamp: Date.now(),
+    };
+  };
 }
 
 // Factory function to create and register database handlers
@@ -328,5 +338,6 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_LATEST_IMPORT_SESSION]: handlers.getLatestImportSessionHandler,
     [IPC_CHANNELS.DB_GET_IMPORT_SESSION]: handlers.getImportSessionHandler,
     [IPC_CHANNELS.DB_GET_IMPORT_SESSIONS]: handlers.getImportSessionsHandler,
+    [IPC_CHANNELS.DB_CLEAR_STAGING_TABLE]: handlers.clearStagingTableHandler,
   };
 }

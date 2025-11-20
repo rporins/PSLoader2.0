@@ -273,6 +273,38 @@ async function migrateHotelsCacheTable() {
   }
 }
 
+async function migrateFinancialDataStagingTable() {
+  try {
+    // Check if the new columns already exist
+    const tableInfo = await client.execute({
+      sql: "PRAGMA table_info(financial_data_staging)",
+      args: []
+    });
+
+    const columnNames = tableInfo.rows.map(row => row.name as string);
+    const newColumns = ['source_account', 'source_department', 'mapping_status', 'source_description'];
+    const columnsToAdd = newColumns.filter(col => !columnNames.includes(col));
+
+    if (columnsToAdd.length > 0) {
+      console.log("Migrating financial_data_staging table to add new columns:", columnsToAdd.join(', '));
+
+      // Add new columns one by one
+      const alterQueries = columnsToAdd.map(col => ({
+        sql: `ALTER TABLE financial_data_staging ADD COLUMN ${col} TEXT`,
+        args: [] as any[]
+      }));
+
+      await client.batch(alterQueries);
+      console.log("Successfully added new columns to financial_data_staging table");
+    } else {
+      console.log("Financial_data_staging table already has all required columns");
+    }
+  } catch (error) {
+    console.error("Error during financial_data_staging migration:", error);
+    // If table doesn't exist, it will be created with the new schema
+  }
+}
+
 //------------------------------------------------------------------------------------------------------------------
 //--- INITIALIZE DATABASE ---------------------------------------------------------------------------------------
 //create database if it doesn't exist
@@ -429,6 +461,10 @@ export async function initializeDatabase() {
             department TEXT,
             account TEXT,
             version TEXT,
+            source_account TEXT,
+            source_department TEXT,
+            source_description TEXT,
+            mapping_status TEXT,
             import_batch_id TEXT,
             last_modified TEXT DEFAULT CURRENT_TIMESTAMP,
             item_version INTEGER DEFAULT 1
@@ -529,6 +565,7 @@ export async function initializeDatabase() {
     // Run migration to add new columns to existing databases
     await migrateFinancialDataTable();
     await migrateHotelsCacheTable();
+    await migrateFinancialDataStagingTable();
   } catch (error) {
     console.error("Error during database initialization:", error);
   }
@@ -2483,6 +2520,163 @@ export async function getImportSessions(ou: string): Promise<ImportSession[]> {
     }));
   } catch (error) {
     console.error("Error getting import sessions:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//----------------- STAGING TABLE FUNCTIONS ----------------------------------------------------------------------
+
+// Interface for staging data
+interface StagingData {
+  dep_acc_combo_id: string | null;
+  month: number;
+  year: number;
+  period_combo: string;
+  scenario: string;
+  amount: number;
+  count: number;
+  currency: string;
+  ou: string;
+  department: string | null;
+  account: string | null;
+  version: string;
+  source_account: string | null;
+  source_department: string | null;
+  source_description: string | null;
+  mapping_status: string;
+  import_batch_id: string;
+}
+
+// Clear staging table
+export async function clearStagingTable(): Promise<void> {
+  try {
+    await client.execute({
+      sql: "DELETE FROM financial_data_staging",
+      args: []
+    });
+    console.log("Staging table cleared successfully");
+  } catch (error) {
+    console.error("Error clearing staging table:", error);
+    throw error;
+  }
+}
+
+// Insert batch staging data
+export async function insertBatchStagingData(batchData: StagingData[]): Promise<void> {
+  if (!Array.isArray(batchData) || batchData.length === 0) {
+    console.error("Batch data must be a non-empty array.");
+    return;
+  }
+
+  try {
+    const queries = batchData.map((item) => ({
+      sql: `
+        INSERT INTO financial_data_staging (
+          dep_acc_combo_id, month, year, period_combo, scenario,
+          amount, count, currency, ou, department, account, version,
+          source_account, source_department, source_description, mapping_status,
+          import_batch_id, last_modified, item_version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1)
+      `,
+      args: [
+        item.dep_acc_combo_id,
+        item.month,
+        item.year,
+        item.period_combo,
+        item.scenario,
+        item.amount,
+        item.count,
+        item.currency,
+        item.ou,
+        item.department,
+        item.account,
+        item.version,
+        item.source_account,
+        item.source_department,
+        item.source_description,
+        item.mapping_status,
+        item.import_batch_id
+      ]
+    }));
+
+    await client.batch(queries);
+    console.log(`${batchData.length} staging records inserted successfully.`);
+  } catch (error) {
+    console.error("Error inserting batch staging data:", error);
+    throw error;
+  }
+}
+
+// Get staging mapping statistics
+export async function getStagingMappingStats(): Promise<{ mapped: number; unmapped: number; partial: number; total: number }> {
+  try {
+    const result = await client.execute({
+      sql: `
+        SELECT
+          mapping_status,
+          COUNT(*) as count
+        FROM financial_data_staging
+        GROUP BY mapping_status
+      `,
+      args: []
+    });
+
+    const stats = {
+      mapped: 0,
+      unmapped: 0,
+      partial: 0,
+      total: 0
+    };
+
+    for (const row of result.rows) {
+      const status = row.mapping_status as string;
+      const count = row.count as number;
+
+      stats.total += count;
+
+      if (status === 'mapped') {
+        stats.mapped = count;
+      } else if (status === 'unmapped') {
+        stats.unmapped = count;
+      } else if (status === 'partial') {
+        stats.partial = count;
+      }
+    }
+
+    return stats;
+  } catch (error) {
+    console.error("Error getting staging mapping stats:", error);
+    throw error;
+  }
+}
+
+// Get unmapped accounts from staging
+export async function getUnmappedAccounts(): Promise<Array<{ source_account: string; source_description: string; row_count: number; total_amount: number }>> {
+  try {
+    const result = await client.execute({
+      sql: `
+        SELECT
+          source_account,
+          source_description,
+          COUNT(*) as row_count,
+          SUM(amount) as total_amount
+        FROM financial_data_staging
+        WHERE mapping_status IN ('unmapped', 'partial')
+        GROUP BY source_account, source_description
+        ORDER BY row_count DESC
+      `,
+      args: []
+    });
+
+    return result.rows.map((row) => ({
+      source_account: row.source_account as string,
+      source_description: row.source_description as string,
+      row_count: row.row_count as number,
+      total_amount: row.total_amount as number
+    }));
+  } catch (error) {
+    console.error("Error getting unmapped accounts:", error);
     throw error;
   }
 }

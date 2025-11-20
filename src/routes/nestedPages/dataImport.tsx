@@ -375,7 +375,16 @@ const DataImport: React.FC = () => {
   }, [importFiles, completedImports, currentImportSessionId]);
 
   // Handle restart
-  const handleRestart = useCallback(() => {
+  const handleRestart = useCallback(async () => {
+    // Clear the staging table in SQLite
+    try {
+      // @ts-ignore
+      await window.ipcApi.sendIpcRequest('db:clear-staging-table');
+      console.log('Staging table cleared successfully');
+    } catch (error) {
+      console.error('Failed to clear staging table:', error);
+    }
+
     setImportFiles(prev =>
       prev.map(imp => ({
         ...imp,
