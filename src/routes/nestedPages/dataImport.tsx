@@ -38,6 +38,7 @@ import ImportCard from '../../components/dataImport/ImportCard';
 import { ImportFile, ImportStatus } from '../../types/dataImport';
 import importConfigService, { ImportGroup } from '../../services/importConfigService';
 import authService from '../../services/auth';
+import { useSettingsStore } from '../../store/settings';
 
 // ────────────────────────────────────────────────────────────
 // ANIMATIONS
@@ -96,7 +97,7 @@ const DataImport: React.FC = () => {
   const [importGroups, setImportGroups] = useState<ImportGroup[]>([]);
   const [selectedImportGroup, setSelectedImportGroup] = useState<string>('');
   const [loadingImportGroups, setLoadingImportGroups] = useState(false);
-  const [selectedOU, setSelectedOU] = useState<string>('');
+  const selectedOU = useSettingsStore((s) => s.selectedHotelOu);
   const [hotels, setHotels] = useState<any[]>([]);
 
   // Period selection state (required for imports - must be set before importing)
@@ -111,10 +112,14 @@ const DataImport: React.FC = () => {
   // Error notification state
   const [errorSnackbar, setErrorSnackbar] = useState<{ open: boolean; message: string }>({ open: false, message: '' });
 
-  // Fetch import groups when OU is selected
+  // Fetch import groups when OU is selected or changes
   useEffect(() => {
     const fetchImportGroups = async () => {
       if (!selectedOU) return;
+
+      // Reset import group selection when hotel changes
+      setSelectedImportGroup('');
+      handleRestart();
 
       setLoadingImportGroups(true);
       try {
@@ -122,8 +127,8 @@ const DataImport: React.FC = () => {
         const cached = await importConfigService.getCachedImportGroups(selectedOU);
         if (cached) {
           setImportGroups(cached);
-          // Set the first group as default if none selected
-          if (!selectedImportGroup && cached.length > 0) {
+          // Set the first group as default
+          if (cached.length > 0) {
             const uniqueGroups = importConfigService.getUniqueGroupNames(cached);
             setSelectedImportGroup(uniqueGroups[0]);
           }
@@ -133,8 +138,8 @@ const DataImport: React.FC = () => {
         const groups = await importConfigService.fetchAndSyncImportGroups(selectedOU);
         setImportGroups(groups);
 
-        // Set the first group as default if none selected
-        if (!selectedImportGroup && groups.length > 0) {
+        // Set the first group as default
+        if (groups.length > 0) {
           const uniqueGroups = importConfigService.getUniqueGroupNames(groups);
           setSelectedImportGroup(uniqueGroups[0]);
         }
@@ -144,6 +149,10 @@ const DataImport: React.FC = () => {
         const cached = await importConfigService.getCachedImportGroups(selectedOU);
         if (cached) {
           setImportGroups(cached);
+          if (cached.length > 0) {
+            const uniqueGroups = importConfigService.getUniqueGroupNames(cached);
+            setSelectedImportGroup(uniqueGroups[0]);
+          }
         }
       } finally {
         setLoadingImportGroups(false);
@@ -184,7 +193,7 @@ const DataImport: React.FC = () => {
       try {
         setLoading(true);
 
-        // Get hotels to determine OU and local_id values
+        // Get hotels for local_id lookup (hotel selection is managed by the header)
         try {
           // First get from cache
           // @ts-ignore
@@ -200,11 +209,9 @@ const DataImport: React.FC = () => {
           const freshHotels = await authService.getHotels();
           if (freshHotels.length > 0) {
             setHotels(freshHotels);
-            // Set first hotel as default OU
-            setSelectedOU(freshHotels[0].ou);
           } else if (hotelsList.length > 0) {
             // Use cached hotels if API fails
-            setSelectedOU(hotelsList[0].ou);
+            setHotels(hotelsList);
           }
         } catch (error) {
           console.error('Failed to fetch hotels:', error);
@@ -215,9 +222,6 @@ const DataImport: React.FC = () => {
             if (cachedResult?.success && cachedResult.data) {
               const hotelsList = JSON.parse(cachedResult.data);
               setHotels(hotelsList);
-              if (hotelsList.length > 0) {
-                setSelectedOU(hotelsList[0].ou);
-              }
             }
           } catch (cacheError) {
             console.error('Failed to get cached hotels:', cacheError);

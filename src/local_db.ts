@@ -2562,6 +2562,35 @@ export async function clearStagingTable(): Promise<void> {
   }
 }
 
+// Delete staging rows where source_account matches any of the provided values
+export async function deleteStagingBySourceAccounts(sourceAccounts: (string | null)[]): Promise<number> {
+  try {
+    // Filter out null values and get unique non-empty values
+    const validAccounts = sourceAccounts.filter((acc): acc is string => acc !== null && acc !== '');
+
+    if (validAccounts.length === 0) {
+      console.log("No valid source accounts to delete, skipping");
+      return 0;
+    }
+
+    // Build placeholders for SQL IN clause
+    const placeholders = validAccounts.map(() => '?').join(', ');
+
+    const result = await client.execute({
+      sql: `DELETE FROM financial_data_staging WHERE source_account IN (${placeholders})`,
+      args: validAccounts
+    });
+
+    const deletedCount = result.rowsAffected || 0;
+    console.log(`Deleted ${deletedCount} rows from staging table matching ${validAccounts.length} source accounts`);
+
+    return deletedCount;
+  } catch (error) {
+    console.error("Error deleting staging rows by source accounts:", error);
+    throw error;
+  }
+}
+
 // Insert batch staging data
 export async function insertBatchStagingData(batchData: StagingData[]): Promise<void> {
   if (!Array.isArray(batchData) || batchData.length === 0) {
