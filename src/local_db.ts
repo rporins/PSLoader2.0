@@ -207,6 +207,96 @@ interface DepartmentAccount {
   is_locked: number;
 }
 
+// Mapping Tables Version Tracking
+interface MappingTablesVersion {
+  id: number; // Always 1 for singleton row
+  version: string;
+  combo_version: string;
+  last_updated: string;
+}
+
+// Account Map from API
+interface AccountMap {
+  base_account: string; // Primary key
+  level_0: string;
+  level_1: string;
+  level_2: string;
+  level_3: string;
+  level_4: string;
+  level_5: string;
+  level_6: string;
+  level_7: string;
+  level_8: string;
+  level_9: string;
+  level_10: string;
+  level_11: string;
+  level_12: string;
+  level_13: string;
+  level_14: string;
+  level_15: string;
+  level_16: string;
+  level_17: string;
+  level_18: string;
+  level_19: string;
+  level_20: string;
+  level_21: string;
+  level_22: string;
+  level_23: string;
+  level_24: string;
+  level_25: string;
+  level_26: string;
+  level_27: string;
+  level_28: string;
+  level_29: string;
+  level_30: string;
+  description: string;
+}
+
+// Department Map from API
+interface DepartmentMap {
+  base_department: string; // Primary key
+  level_0: string;
+  level_1: string;
+  level_2: string;
+  level_3: string;
+  level_4: string;
+  level_5: string;
+  level_6: string;
+  level_7: string;
+  level_8: string;
+  level_9: string;
+  level_10: string;
+  level_11: string;
+  level_12: string;
+  level_13: string;
+  level_14: string;
+  level_15: string;
+  level_16: string;
+  level_17: string;
+  level_18: string;
+  level_19: string;
+  level_20: string;
+  level_21: string;
+  level_22: string;
+  level_23: string;
+  level_24: string;
+  level_25: string;
+  level_26: string;
+  level_27: string;
+  level_28: string;
+  level_29: string;
+  level_30: string;
+  description: string;
+}
+
+// Account-Department Combo from API
+interface AccountDepartmentCombo {
+  id?: number;
+  account: string;
+  department: string;
+  description: string;
+}
+
 //------------------------------------------------------------------------------------------------------------------
 //--- MIGRATE DATABASE FOR NEW COLUMNS ---------------------------------------------------------------------------
 async function migrateFinancialDataTable() {
@@ -505,6 +595,103 @@ export async function initializeDatabase() {
         `,
       `
         CREATE INDEX IF NOT EXISTS idx_mapping_target ON mappings(target_account, target_department)
+        `,
+      `
+        CREATE TABLE IF NOT EXISTS mapping_tables_version (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            version TEXT NOT NULL,
+            combo_version TEXT NOT NULL,
+            last_updated TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        `,
+      `
+        CREATE TABLE IF NOT EXISTS account_maps (
+            base_account TEXT PRIMARY KEY,
+            level_0 TEXT,
+            level_1 TEXT,
+            level_2 TEXT,
+            level_3 TEXT,
+            level_4 TEXT,
+            level_5 TEXT,
+            level_6 TEXT,
+            level_7 TEXT,
+            level_8 TEXT,
+            level_9 TEXT,
+            level_10 TEXT,
+            level_11 TEXT,
+            level_12 TEXT,
+            level_13 TEXT,
+            level_14 TEXT,
+            level_15 TEXT,
+            level_16 TEXT,
+            level_17 TEXT,
+            level_18 TEXT,
+            level_19 TEXT,
+            level_20 TEXT,
+            level_21 TEXT,
+            level_22 TEXT,
+            level_23 TEXT,
+            level_24 TEXT,
+            level_25 TEXT,
+            level_26 TEXT,
+            level_27 TEXT,
+            level_28 TEXT,
+            level_29 TEXT,
+            level_30 TEXT,
+            description TEXT
+        )
+        `,
+      `
+        CREATE TABLE IF NOT EXISTS department_maps (
+            base_department TEXT PRIMARY KEY,
+            level_0 TEXT,
+            level_1 TEXT,
+            level_2 TEXT,
+            level_3 TEXT,
+            level_4 TEXT,
+            level_5 TEXT,
+            level_6 TEXT,
+            level_7 TEXT,
+            level_8 TEXT,
+            level_9 TEXT,
+            level_10 TEXT,
+            level_11 TEXT,
+            level_12 TEXT,
+            level_13 TEXT,
+            level_14 TEXT,
+            level_15 TEXT,
+            level_16 TEXT,
+            level_17 TEXT,
+            level_18 TEXT,
+            level_19 TEXT,
+            level_20 TEXT,
+            level_21 TEXT,
+            level_22 TEXT,
+            level_23 TEXT,
+            level_24 TEXT,
+            level_25 TEXT,
+            level_26 TEXT,
+            level_27 TEXT,
+            level_28 TEXT,
+            level_29 TEXT,
+            level_30 TEXT,
+            description TEXT
+        )
+        `,
+      `
+        CREATE TABLE IF NOT EXISTS account_department_combos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account TEXT NOT NULL,
+            department TEXT NOT NULL,
+            description TEXT,
+            UNIQUE(account, department)
+        )
+        `,
+      `
+        CREATE INDEX IF NOT EXISTS idx_combo_account ON account_department_combos(account)
+        `,
+      `
+        CREATE INDEX IF NOT EXISTS idx_combo_department ON account_department_combos(department)
         `,
       `
         CREATE TABLE IF NOT EXISTS import_groups (
@@ -2706,6 +2893,448 @@ export async function getUnmappedAccounts(): Promise<Array<{ source_account: str
     }));
   } catch (error) {
     console.error("Error getting unmapped accounts:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- MAPPING TABLES FUNCTIONS (Account Maps, Department Maps, Combos) ------------------------------------------
+//------------------------------------------------------------------------------------------------------------------
+
+/**
+ * Get the current mapping tables version
+ */
+export async function getMappingTablesVersion(): Promise<MappingTablesVersion | null> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT * FROM mapping_tables_version WHERE id = 1",
+      args: []
+    });
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    const row = result.rows[0];
+    return {
+      id: row.id as number,
+      version: row.version as string,
+      combo_version: row.combo_version as string,
+      last_updated: row.last_updated as string
+    };
+  } catch (error) {
+    console.error("Error getting mapping tables version:", error);
+    throw error;
+  }
+}
+
+/**
+ * Update or insert the mapping tables version
+ */
+export async function setMappingTablesVersion(version: string, comboVersion: string): Promise<void> {
+  try {
+    await client.execute({
+      sql: `
+        INSERT INTO mapping_tables_version (id, version, combo_version, last_updated)
+        VALUES (1, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(id) DO UPDATE SET
+          version = excluded.version,
+          combo_version = excluded.combo_version,
+          last_updated = CURRENT_TIMESTAMP
+      `,
+      args: [version, comboVersion]
+    });
+    console.log(`Updated mapping tables version to ${version}, combo version to ${comboVersion}`);
+  } catch (error) {
+    console.error("Error setting mapping tables version:", error);
+    throw error;
+  }
+}
+
+/**
+ * Store account maps in bulk (replaces all existing data)
+ */
+export async function storeAccountMaps(accountMaps: AccountMap[]): Promise<void> {
+  try {
+    // Clear existing data
+    await client.execute({
+      sql: "DELETE FROM account_maps",
+      args: []
+    });
+
+    if (accountMaps.length === 0) {
+      console.log("No account maps to store");
+      return;
+    }
+
+    // Insert new data in batches
+    const batchSize = 100;
+    for (let i = 0; i < accountMaps.length; i += batchSize) {
+      const batch = accountMaps.slice(i, i + batchSize);
+      const insertStatements = batch.map(am => ({
+        sql: `
+          INSERT INTO account_maps (
+            base_account, level_0, level_1, level_2, level_3, level_4, level_5, level_6, level_7, level_8, level_9,
+            level_10, level_11, level_12, level_13, level_14, level_15, level_16, level_17, level_18, level_19,
+            level_20, level_21, level_22, level_23, level_24, level_25, level_26, level_27, level_28, level_29,
+            level_30, description
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        args: [
+          am.base_account, am.level_0 ?? null, am.level_1 ?? null, am.level_2 ?? null, am.level_3 ?? null, am.level_4 ?? null, am.level_5 ?? null, am.level_6 ?? null,
+          am.level_7 ?? null, am.level_8 ?? null, am.level_9 ?? null, am.level_10 ?? null, am.level_11 ?? null, am.level_12 ?? null, am.level_13 ?? null, am.level_14 ?? null,
+          am.level_15 ?? null, am.level_16 ?? null, am.level_17 ?? null, am.level_18 ?? null, am.level_19 ?? null, am.level_20 ?? null, am.level_21 ?? null, am.level_22 ?? null,
+          am.level_23 ?? null, am.level_24 ?? null, am.level_25 ?? null, am.level_26 ?? null, am.level_27 ?? null, am.level_28 ?? null, am.level_29 ?? null, am.level_30 ?? null,
+          am.description ?? null
+        ]
+      }));
+
+      await client.batch(insertStatements);
+    }
+
+    console.log(`Stored ${accountMaps.length} account maps`);
+  } catch (error) {
+    console.error("Error storing account maps:", error);
+    throw error;
+  }
+}
+
+/**
+ * Store department maps in bulk (replaces all existing data)
+ */
+export async function storeDepartmentMaps(departmentMaps: DepartmentMap[]): Promise<void> {
+  try {
+    // Clear existing data
+    await client.execute({
+      sql: "DELETE FROM department_maps",
+      args: []
+    });
+
+    if (departmentMaps.length === 0) {
+      console.log("No department maps to store");
+      return;
+    }
+
+    // Insert new data in batches
+    const batchSize = 100;
+    for (let i = 0; i < departmentMaps.length; i += batchSize) {
+      const batch = departmentMaps.slice(i, i + batchSize);
+      const insertStatements = batch.map(dm => ({
+        sql: `
+          INSERT INTO department_maps (
+            base_department, level_0, level_1, level_2, level_3, level_4, level_5, level_6, level_7, level_8, level_9,
+            level_10, level_11, level_12, level_13, level_14, level_15, level_16, level_17, level_18, level_19,
+            level_20, level_21, level_22, level_23, level_24, level_25, level_26, level_27, level_28, level_29,
+            level_30, description
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        args: [
+          dm.base_department, dm.level_0 ?? null, dm.level_1 ?? null, dm.level_2 ?? null, dm.level_3 ?? null, dm.level_4 ?? null, dm.level_5 ?? null, dm.level_6 ?? null,
+          dm.level_7 ?? null, dm.level_8 ?? null, dm.level_9 ?? null, dm.level_10 ?? null, dm.level_11 ?? null, dm.level_12 ?? null, dm.level_13 ?? null, dm.level_14 ?? null,
+          dm.level_15 ?? null, dm.level_16 ?? null, dm.level_17 ?? null, dm.level_18 ?? null, dm.level_19 ?? null, dm.level_20 ?? null, dm.level_21 ?? null, dm.level_22 ?? null,
+          dm.level_23 ?? null, dm.level_24 ?? null, dm.level_25 ?? null, dm.level_26 ?? null, dm.level_27 ?? null, dm.level_28 ?? null, dm.level_29 ?? null, dm.level_30 ?? null,
+          dm.description ?? null
+        ]
+      }));
+
+      await client.batch(insertStatements);
+    }
+
+    console.log(`Stored ${departmentMaps.length} department maps`);
+  } catch (error) {
+    console.error("Error storing department maps:", error);
+    throw error;
+  }
+}
+
+/**
+ * Store account-department combos in bulk (replaces all existing data)
+ */
+export async function storeAccountDepartmentCombos(combos: AccountDepartmentCombo[]): Promise<void> {
+  try {
+    // Clear existing data
+    await client.execute({
+      sql: "DELETE FROM account_department_combos",
+      args: []
+    });
+
+    if (combos.length === 0) {
+      console.log("No combos to store");
+      return;
+    }
+
+    // Insert new data in batches
+    const batchSize = 100;
+    for (let i = 0; i < combos.length; i += batchSize) {
+      const batch = combos.slice(i, i + batchSize);
+      const insertStatements = batch.map(combo => ({
+        sql: `
+          INSERT INTO account_department_combos (account, department, description)
+          VALUES (?, ?, ?)
+        `,
+        args: [combo.account, combo.department, combo.description]
+      }));
+
+      await client.batch(insertStatements);
+    }
+
+    console.log(`Stored ${combos.length} account-department combos`);
+  } catch (error) {
+    console.error("Error storing account-department combos:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get all account maps
+ */
+export async function getAccountMaps(): Promise<AccountMap[]> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT * FROM account_maps ORDER BY base_account",
+      args: []
+    });
+
+    return result.rows.map(row => ({
+      base_account: row.base_account as string,
+      level_0: row.level_0 as string,
+      level_1: row.level_1 as string,
+      level_2: row.level_2 as string,
+      level_3: row.level_3 as string,
+      level_4: row.level_4 as string,
+      level_5: row.level_5 as string,
+      level_6: row.level_6 as string,
+      level_7: row.level_7 as string,
+      level_8: row.level_8 as string,
+      level_9: row.level_9 as string,
+      level_10: row.level_10 as string,
+      level_11: row.level_11 as string,
+      level_12: row.level_12 as string,
+      level_13: row.level_13 as string,
+      level_14: row.level_14 as string,
+      level_15: row.level_15 as string,
+      level_16: row.level_16 as string,
+      level_17: row.level_17 as string,
+      level_18: row.level_18 as string,
+      level_19: row.level_19 as string,
+      level_20: row.level_20 as string,
+      level_21: row.level_21 as string,
+      level_22: row.level_22 as string,
+      level_23: row.level_23 as string,
+      level_24: row.level_24 as string,
+      level_25: row.level_25 as string,
+      level_26: row.level_26 as string,
+      level_27: row.level_27 as string,
+      level_28: row.level_28 as string,
+      level_29: row.level_29 as string,
+      level_30: row.level_30 as string,
+      description: row.description as string
+    }));
+  } catch (error) {
+    console.error("Error getting account maps:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get all department maps
+ */
+export async function getDepartmentMaps(): Promise<DepartmentMap[]> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT * FROM department_maps ORDER BY base_department",
+      args: []
+    });
+
+    return result.rows.map(row => ({
+      base_department: row.base_department as string,
+      level_0: row.level_0 as string,
+      level_1: row.level_1 as string,
+      level_2: row.level_2 as string,
+      level_3: row.level_3 as string,
+      level_4: row.level_4 as string,
+      level_5: row.level_5 as string,
+      level_6: row.level_6 as string,
+      level_7: row.level_7 as string,
+      level_8: row.level_8 as string,
+      level_9: row.level_9 as string,
+      level_10: row.level_10 as string,
+      level_11: row.level_11 as string,
+      level_12: row.level_12 as string,
+      level_13: row.level_13 as string,
+      level_14: row.level_14 as string,
+      level_15: row.level_15 as string,
+      level_16: row.level_16 as string,
+      level_17: row.level_17 as string,
+      level_18: row.level_18 as string,
+      level_19: row.level_19 as string,
+      level_20: row.level_20 as string,
+      level_21: row.level_21 as string,
+      level_22: row.level_22 as string,
+      level_23: row.level_23 as string,
+      level_24: row.level_24 as string,
+      level_25: row.level_25 as string,
+      level_26: row.level_26 as string,
+      level_27: row.level_27 as string,
+      level_28: row.level_28 as string,
+      level_29: row.level_29 as string,
+      level_30: row.level_30 as string,
+      description: row.description as string
+    }));
+  } catch (error) {
+    console.error("Error getting department maps:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get all account-department combos
+ */
+export async function getAccountDepartmentCombos(): Promise<AccountDepartmentCombo[]> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT * FROM account_department_combos ORDER BY account, department",
+      args: []
+    });
+
+    return result.rows.map(row => ({
+      id: row.id as number,
+      account: row.account as string,
+      department: row.department as string,
+      description: row.description as string
+    }));
+  } catch (error) {
+    console.error("Error getting account-department combos:", error);
+    throw error;
+  }
+}
+
+/**
+ * Validate if an account-department combination is valid
+ */
+export async function isValidCombo(account: string, department: string): Promise<boolean> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT COUNT(*) as count FROM account_department_combos WHERE account = ? AND department = ?",
+      args: [account, department]
+    });
+
+    const count = result.rows[0].count as number;
+    return count > 0;
+  } catch (error) {
+    console.error("Error validating combo:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get account map by base_account
+ */
+export async function getAccountMapByBase(baseAccount: string): Promise<AccountMap | null> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT * FROM account_maps WHERE base_account = ?",
+      args: [baseAccount]
+    });
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    const row = result.rows[0];
+    return {
+      base_account: row.base_account as string,
+      level_0: row.level_0 as string,
+      level_1: row.level_1 as string,
+      level_2: row.level_2 as string,
+      level_3: row.level_3 as string,
+      level_4: row.level_4 as string,
+      level_5: row.level_5 as string,
+      level_6: row.level_6 as string,
+      level_7: row.level_7 as string,
+      level_8: row.level_8 as string,
+      level_9: row.level_9 as string,
+      level_10: row.level_10 as string,
+      level_11: row.level_11 as string,
+      level_12: row.level_12 as string,
+      level_13: row.level_13 as string,
+      level_14: row.level_14 as string,
+      level_15: row.level_15 as string,
+      level_16: row.level_16 as string,
+      level_17: row.level_17 as string,
+      level_18: row.level_18 as string,
+      level_19: row.level_19 as string,
+      level_20: row.level_20 as string,
+      level_21: row.level_21 as string,
+      level_22: row.level_22 as string,
+      level_23: row.level_23 as string,
+      level_24: row.level_24 as string,
+      level_25: row.level_25 as string,
+      level_26: row.level_26 as string,
+      level_27: row.level_27 as string,
+      level_28: row.level_28 as string,
+      level_29: row.level_29 as string,
+      level_30: row.level_30 as string,
+      description: row.description as string
+    };
+  } catch (error) {
+    console.error("Error getting account map:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get department map by base_department
+ */
+export async function getDepartmentMapByBase(baseDepartment: string): Promise<DepartmentMap | null> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT * FROM department_maps WHERE base_department = ?",
+      args: [baseDepartment]
+    });
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    const row = result.rows[0];
+    return {
+      base_department: row.base_department as string,
+      level_0: row.level_0 as string,
+      level_1: row.level_1 as string,
+      level_2: row.level_2 as string,
+      level_3: row.level_3 as string,
+      level_4: row.level_4 as string,
+      level_5: row.level_5 as string,
+      level_6: row.level_6 as string,
+      level_7: row.level_7 as string,
+      level_8: row.level_8 as string,
+      level_9: row.level_9 as string,
+      level_10: row.level_10 as string,
+      level_11: row.level_11 as string,
+      level_12: row.level_12 as string,
+      level_13: row.level_13 as string,
+      level_14: row.level_14 as string,
+      level_15: row.level_15 as string,
+      level_16: row.level_16 as string,
+      level_17: row.level_17 as string,
+      level_18: row.level_18 as string,
+      level_19: row.level_19 as string,
+      level_20: row.level_20 as string,
+      level_21: row.level_21 as string,
+      level_22: row.level_22 as string,
+      level_23: row.level_23 as string,
+      level_24: row.level_24 as string,
+      level_25: row.level_25 as string,
+      level_26: row.level_26 as string,
+      level_27: row.level_27 as string,
+      level_28: row.level_28 as string,
+      level_29: row.level_29 as string,
+      level_30: row.level_30 as string,
+      description: row.description as string
+    };
+  } catch (error) {
+    console.error("Error getting department map:", error);
     throw error;
   }
 }

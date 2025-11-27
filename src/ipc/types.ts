@@ -126,6 +126,19 @@ export const IPC_CHANNELS = {
 
   // Staging table channels
   DB_CLEAR_STAGING_TABLE: 'db:clear-staging-table',
+
+  // Mapping tables channels
+  DB_GET_MAPPING_TABLES_VERSION: 'db:get-mapping-tables-version',
+  DB_SET_MAPPING_TABLES_VERSION: 'db:set-mapping-tables-version',
+  DB_STORE_ACCOUNT_MAPS: 'db:store-account-maps',
+  DB_STORE_DEPARTMENT_MAPS: 'db:store-department-maps',
+  DB_STORE_COMBOS: 'db:store-combos',
+  DB_GET_ACCOUNT_MAPS: 'db:get-account-maps',
+  DB_GET_DEPARTMENT_MAPS: 'db:get-department-maps',
+  DB_GET_COMBOS: 'db:get-combos',
+  DB_IS_VALID_COMBO: 'db:is-valid-combo',
+  DB_GET_ACCOUNT_MAP: 'db:get-account-map',
+  DB_GET_DEPARTMENT_MAP: 'db:get-department-map',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];

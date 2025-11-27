@@ -301,6 +301,106 @@ export class DatabaseHandlers {
       timestamp: Date.now(),
     };
   };
+
+  // Mapping tables handlers
+  getMappingTablesVersionHandler: IpcHandler = async (event) => {
+    const result = await db.getMappingTablesVersion();
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  setMappingTablesVersionHandler: IpcHandler = async (event, request) => {
+    await db.setMappingTablesVersion(request.version, request.comboVersion);
+    return {
+      success: true,
+      data: { message: "Mapping tables version updated successfully" },
+      timestamp: Date.now(),
+    };
+  };
+
+  storeAccountMapsHandler: IpcHandler = async (event, request) => {
+    await db.storeAccountMaps(request.accountMaps);
+    return {
+      success: true,
+      data: { message: `Stored ${request.accountMaps.length} account maps successfully` },
+      timestamp: Date.now(),
+    };
+  };
+
+  storeDepartmentMapsHandler: IpcHandler = async (event, request) => {
+    await db.storeDepartmentMaps(request.departmentMaps);
+    return {
+      success: true,
+      data: { message: `Stored ${request.departmentMaps.length} department maps successfully` },
+      timestamp: Date.now(),
+    };
+  };
+
+  storeCombosHandler: IpcHandler = async (event, request) => {
+    await db.storeAccountDepartmentCombos(request.combos);
+    return {
+      success: true,
+      data: { message: `Stored ${request.combos.length} combos successfully` },
+      timestamp: Date.now(),
+    };
+  };
+
+  getAccountMapsHandler: IpcHandler = async (event) => {
+    const result = await db.getAccountMaps();
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  getDepartmentMapsHandler: IpcHandler = async (event) => {
+    const result = await db.getDepartmentMaps();
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  getCombosHandler: IpcHandler = async (event) => {
+    const result = await db.getAccountDepartmentCombos();
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  isValidComboHandler: IpcHandler = async (event, request) => {
+    const result = await db.isValidCombo(request.account, request.department);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  getAccountMapHandler: IpcHandler = async (event, request) => {
+    const result = await db.getAccountMapByBase(request.baseAccount);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  getDepartmentMapHandler: IpcHandler = async (event, request) => {
+    const result = await db.getDepartmentMapByBase(request.baseDepartment);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
 }
 
 // Factory function to create and register database handlers
@@ -339,5 +439,16 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_IMPORT_SESSION]: handlers.getImportSessionHandler,
     [IPC_CHANNELS.DB_GET_IMPORT_SESSIONS]: handlers.getImportSessionsHandler,
     [IPC_CHANNELS.DB_CLEAR_STAGING_TABLE]: handlers.clearStagingTableHandler,
+    [IPC_CHANNELS.DB_GET_MAPPING_TABLES_VERSION]: handlers.getMappingTablesVersionHandler,
+    [IPC_CHANNELS.DB_SET_MAPPING_TABLES_VERSION]: handlers.setMappingTablesVersionHandler,
+    [IPC_CHANNELS.DB_STORE_ACCOUNT_MAPS]: handlers.storeAccountMapsHandler,
+    [IPC_CHANNELS.DB_STORE_DEPARTMENT_MAPS]: handlers.storeDepartmentMapsHandler,
+    [IPC_CHANNELS.DB_STORE_COMBOS]: handlers.storeCombosHandler,
+    [IPC_CHANNELS.DB_GET_ACCOUNT_MAPS]: handlers.getAccountMapsHandler,
+    [IPC_CHANNELS.DB_GET_DEPARTMENT_MAPS]: handlers.getDepartmentMapsHandler,
+    [IPC_CHANNELS.DB_GET_COMBOS]: handlers.getCombosHandler,
+    [IPC_CHANNELS.DB_IS_VALID_COMBO]: handlers.isValidComboHandler,
+    [IPC_CHANNELS.DB_GET_ACCOUNT_MAP]: handlers.getAccountMapHandler,
+    [IPC_CHANNELS.DB_GET_DEPARTMENT_MAP]: handlers.getDepartmentMapHandler,
   };
 }

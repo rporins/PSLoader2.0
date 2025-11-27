@@ -29,6 +29,7 @@ import { useSettingsStore } from "../../store/settings";
 import authService, { Hotel } from "../../services/auth";
 import importConfigService from "../../services/importConfigService";
 import mappingConfigService from "../../services/mappingConfigService";
+import mappingTablesService from "../../services/mappingTablesService";
 
 // IPC API types
 interface IpcApi {
@@ -54,6 +55,12 @@ export default function Settings() {
   const [usingCache, setUsingCache] = useState(false);
   const [syncingMappings, setSyncingMappings] = useState(false);
   const [mappingSyncMessage, setMappingSyncMessage] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
+  // Mapping Tables state
+  const [mappingTablesVersion, setMappingTablesVersion] = useState<{ version: string; combo_version: string } | null>(null);
+  const [checkingVersion, setCheckingVersion] = useState(false);
+  const [syncingMappingTables, setSyncingMappingTables] = useState(false);
+  const [mappingTablesSyncMessage, setMappingTablesSyncMessage] = useState<{ type: 'success' | 'error' | 'info', message: string } | null>(null);
 
   const loadHotels = async (forceRefresh = false) => {
     try {
@@ -102,7 +109,17 @@ export default function Settings() {
 
   useEffect(() => {
     loadHotels();
+    loadMappingTablesVersion();
   }, []);
+
+  const loadMappingTablesVersion = async () => {
+    try {
+      const storedVersion = await mappingTablesService.getStoredVersion();
+      setMappingTablesVersion(storedVersion);
+    } catch (error) {
+      console.warn('Failed to load mapping tables version:', error);
+    }
+  };
 
   const handleRefreshHotels = async () => {
     setIsRefreshing(true);
@@ -157,6 +174,72 @@ export default function Settings() {
       setSyncingMappings(false);
       // Clear message after 5 seconds
       setTimeout(() => setMappingSyncMessage(null), 5000);
+    }
+  };
+
+  const handleCheckMappingTablesVersion = async () => {
+    setCheckingVersion(true);
+    setMappingTablesSyncMessage(null);
+
+    try {
+      const { needsSync, needsComboSync } = await mappingTablesService.checkIfSyncNeeded();
+
+      if (needsSync || needsComboSync) {
+        setMappingTablesSyncMessage({
+          type: 'info',
+          message: 'A new version is available. Click "Sync Mapping Tables" to update.'
+        });
+      } else {
+        setMappingTablesSyncMessage({
+          type: 'success',
+          message: 'Your mapping tables are up-to-date!'
+        });
+        // Clear success message after 3 seconds
+        setTimeout(() => setMappingTablesSyncMessage(null), 3000);
+      }
+    } catch (err: any) {
+      console.error('Failed to check mapping tables version:', err);
+      setMappingTablesSyncMessage({
+        type: 'error',
+        message: err.message || 'Failed to check version'
+      });
+    } finally {
+      setCheckingVersion(false);
+    }
+  };
+
+  const handleSyncMappingTables = async () => {
+    setSyncingMappingTables(true);
+    setMappingTablesSyncMessage(null);
+
+    try {
+      const synced = await mappingTablesService.syncMappingTables();
+
+      if (synced) {
+        // Reload version
+        await loadMappingTablesVersion();
+
+        setMappingTablesSyncMessage({
+          type: 'success',
+          message: 'Mapping tables synced successfully!'
+        });
+      } else {
+        setMappingTablesSyncMessage({
+          type: 'success',
+          message: 'Mapping tables are already up-to-date.'
+        });
+      }
+
+      // Clear message after 5 seconds
+      setTimeout(() => setMappingTablesSyncMessage(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to sync mapping tables:', err);
+      setMappingTablesSyncMessage({
+        type: 'error',
+        message: err.message || 'Failed to sync mapping tables'
+      });
+    } finally {
+      setSyncingMappingTables(false);
     }
   };
 
@@ -375,7 +458,7 @@ export default function Settings() {
             </Alert>
           )}
 
-          <Box>
+          <Box sx={{ mb: 4 }}>
             <Typography variant="body1" sx={{ mb: 1 }}>
               Mapping Configurations
             </Typography>
@@ -399,6 +482,73 @@ export default function Settings() {
                 Please select a hotel first
               </Typography>
             )}
+          </Box>
+
+          <Divider sx={{ my: 3 }} />
+
+          {mappingTablesSyncMessage && (
+            <Alert severity={mappingTablesSyncMessage.type} sx={{ mb: 2 }}>
+              {mappingTablesSyncMessage.message}
+            </Alert>
+          )}
+
+          <Box>
+            <Typography variant="body1" sx={{ mb: 1 }}>
+              Mapping Tables (Account/Department Hierarchies)
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Reference data for account and department hierarchies from the server (ID=1 config). This data is synced automatically on startup.
+            </Typography>
+
+            {mappingTablesVersion && (
+              <Box sx={{ mb: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Account/Department Version
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {mappingTablesVersion.version}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Combos Version
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {mappingTablesVersion.combo_version}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Box>
+            )}
+
+            <Stack direction="row" spacing={2}>
+              <Button
+                variant="outlined"
+                startIcon={checkingVersion ? <CircularProgress size={20} /> : <RefreshIcon />}
+                onClick={handleCheckMappingTablesVersion}
+                disabled={checkingVersion || syncingMappingTables}
+                sx={{
+                  borderRadius: 1,
+                  textTransform: 'none',
+                }}
+              >
+                {checkingVersion ? 'Checking...' : 'Check for Updates'}
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={syncingMappingTables ? <CircularProgress size={20} /> : <SyncIcon />}
+                onClick={handleSyncMappingTables}
+                disabled={syncingMappingTables || checkingVersion}
+                sx={{
+                  borderRadius: 1,
+                  textTransform: 'none',
+                }}
+              >
+                {syncingMappingTables ? 'Syncing...' : 'Sync Mapping Tables'}
+              </Button>
+            </Stack>
           </Box>
         </CardContent>
       </Card>

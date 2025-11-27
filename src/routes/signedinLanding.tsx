@@ -49,6 +49,7 @@ import TableRowsIcon from "@mui/icons-material/TableRows";
 import ThemeToggle from "./customComponents/themeToggle";
 import { useSettingsStore } from "../store/settings";
 import authService, { Hotel } from "../services/auth";
+import mappingTablesService from "../services/mappingTablesService";
 
 // IPC API types
 interface IpcApi {
@@ -482,6 +483,27 @@ const handleSignOut = useCallback(async () => {
 
     loadHotels();
   }, [selectedHotelOu]);
+
+  // Sync mapping tables on login (run once after component mounts)
+  useEffect(() => {
+    const syncMappingTablesOnStartup = async () => {
+      try {
+        console.log("Checking mapping tables sync status...");
+        const synced = await mappingTablesService.syncMappingTables();
+        if (synced) {
+          console.log("Mapping tables synced successfully on startup");
+        } else {
+          console.log("Mapping tables are up-to-date");
+        }
+      } catch (error) {
+        // Log error but don't block the app
+        console.warn("Failed to sync mapping tables on startup:", error);
+        // User can manually sync from settings if needed
+      }
+    };
+
+    syncMappingTablesOnStartup();
+  }, []); // Run only once on mount
 
   const displayName = user ? getDisplayName(user) : 'User';
   const userEmail = user ? getUserEmail(user) : '';
