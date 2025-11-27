@@ -943,6 +943,105 @@ export async function update12Periods(...args: unknown[]): Promise<string> {
 }
 
 //------------------------------------------------------------------------------------------------------------------
+//----------------- GET FINANCIAL REPORT DATA -----------------------------------------------------------------------
+// Function to retrieve financial report data with actuals vs budget comparison
+// Returns data with account and department mapping levels included
+export async function getFinancialReportData(
+  startPeriod: string,
+  ou?: string
+): Promise<string> {
+  const periodRegex = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+  if (!periodRegex.test(startPeriod)) {
+    throw new Error("Invalid period format. Expected 'YYYY-MM'.");
+  }
+
+  const numberOfPeriods = 12;
+  const periods = generatePeriods(startPeriod, numberOfPeriods);
+
+  try {
+    const query = `
+      WITH actuals_data AS (
+        SELECT
+          fd.dep_acc_combo_id AS combo,
+          d.d_easy_name AS department,
+          a.a_easy_name AS account,
+          ${periods.map((_, i) => `SUM(CASE WHEN fd.period_combo = ? THEN fd.amount ELSE 0 END) AS act_p${i + 1}`).join(',\n          ')}
+        FROM financial_data fd
+        JOIN department_accounts da ON fd.dep_acc_combo_id = da.dep_acc_combo_id
+        JOIN departments d ON da.department_id = d.department_id
+        JOIN accounts a ON da.account_id = a.account_id
+        WHERE fd.scenario = 'ACT'
+          ${ou ? 'AND fd.ou = ?' : ''}
+        GROUP BY fd.dep_acc_combo_id, d.d_easy_name, a.a_easy_name
+      ),
+      budget_data AS (
+        SELECT
+          fd.dep_acc_combo_id AS combo,
+          ${periods.map((_, i) => `SUM(CASE WHEN fd.period_combo = ? THEN fd.amount ELSE 0 END) AS bud_p${i + 1}`).join(',\n          ')}
+        FROM financial_data fd
+        WHERE fd.scenario = 'BUD'
+          ${ou ? 'AND fd.ou = ?' : ''}
+        GROUP BY fd.dep_acc_combo_id
+      )
+      SELECT
+        a.combo,
+        a.department,
+        a.account,
+        am.level_4 AS account_level_4,
+        am.level_6 AS account_level_6,
+        am.level_9 AS account_level_9,
+        dm.level_4 AS department_level_4,
+        dm.level_9 AS department_level_9,
+        ${periods.map((_, i) => `COALESCE(a.act_p${i + 1}, 0) AS act_p${i + 1}`).join(',\n        ')},
+        ${periods.map((_, i) => `COALESCE(b.bud_p${i + 1}, 0) AS bud_p${i + 1}`).join(',\n        ')}
+      FROM actuals_data a
+      LEFT JOIN budget_data b ON a.combo = b.combo
+      LEFT JOIN account_maps am ON a.account = am.base_account
+      LEFT JOIN department_maps dm ON a.department = dm.base_department
+      WHERE ${periods.map((_, i) => `(a.act_p${i + 1} != 0 OR b.bud_p${i + 1} != 0)`).join(' OR ')}
+      ORDER BY a.department, a.account
+    `;
+
+    // Build params array
+    const actualsParams = ou ? [...periods, ou] : periods;
+    const budgetParams = ou ? [...periods, ou] : periods;
+    const params = [...actualsParams, ...budgetParams];
+
+    const resultSet = await client.execute({ sql: query, args: params });
+    const rows = resultSet.rows as unknown as any[];
+
+    let idCounter = 1;
+    const result = rows.map((row) => {
+      const record: any = {
+        id: idCounter++,
+        combo: row.combo,
+        department: row.department,
+        account: row.account,
+        account_level_4: row.account_level_4,
+        account_level_6: row.account_level_6,
+        account_level_9: row.account_level_9,
+        department_level_4: row.department_level_4,
+        department_level_9: row.department_level_9,
+      };
+
+      // Add monthly actuals and budget
+      for (let i = 1; i <= 12; i++) {
+        record[`act_p${i}`] = row[`act_p${i}`] || 0;
+        record[`bud_p${i}`] = row[`bud_p${i}`] || 0;
+      }
+
+      return record;
+    });
+
+    return JSON.stringify(result);
+  } catch (error) {
+    console.error("Error fetching financial report data:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
 //--- INSERT BATCH DEPARTMENTS -----------------------------------------------------------------------------------------
 // interface defined in common area at the top
 
@@ -3336,5 +3435,119 @@ export async function getDepartmentMapByBase(baseDepartment: string): Promise<De
   } catch (error) {
     console.error("Error getting department map:", error);
     throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- FINANCIAL DATA IMPORT FUNCTIONS ------------------------------------------------------------------------------
+
+/**
+ * Store financial data from API import
+ * This truncates existing data for the OU and replaces with new data
+ */
+export async function storeFinancialData(ou: string, records: any[]) {
+  if (!Array.isArray(records) || records.length === 0) {
+    console.log("No records to store");
+    return;
+  }
+
+  try {
+    // Disable foreign key constraints temporarily for this import
+    await client.execute("PRAGMA foreign_keys = OFF");
+
+    // Delete all existing data for this OU (truncate and replace approach)
+    await client.execute({
+      sql: "DELETE FROM financial_data WHERE ou = ?",
+      args: [ou]
+    });
+
+    const batchQueries: { sql: string; args: any[] }[] = [];
+
+    // Insert all new records
+    for (const record of records) {
+      // Parse period (YYYY-MM format)
+      const [yearStr, monthStr] = record.period.split("-");
+      const year = parseInt(yearStr);
+      const month = parseInt(monthStr);
+
+      // Create a combo ID from department and account
+      const dep_acc_combo_id = `${record.department}_${record.account}`;
+
+      // Insert query - since we deleted all data for this OU, no conflicts
+      const insertQuery = `
+        INSERT INTO financial_data (
+          dep_acc_combo_id, month, year, period_combo, scenario,
+          amount, currency, ou, department, account, version, last_modified
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `;
+
+      batchQueries.push({
+        sql: insertQuery,
+        args: [
+          dep_acc_combo_id,
+          month,
+          year,
+          record.period,
+          record.scenario,
+          record.amount / 100, // Convert from cents to currency units
+          record.currency,
+          ou,
+          record.department,
+          record.account,
+          record.version
+        ]
+      });
+    }
+
+    // Execute batch insert
+    await client.batch(batchQueries);
+
+    // Re-enable foreign key constraints
+    await client.execute("PRAGMA foreign_keys = ON");
+
+    console.log(`Successfully stored ${records.length} financial records for OU ${ou}`);
+  } catch (error) {
+    // Make sure to re-enable foreign keys even if there's an error
+    try {
+      await client.execute("PRAGMA foreign_keys = ON");
+    } catch (pragmaError) {
+      console.error("Error re-enabling foreign keys:", pragmaError);
+    }
+    console.error("Error storing financial data:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get count of stored financial data records for an OU
+ */
+export async function getFinancialDataCount(ou: string): Promise<number> {
+  try {
+    const result = await client.execute({
+      sql: `SELECT COUNT(*) as count FROM financial_data WHERE ou = ?`,
+      args: [ou]
+    });
+
+    return result.rows[0]?.count as number || 0;
+  } catch (error) {
+    console.error("Error getting financial data count:", error);
+    return 0;
+  }
+}
+
+/**
+ * Get last import timestamp for an OU
+ */
+export async function getFinancialDataLastImport(ou: string): Promise<string | null> {
+  try {
+    const result = await client.execute({
+      sql: `SELECT MAX(last_modified) as last_import FROM financial_data WHERE ou = ?`,
+      args: [ou]
+    });
+
+    return result.rows[0]?.last_import as string || null;
+  } catch (error) {
+    console.error("Error getting last import timestamp:", error);
+    return null;
   }
 }

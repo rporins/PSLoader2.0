@@ -401,6 +401,43 @@ export class DatabaseHandlers {
       timestamp: Date.now(),
     };
   };
+
+  // Financial data import handlers
+  storeFinancialDataHandler: IpcHandler = async (event, request) => {
+    await db.storeFinancialData(request.ou, request.records);
+    return {
+      success: true,
+      data: { message: `Stored ${request.records.length} financial records successfully` },
+      timestamp: Date.now(),
+    };
+  };
+
+  getFinancialDataCountHandler: IpcHandler = async (event, request) => {
+    const result = await db.getFinancialDataCount(request.ou);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  getFinancialDataLastImportHandler: IpcHandler = async (event, request) => {
+    const result = await db.getFinancialDataLastImport(request.ou);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  getFinancialReportDataHandler: IpcHandler = async (event, request) => {
+    const result = await db.getFinancialReportData(request.startPeriod, request.ou);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
 }
 
 // Factory function to create and register database handlers
@@ -450,5 +487,9 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_IS_VALID_COMBO]: handlers.isValidComboHandler,
     [IPC_CHANNELS.DB_GET_ACCOUNT_MAP]: handlers.getAccountMapHandler,
     [IPC_CHANNELS.DB_GET_DEPARTMENT_MAP]: handlers.getDepartmentMapHandler,
+    [IPC_CHANNELS.DB_STORE_FINANCIAL_DATA]: handlers.storeFinancialDataHandler,
+    [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_COUNT]: handlers.getFinancialDataCountHandler,
+    [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_LAST_IMPORT]: handlers.getFinancialDataLastImportHandler,
+    [IPC_CHANNELS.DB_GET_FINANCIAL_REPORT_DATA]: handlers.getFinancialReportDataHandler,
   };
 }

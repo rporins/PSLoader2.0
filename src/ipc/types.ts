@@ -139,6 +139,12 @@ export const IPC_CHANNELS = {
   DB_IS_VALID_COMBO: 'db:is-valid-combo',
   DB_GET_ACCOUNT_MAP: 'db:get-account-map',
   DB_GET_DEPARTMENT_MAP: 'db:get-department-map',
+
+  // Financial data import channels
+  DB_STORE_FINANCIAL_DATA: 'db:store-financial-data',
+  DB_GET_FINANCIAL_DATA_COUNT: 'db:get-financial-data-count',
+  DB_GET_FINANCIAL_DATA_LAST_IMPORT: 'db:get-financial-data-last-import',
+  DB_GET_FINANCIAL_REPORT_DATA: 'db:get-financial-report-data',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];

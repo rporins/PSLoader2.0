@@ -25,11 +25,13 @@ import {
 import RefreshIcon from "@mui/icons-material/Refresh";
 import CachedIcon from "@mui/icons-material/Cached";
 import SyncIcon from "@mui/icons-material/Sync";
+import DownloadIcon from "@mui/icons-material/Download";
 import { useSettingsStore } from "../../store/settings";
 import authService, { Hotel } from "../../services/auth";
 import importConfigService from "../../services/importConfigService";
 import mappingConfigService from "../../services/mappingConfigService";
 import mappingTablesService from "../../services/mappingTablesService";
+import financialDataService from "../../services/financialDataService";
 
 // IPC API types
 interface IpcApi {
@@ -61,6 +63,12 @@ export default function Settings() {
   const [checkingVersion, setCheckingVersion] = useState(false);
   const [syncingMappingTables, setSyncingMappingTables] = useState(false);
   const [mappingTablesSyncMessage, setMappingTablesSyncMessage] = useState<{ type: 'success' | 'error' | 'info', message: string } | null>(null);
+
+  // Financial Data Import state
+  const [importingFinancialData, setImportingFinancialData] = useState(false);
+  const [financialDataImportMessage, setFinancialDataImportMessage] = useState<{ type: 'success' | 'error' | 'info', message: string } | null>(null);
+  const [financialDataCount, setFinancialDataCount] = useState<number | null>(null);
+  const [lastImportDate, setLastImportDate] = useState<string | null>(null);
 
   const loadHotels = async (forceRefresh = false) => {
     try {
@@ -110,7 +118,15 @@ export default function Settings() {
   useEffect(() => {
     loadHotels();
     loadMappingTablesVersion();
+    loadFinancialDataInfo();
   }, []);
+
+  useEffect(() => {
+    // Reload financial data info when selected hotel changes
+    if (selectedHotelOu) {
+      loadFinancialDataInfo();
+    }
+  }, [selectedHotelOu]);
 
   const loadMappingTablesVersion = async () => {
     try {
@@ -118,6 +134,23 @@ export default function Settings() {
       setMappingTablesVersion(storedVersion);
     } catch (error) {
       console.warn('Failed to load mapping tables version:', error);
+    }
+  };
+
+  const loadFinancialDataInfo = async () => {
+    if (!selectedHotelOu) {
+      setFinancialDataCount(null);
+      setLastImportDate(null);
+      return;
+    }
+
+    try {
+      const count = await financialDataService.getStoredDataCount(selectedHotelOu);
+      const lastImport = await financialDataService.getLastImportTimestamp(selectedHotelOu);
+      setFinancialDataCount(count);
+      setLastImportDate(lastImport);
+    } catch (error) {
+      console.warn('Failed to load financial data info:', error);
     }
   };
 
@@ -240,6 +273,42 @@ export default function Settings() {
       });
     } finally {
       setSyncingMappingTables(false);
+    }
+  };
+
+  const handleImportFinancialData = async () => {
+    if (!selectedHotelOu) {
+      setFinancialDataImportMessage({
+        type: 'error',
+        message: 'Please select a hotel first'
+      });
+      return;
+    }
+
+    setImportingFinancialData(true);
+    setFinancialDataImportMessage(null);
+
+    try {
+      const result = await financialDataService.importFinancialData(selectedHotelOu);
+
+      setFinancialDataImportMessage({
+        type: 'success',
+        message: result.message
+      });
+
+      // Reload financial data info
+      await loadFinancialDataInfo();
+
+      // Clear message after 5 seconds
+      setTimeout(() => setFinancialDataImportMessage(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to import financial data:', err);
+      setFinancialDataImportMessage({
+        type: 'error',
+        message: err.message || 'Failed to import financial data'
+      });
+    } finally {
+      setImportingFinancialData(false);
     }
   };
 
@@ -549,6 +618,73 @@ export default function Settings() {
                 {syncingMappingTables ? 'Syncing...' : 'Sync Mapping Tables'}
               </Button>
             </Stack>
+          </Box>
+        </CardContent>
+      </Card>
+
+      <Card variant="outlined" sx={{ mt: 2, borderRadius: 2, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+        <CardContent>
+          <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+            Financial Data Import
+          </Typography>
+          <Divider sx={{ mb: 3 }} />
+
+          {financialDataImportMessage && (
+            <Alert severity={financialDataImportMessage.type} sx={{ mb: 2 }}>
+              {financialDataImportMessage.message}
+            </Alert>
+          )}
+
+          <Box>
+            <Typography variant="body1" sx={{ mb: 1 }}>
+              Import Actuals, Budget & Forecast Data
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Import historical actuals, budget, and forecast data from the server for the selected hotel. This data will be stored locally for faster report generation.
+            </Typography>
+
+            {selectedHotelOu && financialDataCount !== null && (
+              <Box sx={{ mb: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Records Stored for {selectedHotelOu}
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {financialDataCount.toLocaleString()}
+                    </Typography>
+                  </Grid>
+                  {lastImportDate && (
+                    <Grid item xs={12} sm={6}>
+                      <Typography variant="caption" color="text.secondary">
+                        Last Import
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {new Date(lastImportDate).toLocaleString()}
+                      </Typography>
+                    </Grid>
+                  )}
+                </Grid>
+              </Box>
+            )}
+
+            <Button
+              variant="contained"
+              startIcon={importingFinancialData ? <CircularProgress size={20} /> : <DownloadIcon />}
+              onClick={handleImportFinancialData}
+              disabled={importingFinancialData || !selectedHotelOu}
+              sx={{
+                borderRadius: 1,
+                textTransform: 'none',
+              }}
+            >
+              {importingFinancialData ? 'Importing...' : 'Import Financial Data'}
+            </Button>
+            {!selectedHotelOu && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                Please select a hotel first
+              </Typography>
+            )}
           </Box>
         </CardContent>
       </Card>
