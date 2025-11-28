@@ -15,6 +15,8 @@ const config: ForgeConfig = {
       unpack: '**/node_modules/{@libsql,better-sqlite3,electron-updater,electron-squirrel-startup,node-machine-id,systeminformation,nodejs-polars}/**/*'
     },
     icon: './src/images/marriott_logo',
+    // Ensure all dependencies are included in the package
+    prune: false,
   },
   rebuildConfig: {},
   makers: [
