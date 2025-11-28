@@ -94,9 +94,17 @@ owner: rporins
 repo: PSLoader2.0
 updaterCacheDirName: ps_loader-updater`;
 
-        const updateYmlPath = join(appPath, 'app-update.yml');
-        console.log('Creating app-update.yml at:', updateYmlPath);
-        writeFileSync(updateYmlPath, updateYml, 'utf8');
+        // Write to resources/ (for Squirrel installer)
+        const resourcesPath = options.outputPaths[0] + '/resources';
+        const updateYmlPathResources = join(resourcesPath, 'app-update.yml');
+        console.log('Creating app-update.yml at:', updateYmlPathResources);
+        writeFileSync(updateYmlPathResources, updateYml, 'utf8');
+
+        // Also write to resources/app/ (backup location)
+        const updateYmlPathApp = join(appPath, 'app-update.yml');
+        console.log('Creating app-update.yml at:', updateYmlPathApp);
+        writeFileSync(updateYmlPathApp, updateYml, 'utf8');
+
         console.log('✓ app-update.yml created successfully\n');
 
       } catch (err) {
