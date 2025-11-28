@@ -1,6 +1,7 @@
 import type { ConfigEnv, UserConfig } from 'vite';
 import { defineConfig } from 'vite';
 import { pluginExposeRenderer } from './vite.base.config';
+import pkg from './package.json';
 
 // https://vitejs.dev/config
 export default defineConfig((env) => {
@@ -18,6 +19,9 @@ export default defineConfig((env) => {
     plugins: [pluginExposeRenderer(name)],
     resolve: {
       preserveSymlinks: true,
+    },
+    define: {
+      __APP_VERSION__: JSON.stringify(pkg.version),
     },
     clearScreen: false,
   } as UserConfig;

@@ -1014,7 +1014,7 @@ export default function Landing() {
               opacity: 0.5,
             }}
           >
-            v2025.2.12 Alpha
+            v{__APP_VERSION__}
           </Typography>
         </Box>
       </Box>
