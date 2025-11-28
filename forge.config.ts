@@ -11,9 +11,7 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: {
-      unpack: '**/node_modules/{@libsql,better-sqlite3,electron-updater,electron-squirrel-startup,node-machine-id,systeminformation,nodejs-polars}/**/*'
-    },
+    asar: false, // Disable ASAR to fix electron-updater module loading issue
     icon: './src/images/marriott_logo',
     // Ensure all dependencies are included in the package
     prune: false,
@@ -74,8 +72,8 @@ const config: ForgeConfig = {
       [FuseV1Options.EnableCookieEncryption]: true,
       [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
       [FuseV1Options.EnableNodeCliInspectArguments]: false,
-      [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
-      [FuseV1Options.OnlyLoadAppFromAsar]: true,
+      [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: false, // Disabled since ASAR is disabled
+      [FuseV1Options.OnlyLoadAppFromAsar]: false, // Disabled since ASAR is disabled
     }),
   ],
 };
