@@ -303,9 +303,44 @@ See Part 2 solution above for the complete `hooks` configuration.
 
 3. **If .node files found (native module):**
    - Add to `externalDeps` array in `packageAfterPrune` hook in `forge.config.ts`
+   - **CRITICAL:** Also add to `nativeModules` array in `vite.base.config.ts`
    - Rebuild and test
 
-4. **Verify the fix worked:**
+4. **⚠️ CRITICAL: Check for scoped package sub-dependencies:**
+   - If the module is a scoped package (e.g., `@libsql/client`), check for sub-packages:
+     ```bash
+     ls node_modules/@libsql/
+     # Example output: client, core, hrana-client, isomorphic-fetch, isomorphic-ws, win32-x64-msvc
+     ```
+   - **ALL sub-packages must be added to both:**
+     - `externalDeps` in `forge.config.ts` (for packageAfterPrune hook)
+     - `nativeModules` in `vite.base.config.ts` (for externalization)
+   - Example for `@libsql/client`:
+     ```typescript
+     // In forge.config.ts
+     const externalDeps = [
+       '@libsql/client',
+       '@libsql/core',
+       '@libsql/hrana-client',
+       '@libsql/isomorphic-fetch',
+       '@libsql/isomorphic-ws',
+       '@libsql/win32-x64-msvc',  // Platform-specific native module
+       // ... other deps
+     ];
+
+     // In vite.base.config.ts
+     const nativeModules = [
+       '@libsql/client',
+       '@libsql/core',
+       '@libsql/hrana-client',
+       '@libsql/isomorphic-fetch',
+       '@libsql/isomorphic-ws',
+       '@libsql/win32-x64-msvc',
+       // ... other modules
+     ];
+     ```
+
+5. **Verify the fix worked:**
    ```bash
    # After npm run package
    grep -o "require.*X" .vite/build/main.js
@@ -313,7 +348,84 @@ See Part 2 solution above for the complete `hooks` configuration.
    # If native: Should show require, but check:
    ls "out/PS Loader 2.0-win32-x64/resources/app/node_modules/X"
    # Should exist
+
+   # For scoped packages, verify ALL sub-packages:
+   ls "out/PS Loader 2.0-win32-x64/resources/app/node_modules/@libsql/"
+   # Should show: client, core, hrana-client, etc.
    ```
+
+---
+
+## Common Pitfall: Scoped Packages with Sub-Dependencies
+
+### Problem
+When using scoped packages like `@libsql/client`, npm installs the main package AND multiple sub-packages in the `node_modules/@libsql/` directory. If you only add `@libsql/client` to the `externalDeps` array, npm will install it in the build directory, but the sub-packages may not all be installed correctly, leading to "Cannot find module" errors.
+
+### Example Error
+```
+Error: Cannot find module '@libsql/client'
+Require stack:
+  - C:\Users\{user}\AppData\Local\{app}\app-{version}\resources\app\.vite\build\main.js
+```
+
+### Root Cause
+The `@libsql/client` package has internal dependencies on:
+- `@libsql/core`
+- `@libsql/hrana-client`
+- `@libsql/isomorphic-fetch`
+- `@libsql/isomorphic-ws`
+- `@libsql/win32-x64-msvc` (platform-specific native module)
+
+When the `packageAfterPrune` hook runs `npm install @libsql/client`, it may not properly resolve all the sub-package dependencies in the monorepo structure.
+
+### Solution
+**Explicitly list ALL sub-packages** in both configuration files:
+
+1. In `forge.config.ts`:
+```typescript
+const externalDeps = [
+  '@libsql/client',
+  '@libsql/core',
+  '@libsql/hrana-client',
+  '@libsql/isomorphic-fetch',
+  '@libsql/isomorphic-ws',
+  '@libsql/win32-x64-msvc',
+  // ... other deps
+];
+```
+
+2. In `vite.base.config.ts`:
+```typescript
+const nativeModules = [
+  '@libsql/client',
+  '@libsql/core',
+  '@libsql/hrana-client',
+  '@libsql/isomorphic-fetch',
+  '@libsql/isomorphic-ws',
+  '@libsql/win32-x64-msvc',
+  // ... other modules
+];
+```
+
+### How to Find Sub-Packages
+```bash
+# List all sub-packages for a scoped package
+ls node_modules/@libsql/
+# or on Windows
+dir node_modules\@libsql\
+
+# Check which ones have native bindings
+find node_modules/@libsql -name "*.node"
+# or on Windows
+dir /s /b node_modules\@libsql\*.node
+```
+
+### Verification
+After packaging, verify all sub-packages are present:
+```bash
+ls "out/PS Loader 2.0-win32-x64/resources/app/node_modules/@libsql/"
+# Should show: client, core, hrana-client, isomorphic-fetch, isomorphic-ws, win32-x64-msvc
+```
 
 ---
 
@@ -334,3 +446,4 @@ See Part 2 solution above for the complete `hooks` configuration.
 5. **Always verify by inspecting the package output** - Don't assume a config change worked
 6. **The error path shows it's a packaged app issue** - If path includes `AppData\Local\{app}\app-{version}`, it's a packaging problem
 7. **Use `packageAfterPrune` hook for native modules** - This is the ONLY working solution for modules that can't be bundled
+8. **⚠️ CRITICAL: Check for scoped package sub-dependencies** - Scoped packages like `@libsql/client` have sub-packages that MUST be explicitly listed in BOTH `forge.config.ts` AND `vite.base.config.ts`. Use `ls node_modules/@scope/` to find all sub-packages and add them ALL to both configuration files.

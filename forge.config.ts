@@ -24,6 +24,11 @@ const config: ForgeConfig = {
         // Install external native dependencies that weren't bundled by Vite
         const externalDeps = [
           '@libsql/client',
+          '@libsql/core',
+          '@libsql/hrana-client',
+          '@libsql/isomorphic-fetch',
+          '@libsql/isomorphic-ws',
+          '@libsql/win32-x64-msvc',
           'nodejs-polars',
           'node-machine-id',
           'systeminformation',

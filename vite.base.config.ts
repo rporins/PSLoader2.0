@@ -37,6 +37,11 @@ const bundledModules = [
 const nativeModules = [
   'electron-squirrel-startup',
   '@libsql/client',
+  '@libsql/core',
+  '@libsql/hrana-client',
+  '@libsql/isomorphic-fetch',
+  '@libsql/isomorphic-ws',
+  '@libsql/win32-x64-msvc',
   'node-machine-id',
   'systeminformation',
   'nodejs-polars',
