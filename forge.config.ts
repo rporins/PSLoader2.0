@@ -12,7 +12,7 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: {
-      unpack: '**/node_modules/{@libsql,better-sqlite3}/**/*'
+      unpack: '**/node_modules/{@libsql,better-sqlite3,electron-updater,electron-squirrel-startup,node-machine-id,systeminformation,nodejs-polars}/**/*'
     },
     icon: './src/images/marriott_logo',
   },

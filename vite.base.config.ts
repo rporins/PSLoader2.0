@@ -5,22 +5,52 @@ import pkg from './package.json';
 
 export const builtins = ['electron', ...builtinModules.map((m) => [m, `node:${m}`]).flat()];
 
-// Modules that should not be bundled by Vite (will be handled by Electron at runtime)
-const notBundledModules = [
+// Modules that SHOULD be bundled by Vite (for renderer process)
+// These are pure JS modules that work well when bundled
+const bundledModules = [
+  // 3D rendering libraries (renderer only)
   'three',
   'framer-motion',
   '@react-three/fiber',
   '@react-three/drei',
+  // UI libraries (renderer only)
   '@mui/x-data-grid-premium',
-  'electron-squirrel-startup'
+  '@mui/material',
+  '@mui/icons-material',
+  '@emotion/react',
+  '@emotion/styled',
+  // React and related (renderer only)
+  'react',
+  'react-dom',
+  'react-router-dom',
+  // Pure JS utilities (can be bundled)
+  'csv-parse',
+  'xlsx',
+  'uuid',
+  '@faker-js/faker',
+  '@fontsource/roboto'
+];
+
+// Native modules that MUST be externalized (cannot be bundled)
+const nativeModules = [
+  'electron-updater',
+  'electron-squirrel-startup',
+  '@libsql/client',
+  'node-machine-id',
+  'systeminformation',
+  'nodejs-polars',
+  'better-sqlite3'
 ];
 
 export const external = [
   ...builtins,
-  // Externalize all @libsql packages (native modules with dynamic requires)
-  /^@libsql\//,
+  // Externalize all native modules and their sub-dependencies
+  ...nativeModules,
+  /^@libsql\//,  // All @libsql sub-packages
+  /^nodejs-polars/,  // All polars sub-packages
+  // Externalize all dependencies EXCEPT those explicitly bundled
   ...Object.keys('dependencies' in pkg ? (pkg.dependencies as Record<string, unknown>) : {})
-    .filter(dep => !notBundledModules.includes(dep) && !dep.startsWith('@libsql/'))
+    .filter(dep => !bundledModules.includes(dep) && !nativeModules.includes(dep))
 ];
 
 export function getBuildConfig(env: ConfigEnv<'build'>): UserConfig {
