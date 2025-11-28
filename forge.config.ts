@@ -8,6 +8,8 @@ import { VitePlugin } from '@electron-forge/plugin-vite';
 // import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { spawn } from 'child_process';
+import path from 'path';
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -16,6 +18,40 @@ const config: ForgeConfig = {
     prune: false,
   },
   rebuildConfig: {},
+  hooks: {
+    packageAfterPrune: async (_config, buildPath) => {
+      return new Promise<void>((resolve, reject) => {
+        // Install external native dependencies that weren't bundled by Vite
+        const externalDeps = [
+          '@libsql/client',
+          'nodejs-polars',
+          'node-machine-id',
+          'systeminformation',
+          'electron-squirrel-startup',
+        ];
+
+        console.log('Installing external native dependencies...');
+        const npm = spawn('npm', ['install', '--no-package-lock', '--no-save', ...externalDeps], {
+          cwd: buildPath,
+          stdio: 'inherit',
+          shell: true,
+        });
+
+        npm.on('close', (code) => {
+          if (code === 0) {
+            console.log('External dependencies installed successfully');
+            resolve();
+          } else {
+            reject(new Error(`npm install failed with code: ${code}`));
+          }
+        });
+
+        npm.on('error', (err) => {
+          reject(err);
+        });
+      });
+    },
+  },
   makers: [
     new MakerSquirrel({
       // Per-user install - no admin rights required
