@@ -9,6 +9,13 @@ export const builtins = ['electron', ...builtinModules.map((m) => [m, `node:${m}
 const nativeModules = [
   'electron-updater',
   '@libsql/client',
+  '@libsql/darwin-arm64',
+  '@libsql/darwin-x64',
+  '@libsql/linux-arm64-gnu',
+  '@libsql/linux-arm64-musl',
+  '@libsql/linux-x64-gnu',
+  '@libsql/linux-x64-musl',
+  '@libsql/win32-x64-msvc',
   'nodejs-polars',
   'systeminformation',
   'node-machine-id',
