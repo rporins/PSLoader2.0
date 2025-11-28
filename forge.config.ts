@@ -11,7 +11,9 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
+    asar: {
+      unpack: '**/node_modules/{electron-updater,electron-squirrel-startup,@libsql,nodejs-polars,nodejs-polars-win32-x64-msvc,node-machine-id,systeminformation,builder-util-runtime,@rollup,@neon-rs}/**/*'
+    },
     icon: './src/images/marriott_logo',
     prune: false,
   },
