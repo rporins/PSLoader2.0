@@ -4,7 +4,7 @@
  */
 
 import { ipcRegistry } from "./registry";
-import { createAuthHandlers, createDatabaseHandlers, createHardwareHandlers, createDataImportHandlers, createSettingsHandlers, createImportsHandlers } from "./handlers";
+import { createAuthHandlers, createDatabaseHandlers, createHardwareHandlers, createDataImportHandlers, createSettingsHandlers, createImportsHandlers, createAppHandlers } from "./handlers";
 import {
   loggingMiddleware,
   errorHandlingMiddleware,
@@ -66,6 +66,12 @@ export function initializeIpc(
   // Register Imports handlers
   const importsHandlers = createImportsHandlers();
   Object.entries(importsHandlers).forEach(([channel, handler]) => {
+    ipcRegistry.register(channel, handler);
+  });
+
+  // Register App handlers
+  const appHandlers = createAppHandlers();
+  Object.entries(appHandlers).forEach(([channel, handler]) => {
     ipcRegistry.register(channel, handler);
   });
 

@@ -70,6 +70,9 @@ export default function Settings() {
   const [financialDataCount, setFinancialDataCount] = useState<number | null>(null);
   const [lastImportDate, setLastImportDate] = useState<string | null>(null);
 
+  // App version
+  const [appVersion, setAppVersion] = useState<string>('');
+
   const loadHotels = async (forceRefresh = false) => {
     try {
       setLoadingHotels(true);
@@ -119,7 +122,19 @@ export default function Settings() {
     loadHotels();
     loadMappingTablesVersion();
     loadFinancialDataInfo();
+    loadAppVersion();
   }, []);
+
+  const loadAppVersion = async () => {
+    try {
+      if (window.ipcApi) {
+        const version = await window.ipcApi.sendIpcRequest("app:get-version");
+        setAppVersion(version);
+      }
+    } catch (error) {
+      console.warn('Failed to load app version:', error);
+    }
+  };
 
   useEffect(() => {
     // Reload financial data info when selected hotel changes
@@ -688,6 +703,12 @@ export default function Settings() {
           </Box>
         </CardContent>
       </Card>
+
+      <Box sx={{ mt: 4, textAlign: 'center', pb: 2 }}>
+        <Typography variant="caption" color="text.secondary">
+          PS Loader Version {appVersion || 'Loading...'}
+        </Typography>
+      </Box>
     </Box>
   );
 }

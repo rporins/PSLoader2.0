@@ -60,6 +60,16 @@ export interface IpcApi {
   offAuthSuccess?: (callback: (event: any, data: any) => void) => void;
   offAuthError?: (callback: (event: any, error: string) => void) => void;
   offAuthLogout?: (callback: (event: any) => void) => void;
+  onUpdateAvailable: (callback: (event: any, info: any) => void) => void;
+  onUpdateNotAvailable: (callback: () => void) => void;
+  onDownloadProgress: (callback: (event: any, progress: any) => void) => void;
+  onUpdateDownloaded: (callback: () => void) => void;
+  onUpdateError: (callback: (event: any, error: string) => void) => void;
+  offUpdateAvailable?: (callback: (event: any, info: any) => void) => void;
+  offUpdateNotAvailable?: (callback: () => void) => void;
+  offDownloadProgress?: (callback: (event: any, progress: any) => void) => void;
+  offUpdateDownloaded?: (callback: () => void) => void;
+  offUpdateError?: (callback: (event: any, error: string) => void) => void;
 }
 
 // Expose the API in the renderer's `window` object
@@ -126,5 +136,35 @@ contextBridge.exposeInMainWorld('ipcApi', {
   },
   offAuthLogout: (callback: (event: any) => void) => {
     ipcRenderer.off('auth-logout', callback);
+  },
+  onUpdateAvailable: (callback: (event: any, info: any) => void) => {
+    ipcRenderer.on('update-available', callback);
+  },
+  onUpdateNotAvailable: (callback: () => void) => {
+    ipcRenderer.on('update-not-available', callback);
+  },
+  onDownloadProgress: (callback: (event: any, progress: any) => void) => {
+    ipcRenderer.on('download-progress', callback);
+  },
+  onUpdateDownloaded: (callback: () => void) => {
+    ipcRenderer.on('update-downloaded', callback);
+  },
+  onUpdateError: (callback: (event: any, error: string) => void) => {
+    ipcRenderer.on('update-error', callback);
+  },
+  offUpdateAvailable: (callback: (event: any, info: any) => void) => {
+    ipcRenderer.off('update-available', callback);
+  },
+  offUpdateNotAvailable: (callback: () => void) => {
+    ipcRenderer.off('update-not-available', callback);
+  },
+  offDownloadProgress: (callback: (event: any, progress: any) => void) => {
+    ipcRenderer.off('download-progress', callback);
+  },
+  offUpdateDownloaded: (callback: () => void) => {
+    ipcRenderer.off('update-downloaded', callback);
+  },
+  offUpdateError: (callback: (event: any, error: string) => void) => {
+    ipcRenderer.off('update-error', callback);
   }
 });

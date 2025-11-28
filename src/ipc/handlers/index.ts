@@ -9,6 +9,7 @@ export * from "./hardware";
 export * from "./dataImport";
 export * from "./settings";
 export * from "./imports";
+export * from "./app";
 
 // You can add more handler modules here as your application grows:
 // export * from "./file-system";
