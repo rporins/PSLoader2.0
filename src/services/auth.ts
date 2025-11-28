@@ -125,34 +125,23 @@ class AuthService {
     if (storedDeviceId) {
       this.deviceId = storedDeviceId;
     } else {
-      // Generate device ID only once from hardware info
-      const platform = navigator.platform;
+      // Generate a random UUID-style device ID (just an identifier, not a security hash)
+      // Use timestamp + random values + username as seed for uniqueness
+      const hardwareInfo = await window.ipcApi.getHardwareInfo().catch(() => null);
+      const username = hardwareInfo?.username || 'UNKNOWN';
+      const timestamp = Date.now();
+      const randomInt = Math.floor(Math.random() * 1000000);
 
-      // Get hardware info from Electron main process
-      let hardwareInfo = null;
-      try {
-        hardwareInfo = await window.ipcApi.getHardwareInfo();
-      } catch (error) {
-        console.warn('Failed to get hardware info from main process:', error);
-      }
-
-      // Create stable device ID from permanent hardware identifiers
-      const deviceIdComponents = [
-        platform,
-        hardwareInfo?.machineId || 'UNKNOWN',
-        hardwareInfo?.biosSerial || 'UNKNOWN',
-        hardwareInfo?.motherboardSerial || 'UNKNOWN',
-        hardwareInfo?.cpuInfo.model || 'UNKNOWN',
-        hardwareInfo?.hostname || 'UNKNOWN',
-        hardwareInfo?.username || 'UNKNOWN'
-      ];
-
-      // Generate device ID using Web Crypto API
+      // Create UUID seed from timestamp, random int, and username
+      const uuidSeed = `${timestamp}-${randomInt}-${username}`;
       const encoder = new TextEncoder();
-      const deviceIdData = encoder.encode(deviceIdComponents.join('||'));
-      const deviceIdHash = await crypto.subtle.digest('SHA-256', deviceIdData);
-      const deviceIdArray = Array.from(new Uint8Array(deviceIdHash));
-      this.deviceId = deviceIdArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      const uuidData = encoder.encode(uuidSeed);
+      const uuidHash = await crypto.subtle.digest('SHA-256', uuidData);
+      const uuidArray = Array.from(new Uint8Array(uuidHash));
+
+      // Format as UUID-like string (8-4-4-4-12)
+      const hexString = uuidArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      this.deviceId = `${hexString.substr(0, 8)}-${hexString.substr(8, 4)}-${hexString.substr(12, 4)}-${hexString.substr(16, 4)}-${hexString.substr(20, 12)}`;
 
       // Store device ID in database - ONLY ONCE
       try {
@@ -166,7 +155,7 @@ class AuthService {
       }
     }
 
-    // Always generate device secret from many hardware values + permanent salt
+    // Always generate device secret from stable hardware identifiers + permanent salt
     // This is a hash, not stored, regenerated each time from hardware
     // Get fresh hardware info for device secret generation
     const platform = navigator.platform;
@@ -177,7 +166,9 @@ class AuthService {
       console.warn('Failed to get hardware info for device secret:', error);
     }
 
-    // Device secret includes ALL hardware identifiers (more than device ID)
+    // Device secret uses ONLY stable hardware identifiers
+    // Excludes: macAddresses (docking stations), cpuInfo.cores (BIOS settings),
+    //           memoryTotal (upgrades), hostname (renames), username (account switching)
     const encoder = new TextEncoder();
     const deviceSecretComponents = [
       platform,
@@ -186,12 +177,7 @@ class AuthService {
       hardwareInfo?.biosSerial || 'UNKNOWN',
       hardwareInfo?.motherboardSerial || 'UNKNOWN',
       hardwareInfo?.diskSerial || 'UNKNOWN',
-      hardwareInfo?.cpuInfo.model || 'UNKNOWN',
-      hardwareInfo?.cpuInfo.cores.toString() || 'UNKNOWN',
-      hardwareInfo?.memoryTotal.toString() || 'UNKNOWN',
-      hardwareInfo?.hostname || 'UNKNOWN',        // Computer name
-      hardwareInfo?.username || 'UNKNOWN',        // Logged-in user
-      hardwareInfo?.macAddresses.join(',') || 'UNKNOWN'  // MAC addresses
+      hardwareInfo?.cpuInfo.model || 'UNKNOWN'  // Model name only, not core count
     ];
     const deviceSecretData = encoder.encode(deviceSecretComponents.join('||'));
     const deviceSecretHash = await crypto.subtle.digest('SHA-256', deviceSecretData);
@@ -269,6 +255,15 @@ class AuthService {
       throw new Error('No access token available');
     }
 
+    // Get user email for cross-referencing
+    let userEmail = 'Unknown';
+    try {
+      const userInfo = await this.getCurrentUser();
+      userEmail = userInfo.email;
+    } catch (error) {
+      console.warn('Failed to get user email:', error);
+    }
+
     // Get stable browser info
     const userAgent = navigator.userAgent;
     const platform = navigator.platform;
@@ -283,13 +278,13 @@ class AuthService {
     }
 
     // Use real hardware serials or fallback to 'UNKNOWN'
+    // Only include stable hardware identifiers (no MAC addresses)
     const hardwareInfo = {
       machine_id: realHardwareInfo?.machineId || 'UNKNOWN',
       processor_id: realHardwareInfo?.cpuInfo.model || 'UNKNOWN',
       bios_serial: realHardwareInfo?.biosSerial || 'UNKNOWN',
       motherboard_serial: realHardwareInfo?.motherboardSerial || 'UNKNOWN',
-      disk_serial: realHardwareInfo?.diskSerial || 'UNKNOWN',
-      mac_addresses: realHardwareInfo?.macAddresses || []
+      disk_serial: realHardwareInfo?.diskSerial || 'UNKNOWN'
     };
 
     // Get system info for identification (NOT used in hash - can change)
@@ -301,12 +296,12 @@ class AuthService {
     const permanentSalt = await this.getOrCreatePermanentSalt();
 
     const deviceInfo = {
-      device_name: `${hostname}, ${username}, ${osVersion}`,
+      device_name: `${userEmail} | ${hostname} | ${username} | ${osVersion}`,
       os_version: osVersion,
       hostname: hostname,
       user_agent: userAgent,
       username: username,
-      details: `${hostname}, ${username}, Salt:${permanentSalt.substring(0, 8)}...` // Comma-separated string with salt preview
+      details: `${userEmail}, ${hostname}, ${username}, Salt:${permanentSalt.substring(0, 8)}...` // Email first for easy cross-reference
     };
 
     const response = await fetch(`${API_BASE_URL}/devices/register`, {

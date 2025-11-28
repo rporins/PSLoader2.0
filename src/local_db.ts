@@ -964,16 +964,14 @@ export async function getFinancialReportData(
       WITH actuals_data AS (
         SELECT
           fd.dep_acc_combo_id AS combo,
-          d.d_easy_name AS department,
-          a.a_easy_name AS account,
+          fd.department,
+          fd.account,
           ${periods.map((_, i) => `SUM(CASE WHEN fd.period_combo = ? THEN fd.amount ELSE 0 END) AS act_p${i + 1}`).join(',\n          ')}
         FROM financial_data fd
-        JOIN department_accounts da ON fd.dep_acc_combo_id = da.dep_acc_combo_id
-        JOIN departments d ON da.department_id = d.department_id
-        JOIN accounts a ON da.account_id = a.account_id
         WHERE fd.scenario = 'ACT'
+          AND fd.version = 'MAIN'
           ${ou ? 'AND fd.ou = ?' : ''}
-        GROUP BY fd.dep_acc_combo_id, d.d_easy_name, a.a_easy_name
+        GROUP BY fd.dep_acc_combo_id, fd.department, fd.account
       ),
       budget_data AS (
         SELECT
@@ -981,6 +979,7 @@ export async function getFinancialReportData(
           ${periods.map((_, i) => `SUM(CASE WHEN fd.period_combo = ? THEN fd.amount ELSE 0 END) AS bud_p${i + 1}`).join(',\n          ')}
         FROM financial_data fd
         WHERE fd.scenario = 'BUD'
+          AND fd.version = 'MAIN'
           ${ou ? 'AND fd.ou = ?' : ''}
         GROUP BY fd.dep_acc_combo_id
       )

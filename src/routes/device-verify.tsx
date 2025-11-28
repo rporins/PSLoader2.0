@@ -234,7 +234,7 @@ const DeviceVerify: React.FC = () => {
                 <p style={{ fontSize: '14px', opacity: 0.8 }}>You'll be able to sign in once your device is approved.</p>
               </div>
             </div>
-            <button onClick={() => navigate('/auth/login')} className="submit-button" style={{ marginTop: '16px' }}>
+            <button onClick={() => navigate('/')} className="submit-button" style={{ marginTop: '16px' }}>
               Back to Login
             </button>
           </div>

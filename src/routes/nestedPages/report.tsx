@@ -97,6 +97,7 @@ export default function Report() {
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [startingMonth, setStartingMonth] = useState<number>(1); // 1-based month
   const [loading, setLoading] = useState<boolean>(false);
+  const [settingsLoaded, setSettingsLoaded] = useState<boolean>(false);
 
   const fetchReportData = async () => {
     setLoading(true);
@@ -107,8 +108,14 @@ export default function Report() {
         startPeriod,
       });
 
+      console.log('[Report] Response:', response);
+      console.log('[Report] Response.data type:', typeof response.data);
+      console.log('[Report] Response.data:', response.data);
+
       if (response.success && response.data) {
         const data = JSON.parse(response.data as string) as FinancialReportRow[];
+        console.log('[Report] Parsed data:', data);
+        console.log('[Report] Number of rows:', data.length);
         setRows(data);
       } else {
         console.error("Failed to fetch report data");
@@ -122,9 +129,60 @@ export default function Report() {
     }
   };
 
+  const handleYearChange = async (year: number) => {
+    setSelectedYear(year);
+    try {
+      if (window.ipcApi) {
+        await window.ipcApi.sendIpcRequest("settings-set-single", { key: "reportYear", value: year });
+      }
+    } catch (error) {
+      console.error("Error saving report year:", error);
+    }
+  };
+
+  const handleStartingMonthChange = async (month: number) => {
+    setStartingMonth(month);
+    try {
+      if (window.ipcApi) {
+        await window.ipcApi.sendIpcRequest("settings-set-single", { key: "reportStartingMonth", value: month });
+      }
+    } catch (error) {
+      console.error("Error saving report starting month:", error);
+    }
+  };
+
+  // Load saved settings on mount
   useEffect(() => {
-    fetchReportData();
-  }, [selectedYear, startingMonth]);
+    const loadSettings = async () => {
+      try {
+        if (window.ipcApi) {
+          const yearResponse = await window.ipcApi.sendIpcRequest("settings-get-single", { key: "reportYear" });
+          const monthResponse = await window.ipcApi.sendIpcRequest("settings-get-single", { key: "reportStartingMonth" });
+
+          if (yearResponse.success && yearResponse.data !== undefined && yearResponse.data !== null) {
+            setSelectedYear(yearResponse.data);
+          }
+
+          if (monthResponse.success && monthResponse.data !== undefined && monthResponse.data !== null) {
+            setStartingMonth(monthResponse.data);
+          }
+        }
+      } catch (error) {
+        console.error("Error loading report settings:", error);
+      } finally {
+        setSettingsLoaded(true);
+      }
+    };
+
+    loadSettings();
+  }, []);
+
+  // Fetch data when settings are loaded and when year/month changes
+  useEffect(() => {
+    if (settingsLoaded) {
+      fetchReportData();
+    }
+  }, [selectedYear, startingMonth, settingsLoaded]);
 
   const currencyFormatter = new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -402,7 +460,7 @@ export default function Report() {
           <Select
             value={selectedYear}
             label="Year"
-            onChange={(e) => setSelectedYear(e.target.value as number)}
+            onChange={(e) => handleYearChange(e.target.value as number)}
           >
             {yearOptions.map((year) => (
               <MenuItem key={year} value={year}>
@@ -417,7 +475,7 @@ export default function Report() {
           <Select
             value={startingMonth}
             label="Starting Month"
-            onChange={(e) => setStartingMonth(e.target.value as number)}
+            onChange={(e) => handleStartingMonthChange(e.target.value as number)}
           >
             {MONTH_NAMES.map((month, index) => (
               <MenuItem key={index + 1} value={index + 1}>

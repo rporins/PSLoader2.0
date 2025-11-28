@@ -21,8 +21,6 @@ import ListItem from "@mui/material/ListItem";
 import ListItemButton from "@mui/material/ListItemButton";
 import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
-import InboxIcon from "@mui/icons-material/MoveToInbox";
-import MailIcon from "@mui/icons-material/Mail";
 import Toolbar from "@mui/material/Toolbar";
 import Box from "@mui/material/Box";
 import GridOnIcon from "@mui/icons-material/GridOn";
@@ -849,7 +847,7 @@ const handleSignOut = useCallback(async () => {
         </DrawerHeader>
         <Divider />
         <List>
-          <ListItem key="create_new" disablePadding sx={{ display: "block" }}>
+          <ListItem key="create_new" disablePadding sx={{ display: "none" }}>
             <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/create-new")}>
               <ListItemIcon sx={listItemIconStyle}>
                 <ApartmentIcon />
@@ -903,54 +901,7 @@ const handleSignOut = useCallback(async () => {
             </ListItemButton>
           </ListItem>
 
-          <ListItem key="Drafts" disablePadding sx={{ display: "block" }}>
-            <ListItemButton sx={listItemButtonStyle}>
-              <ListItemIcon sx={listItemIconStyle}>
-                <MailIcon />
-              </ListItemIcon>
-              <ListItemText primary="Drafts" sx={listItemTextStyle} />
-            </ListItemButton>
-          </ListItem>
         </List>
-        <Divider />
-        <List>
-          <ListItem key="Inbox" disablePadding sx={{ display: "block" }}>
-            <ListItemButton sx={listItemButtonStyle}>
-              <ListItemIcon sx={listItemIconStyle}>
-                <InboxIcon />
-              </ListItemIcon>
-              <ListItemText primary="Inbox" sx={listItemTextStyle} />
-            </ListItemButton>
-          </ListItem>
-
-          <ListItem key="Starred" disablePadding sx={{ display: "block" }}>
-            <ListItemButton sx={listItemButtonStyle}>
-              <ListItemIcon sx={listItemIconStyle}>
-                <MailIcon />
-              </ListItemIcon>
-              <ListItemText primary="Starred" sx={listItemTextStyle} />
-            </ListItemButton>
-          </ListItem>
-
-          <ListItem key="Send email" disablePadding sx={{ display: "block" }}>
-            <ListItemButton sx={listItemButtonStyle}>
-              <ListItemIcon sx={listItemIconStyle}>
-                <InboxIcon />
-              </ListItemIcon>
-              <ListItemText primary="Send email" sx={listItemTextStyle} />
-            </ListItemButton>
-          </ListItem>
-
-          <ListItem key="Drafts" disablePadding sx={{ display: "block" }}>
-            <ListItemButton sx={listItemButtonStyle}>
-              <ListItemIcon sx={listItemIconStyle}>
-                <MailIcon />
-              </ListItemIcon>
-              <ListItemText primary="Drafts" sx={listItemTextStyle} />
-            </ListItemButton>
-          </ListItem>
-        </List>
-        <Divider />
       </Drawer>
       <Box component="main" sx={{ flexGrow: 1, p: 2 }}>
         <DrawerHeader />

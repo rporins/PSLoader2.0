@@ -432,6 +432,10 @@ export class DatabaseHandlers {
 
   getFinancialReportDataHandler: IpcHandler = async (event, request) => {
     const result = await db.getFinancialReportData(request.startPeriod, request.ou);
+    console.log('[getFinancialReportDataHandler] Request:', request);
+    console.log('[getFinancialReportDataHandler] Result type:', typeof result);
+    console.log('[getFinancialReportDataHandler] Result length:', result?.length);
+    console.log('[getFinancialReportDataHandler] Result preview:', result?.substring(0, 200));
     return {
       success: true,
       data: result,
