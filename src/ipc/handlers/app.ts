@@ -76,8 +76,9 @@ export function createAppHandlers(): Record<string, IpcHandler> {
         console.log('[AppHandlers] DEV MODE: Skipping install');
         return { success: true, devMode: true };
       }
-      console.log('[AppHandlers] Installing update...');
-      autoUpdater.quitAndInstall(false, true);
+      console.log('[AppHandlers] Installing update and restarting...');
+      // isSilent=true (silent install), isForceRunAfter=true (restart after)
+      autoUpdater.quitAndInstall(true, true);
       return { success: true };
     },
   };
