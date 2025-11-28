@@ -19,28 +19,24 @@ const config: ForgeConfig = {
   rebuildConfig: {},
   hooks: {
     packageAfterPrune: async (_config, buildPath) => {
+      console.log('\n========================================');
+      console.log('PACKAGE AFTER PRUNE HOOK STARTED');
+      console.log('Build path:', buildPath);
+      console.log('========================================\n');
+
       return new Promise<void>((resolve, reject) => {
         // Install external native dependencies that weren't bundled by Vite
         const externalDeps = [
           '@libsql/client',
-          '@libsql/core',
-          '@libsql/hrana-client',
-          '@libsql/isomorphic-fetch',
-          '@libsql/isomorphic-ws',
-          '@libsql/win32-x64-msvc',
-          'libsql',
-          'js-base64',
-          'promise-limit',
-          '@neon-rs/load',
-          'detect-libc',
           'nodejs-polars',
           'node-machine-id',
           'systeminformation',
           'electron-squirrel-startup',
         ];
 
-        console.log('Installing external native dependencies...');
-        const npm = spawn('npm', ['install', '--no-package-lock', '--no-save', ...externalDeps], {
+        console.log('Installing dependencies:', externalDeps.join(', '));
+
+        const npm = spawn('npm', ['install', '--production', ...externalDeps], {
           cwd: buildPath,
           stdio: 'inherit',
           shell: true,
@@ -48,14 +44,22 @@ const config: ForgeConfig = {
 
         npm.on('close', (code) => {
           if (code === 0) {
-            console.log('External dependencies installed successfully');
+            console.log('\n========================================');
+            console.log('✓ Dependencies installed successfully');
+            console.log('========================================\n');
             resolve();
           } else {
+            console.error('\n========================================');
+            console.error('✗ npm install failed with code:', code);
+            console.error('========================================\n');
             reject(new Error(`npm install failed with code: ${code}`));
           }
         });
 
         npm.on('error', (err) => {
+          console.error('\n========================================');
+          console.error('✗ npm spawn error:', err);
+          console.error('========================================\n');
           reject(err);
         });
       });
