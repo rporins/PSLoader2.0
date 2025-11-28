@@ -13,7 +13,17 @@ const config: ForgeConfig = {
     icon: './src/images/marriott_logo',
   },
   rebuildConfig: {},
-  makers: [new MakerSquirrel({}), new MakerZIP({}, ['darwin']), new MakerRpm({}), new MakerDeb({})],
+  makers: [
+    new MakerSquirrel({
+      // Per-user install - no admin rights required
+      // Installs to: %LocalAppData%\ps-loader
+      setupIcon: './src/images/marriott_logo.ico',
+      loadingGif: undefined, // Optional: add a loading animation path
+    }),
+    new MakerZIP({}, ['darwin']),
+    new MakerRpm({}),
+    new MakerDeb({})
+  ],
   publishers: [
     {
       name: '@electron-forge/publisher-github',
