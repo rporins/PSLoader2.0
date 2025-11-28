@@ -8,13 +8,30 @@ import { VitePlugin } from '@electron-forge/plugin-vite';
 // import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
-import { spawn } from 'child_process';
+import { cpSync, mkdirSync } from 'fs';
+import { join } from 'path';
 
 const config: ForgeConfig = {
   packagerConfig: {
     asar: false,
     icon: './src/images/marriott_logo',
-    prune: false,
+    prune: false,  // Keep false - postPackage hook needs to install deps
+    ignore: [
+      /^\/\.git($|\/)/,
+      /^\/\.vscode($|\/)/,
+      /^\/node_modules($|\/)/,  // Exclude initial node_modules - postPackage installs what's needed
+      /^\/src($|\/)/,           // Source files not needed in package
+      /^\/out($|\/)/,
+      /\.ts$/,
+      /\.tsx$/,
+      /\.map$/,
+      /^\/vite.*\.config\.ts$/,
+      /^\/tsconfig\.json$/,
+      /^\/forge\.config\.ts$/,
+      /^\/\.eslintrc/,
+      /\.md$/,
+      /^\/\.env/,
+    ],
   },
   rebuildConfig: {},
   hooks: {
@@ -28,47 +45,44 @@ const config: ForgeConfig = {
 
       // Find the app resources path
       const appPath = options.outputPaths[0] + '/resources/app';
-      console.log('Installing dependencies to:', appPath);
+      const sourceNodeModules = join(process.cwd(), 'node_modules');
+      const targetNodeModules = join(appPath, 'node_modules');
 
-      return new Promise<void>((resolve, reject) => {
-        // Install external native dependencies that weren't bundled by Vite
-        const externalDeps = [
-          '@libsql/client',
-          'nodejs-polars',
-          'node-machine-id',
-          'systeminformation',
-          'electron-squirrel-startup',
-        ];
+      // List of external native dependencies that need to be copied
+      const externalDeps = [
+        '@libsql',
+        'nodejs-polars',
+        'node-machine-id',
+        'systeminformation',
+        'electron-squirrel-startup',
+      ];
 
-        console.log('Installing dependencies:', externalDeps.join(', '));
+      console.log('Copying dependencies from:', sourceNodeModules);
+      console.log('To:', targetNodeModules);
+      console.log('Dependencies:', externalDeps.join(', '));
 
-        const npm = spawn('npm', ['install', '--production', ...externalDeps], {
-          cwd: appPath,
-          stdio: 'inherit',
-          shell: true,
-        });
+      try {
+        // Create node_modules directory in the package
+        mkdirSync(targetNodeModules, { recursive: true });
 
-        npm.on('close', (code) => {
-          if (code === 0) {
-            console.log('\n========================================');
-            console.log('✓ Dependencies installed successfully');
-            console.log('========================================\n');
-            resolve();
-          } else {
-            console.error('\n========================================');
-            console.error('✗ npm install failed with code:', code);
-            console.error('========================================\n');
-            reject(new Error(`npm install failed with code: ${code}`));
-          }
-        });
+        // Copy each dependency from dev node_modules to package
+        for (const dep of externalDeps) {
+          const sourcePath = join(sourceNodeModules, dep);
+          const targetPath = join(targetNodeModules, dep);
 
-        npm.on('error', (err) => {
-          console.error('\n========================================');
-          console.error('✗ npm spawn error:', err);
-          console.error('========================================\n');
-          reject(err);
-        });
-      });
+          console.log(`Copying ${dep}...`);
+          cpSync(sourcePath, targetPath, { recursive: true });
+        }
+
+        console.log('\n========================================');
+        console.log('✓ Dependencies copied successfully');
+        console.log('========================================\n');
+      } catch (err) {
+        console.error('\n========================================');
+        console.error('✗ Copy failed:', err);
+        console.error('========================================\n');
+        throw err;
+      }
     },
   },
   makers: [
