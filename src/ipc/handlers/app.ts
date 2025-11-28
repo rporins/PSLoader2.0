@@ -7,7 +7,10 @@ import { autoUpdater } from 'electron-updater';
 import { BrowserWindow, app } from 'electron';
 import type { IpcHandler } from '../types';
 
-const isDev = process.env.NODE_ENV !== 'production';
+// Use app.isPackaged to properly detect production vs development
+// app.isPackaged is true when running from a built/installed app
+// app.isPackaged is false when running with npm start
+const isDev = !app.isPackaged;
 
 /**
  * Create app-related IPC handlers
