@@ -1,48 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  Box,
-  Typography,
-  CircularProgress,
-  LinearProgress,
-  Stack,
-  Button,
-  Alert,
-  alpha,
-} from '@mui/material';
-import { styled, keyframes } from '@mui/material/styles';
-import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt';
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
-import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
-
-const pulseAnimation = keyframes`
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.8; transform: scale(1.05); }
-`;
-
-const UpdateDialog = styled(Dialog)(({ theme }) => ({
-  '& .MuiDialog-paper': {
-    borderRadius: 24,
-    background: theme.palette.mode === 'dark'
-      ? `linear-gradient(135deg,
-          ${alpha('#ffffff', 0.08)} 0%,
-          ${alpha('#ffffff', 0.03)} 40%,
-          ${alpha('#8b5cf6', 0.05)} 100%)`
-      : `linear-gradient(135deg,
-          ${alpha('#ffffff', 0.95)} 0%,
-          ${alpha('#ffffff', 0.85)} 40%,
-          ${alpha('#8b5cf6', 0.08)} 100%)`,
-    backdropFilter: 'blur(40px)',
-    border: `1px solid ${alpha('#ffffff', theme.palette.mode === 'dark' ? 0.15 : 0.25)}`,
-    boxShadow: theme.palette.mode === 'dark'
-      ? `0 50px 100px -20px rgba(139, 92, 246, 0.25),
-         0 30px 60px -30px rgba(6, 182, 212, 0.3)`
-      : `0 50px 100px -20px rgba(139, 92, 246, 0.15),
-         0 30px 60px -30px rgba(6, 182, 212, 0.2)`,
-  },
-}));
+import '../styles/auth.css';
 
 interface UpdateCheckerProps {
   onUpdateComplete: () => void;
@@ -54,13 +11,13 @@ interface UpdateInfo {
 }
 
 const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
-  const [checking, setChecking] = useState(true);
-  const [downloading, setDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState(0);
-  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [status, setStatus] = useState<'checking' | 'available' | 'downloading' | 'installing' | 'error'>('checking');
+  const [message, setMessage] = useState('Checking for updates...');
+  const [currentVersion, setCurrentVersion] = useState<string>('');
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [installing, setInstalling] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [showReleaseNotes, setShowReleaseNotes] = useState(false);
 
   useEffect(() => {
     console.log('[UpdateChecker] Starting update check');
@@ -73,65 +30,68 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
 
     console.log('[UpdateChecker] Registering event listeners');
 
+    // Get current version
+    window.ipcApi.sendIpcRequest('app:get-version')
+      .then((response: any) => {
+        const version = response?.data?.version || response?.version || 'Unknown';
+        setCurrentVersion(version);
+      })
+      .catch(err => console.error('[UpdateChecker] Failed to get version:', err));
+
     // Listen for update events from main process
     const handleUpdateAvailable = (_event: any, info: UpdateInfo) => {
       console.log('[UpdateChecker] Update available:', info);
-      setUpdateAvailable(true);
       setUpdateInfo(info);
-      setChecking(false);
-
-      // Auto-download the update
-      console.log('[UpdateChecker] Triggering download');
-      window.ipcApi!.sendIpcRequest('app:download-update').catch((err: any) => {
-        console.error('[UpdateChecker] Download failed:', err);
-        setError(err.message || 'Failed to download update');
-      });
+      setStatus('available');
+      setMessage(`Version ${info.version} is available`);
     };
 
     const handleUpdateNotAvailable = () => {
       console.log('[UpdateChecker] No updates available, continuing to app');
-      setChecking(false);
-      // Close dialog and continue to login
+      setStatus('checking');
+      setMessage('You have the latest version');
       setTimeout(() => {
         onUpdateComplete();
-      }, 500);
+      }, 1000);
     };
 
     const handleDownloadProgress = (_event: any, progressInfo: any) => {
       console.log('[UpdateChecker] Download progress:', progressInfo.percent);
-      setDownloading(true);
-      setDownloadProgress(progressInfo.percent || 0);
+      setStatus('downloading');
+      setMessage(`Downloading update...`);
+      setDownloadProgress(Math.round(progressInfo.percent || 0));
     };
 
     const handleUpdateDownloaded = () => {
       console.log('[UpdateChecker] Update downloaded, preparing install');
-      setDownloading(false);
-      setInstalling(true);
+      setStatus('installing');
+      setMessage('Update ready to install');
+      setDownloadProgress(100);
 
-      // Auto-install the update (will quit and restart the app)
+      // Auto-install the update after a brief moment
       setTimeout(() => {
         console.log('[UpdateChecker] Triggering install');
         window.ipcApi!.sendIpcRequest('app:install-update').catch((err: any) => {
           console.error('[UpdateChecker] Install failed:', err);
           setError(err.message || 'Failed to install update');
-          setInstalling(false);
+          setStatus('error');
         });
-      }, 1000);
+      }, 1500);
     };
 
     const handleUpdateError = (_event: any, errorMessage: string) => {
       console.error('[UpdateChecker] Error:', errorMessage);
       setError(errorMessage);
-      setChecking(false);
-      setDownloading(false);
+      setStatus('error');
+      setMessage('Update failed');
     };
 
     // Register IPC listeners
-    window.ipcApi.onUpdateAvailable(handleUpdateAvailable);
-    window.ipcApi.onUpdateNotAvailable(handleUpdateNotAvailable);
-    window.ipcApi.onDownloadProgress(handleDownloadProgress);
-    window.ipcApi.onUpdateDownloaded(handleUpdateDownloaded);
-    window.ipcApi.onUpdateError(handleUpdateError);
+    window.ipcApi.onUpdateAvailable?.(handleUpdateAvailable);
+    window.ipcApi.onUpdateNotAvailable?.(handleUpdateNotAvailable);
+    window.ipcApi.onDownloadProgress?.(handleDownloadProgress);
+    window.ipcApi.onUpdateDownloaded?.(handleUpdateDownloaded);
+    window.ipcApi.onUpdateError?.(handleUpdateError);
 
     // Trigger update check
     console.log('[UpdateChecker] Sending check-for-updates request');
@@ -139,7 +99,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
       .then((response: any) => {
         console.log('[UpdateChecker] Raw response:', response);
 
-        // Unwrap the IPC response (it's wrapped in {success: true, data: {...}})
+        // Unwrap the IPC response
         const result = response?.data || response;
         console.log('[UpdateChecker] Check result:', result);
 
@@ -149,22 +109,21 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
           console.log('[UpdateChecker] Message:', result.message);
           console.log('[UpdateChecker] Current version:', result.currentVersion);
           console.log('[UpdateChecker] Continuing to app...');
-          // Skip to app immediately
           onUpdateComplete();
           return;
         }
 
-        // In production, events will be triggered automatically via IPC events
-        // If no events are triggered, we still need to handle the response
+        // If no events are triggered, handle the response
         if (!result?.updateAvailable) {
           console.log('[UpdateChecker] No update available, continuing to app');
-          setTimeout(() => onUpdateComplete(), 500);
+          setTimeout(() => onUpdateComplete(), 1000);
         }
       })
       .catch((err: any) => {
         console.error('[UpdateChecker] Check failed:', err);
         setError(err.message || 'Failed to check for updates');
-        setChecking(false);
+        setStatus('error');
+        setMessage('Update check failed');
       });
 
     return () => {
@@ -176,128 +135,274 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
     };
   }, [onUpdateComplete]);
 
+  const handleStartUpdate = () => {
+    console.log('[UpdateChecker] User confirmed update, triggering download');
+    setStatus('downloading');
+    setMessage('Preparing download...');
+    window.ipcApi!.sendIpcRequest('app:download-update').catch((err: any) => {
+      console.error('[UpdateChecker] Download failed:', err);
+      setError(err.message || 'Failed to download update');
+      setStatus('error');
+      setMessage('Download failed');
+    });
+  };
+
   const handleSkipUpdate = () => {
-    // Allow user to skip update in case of errors
+    console.log('[UpdateChecker] User skipped update');
     onUpdateComplete();
   };
 
+  const handleRetry = () => {
+    setStatus('checking');
+    setMessage('Checking for updates...');
+    setError(null);
+    setDownloadProgress(0);
+    window.location.reload();
+  };
+
   return (
-    <UpdateDialog open={true} maxWidth="sm" fullWidth>
-      <DialogContent sx={{ p: 4 }}>
-        <Stack spacing={3} alignItems="center">
-          {/* Icon */}
-          <Box
-            sx={{
-              width: 80,
-              height: 80,
-              borderRadius: '50%',
-              background: checking || downloading || installing
-                ? `linear-gradient(135deg, #667eea, #764ba2)`
-                : error
-                ? `linear-gradient(135deg, #ef4444, #dc2626)`
-                : `linear-gradient(135deg, #10b981, #059669)`,
-              boxShadow: checking || downloading || installing
-                ? `0 20px 40px rgba(118,75,162,0.4)`
-                : `0 20px 40px rgba(16,185,129,0.3)`,
+    <div className="auth-container">
+      <div className="auth-card device-verify">
+        {/* Icon */}
+        <div className={`device-icon ${status}`}>
+          {status === 'error' ? (
+            <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+              <circle cx="40" cy="40" r="38" stroke="#FF3B30" strokeWidth="2" opacity="0.3"/>
+              <path d="M50 30L30 50M30 30L50 50" stroke="#FF3B30" strokeWidth="3" strokeLinecap="round"/>
+            </svg>
+          ) : status === 'installing' ? (
+            <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+              <circle cx="40" cy="40" r="38" stroke="url(#updateGradient)" strokeWidth="2" opacity="0.3"/>
+              <path d="M30 40l8 8 16-16" stroke="url(#updateGradient)" strokeWidth="3"
+                    strokeLinecap="round" strokeLinejoin="round" className="check-mark" />
+              <defs>
+                <linearGradient id="updateGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#007AFF" />
+                  <stop offset="100%" stopColor="#5856D6" />
+                </linearGradient>
+              </defs>
+            </svg>
+          ) : (
+            <div className="device-animation">
+              <svg width="80" height="80" viewBox="0 0 80 80" fill="none" className="device-shield">
+                <path d="M40 15L40 50M40 50L28 38M40 50L52 38"
+                      stroke="url(#updateGradient)" strokeWidth="3"
+                      strokeLinecap="round" strokeLinejoin="round"/>
+                <circle cx="40" cy="55" r="3" fill="url(#updateGradient)"/>
+                <path d="M25 62h30" stroke="url(#updateGradient)" strokeWidth="3" strokeLinecap="round"/>
+                <defs>
+                  <linearGradient id="updateGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#007AFF" />
+                    <stop offset="100%" stopColor="#5856D6" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              {status === 'checking' && <div className="pulse-ring" />}
+            </div>
+          )}
+        </div>
+
+        {/* Title */}
+        <h2 className="auth-title">
+          {status === 'checking' && 'Checking for Updates'}
+          {status === 'available' && 'Update Available'}
+          {status === 'downloading' && 'Downloading Update'}
+          {status === 'installing' && 'Installing Update'}
+          {status === 'error' && 'Update Error'}
+        </h2>
+
+        {/* Subtitle/Message */}
+        <p className="auth-subtitle">{message}</p>
+
+        {/* Version Info - Show when update is available */}
+        {status === 'available' && updateInfo && (
+          <div style={{
+            marginBottom: '24px',
+            padding: '20px',
+            background: 'rgba(0, 122, 255, 0.08)',
+            borderRadius: '12px',
+            border: '1px solid rgba(0, 122, 255, 0.15)',
+          }}>
+            <div style={{
               display: 'flex',
+              justifyContent: 'space-around',
               alignItems: 'center',
-              justifyContent: 'center',
-              animation: (checking || downloading || installing) ? `${pulseAnimation} 2s ease-in-out infinite` : 'none',
-            }}
-          >
-            {checking || downloading || installing ? (
-              <CircularProgress size={40} sx={{ color: '#ffffff' }} />
-            ) : error ? (
-              <ErrorOutlineIcon sx={{ color: '#ffffff', fontSize: 40 }} />
-            ) : (
-              <CheckCircleOutlineIcon sx={{ color: '#ffffff', fontSize: 40 }} />
+              gap: '16px',
+              marginBottom: updateInfo.releaseNotes ? '16px' : '0',
+            }}>
+              <div style={{ textAlign: 'center', flex: 1 }}>
+                <p style={{ fontSize: '12px', color: '#86868b', marginBottom: '4px', fontWeight: 500 }}>
+                  CURRENT
+                </p>
+                <p style={{ fontSize: '20px', fontWeight: 700, color: '#1d1d1f', margin: 0 }}>
+                  {currentVersion}
+                </p>
+              </div>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.4 }}>
+                <path d="M5 12h14M14 5l7 7-7 7" stroke="currentColor" strokeWidth="2"
+                      strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <div style={{ textAlign: 'center', flex: 1 }}>
+                <p style={{ fontSize: '12px', color: '#007AFF', marginBottom: '4px', fontWeight: 600 }}>
+                  NEW VERSION
+                </p>
+                <p style={{ fontSize: '20px', fontWeight: 700, color: '#007AFF', margin: 0 }}>
+                  {updateInfo.version}
+                </p>
+              </div>
+            </div>
+
+            {/* Release Notes Toggle */}
+            {updateInfo.releaseNotes && (
+              <>
+                <button
+                  onClick={() => setShowReleaseNotes(!showReleaseNotes)}
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    background: 'none',
+                    border: 'none',
+                    color: '#007AFF',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    borderTop: showReleaseNotes ? 'none' : '1px solid rgba(0, 122, 255, 0.15)',
+                    paddingTop: showReleaseNotes ? '0' : '12px',
+                  }}
+                >
+                  {showReleaseNotes ? '▼ Hide' : '▶ Show'} What's New
+                </button>
+                {showReleaseNotes && (
+                  <div style={{
+                    marginTop: '12px',
+                    padding: '12px',
+                    background: 'rgba(255, 255, 255, 0.5)',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    color: '#1d1d1f',
+                    textAlign: 'left',
+                    maxHeight: '150px',
+                    overflowY: 'auto',
+                    whiteSpace: 'pre-wrap',
+                    lineHeight: '1.6',
+                  }}>
+                    {updateInfo.releaseNotes}
+                  </div>
+                )}
+              </>
             )}
-          </Box>
+          </div>
+        )}
 
-          {/* Title */}
-          <Typography
-            variant="h5"
-            sx={{
-              fontWeight: 700,
+        {/* Progress Bar - Show when downloading */}
+        {status === 'downloading' && (
+          <div className="progress-container">
+            <div className="progress-bar">
+              <div className="progress-fill" style={{ width: `${downloadProgress}%` }} />
+            </div>
+            <div style={{
+              marginTop: '12px',
+              fontSize: '14px',
+              color: '#86868b',
+              fontWeight: 500,
               textAlign: 'center',
-            }}
-          >
-            {checking
-              ? 'Checking for Updates...'
-              : downloading
-              ? 'Downloading Update...'
-              : installing
-              ? 'Installing Update...'
-              : error
-              ? 'Update Error'
-              : 'Update Ready'}
-          </Typography>
+            }}>
+              {downloadProgress}%
+            </div>
+          </div>
+        )}
 
-          {/* Content */}
-          {checking && (
-            <Typography variant="body2" color="text.secondary" textAlign="center">
-              Please wait while we check for the latest version
-            </Typography>
-          )}
+        {/* Installing message */}
+        {status === 'installing' && (
+          <div style={{
+            padding: '16px',
+            background: 'rgba(52, 199, 89, 0.08)',
+            borderRadius: '12px',
+            border: '1px solid rgba(52, 199, 89, 0.15)',
+            fontSize: '14px',
+            color: '#1d1d1f',
+            marginBottom: '16px',
+          }}>
+            The app will restart automatically to complete the installation
+          </div>
+        )}
 
-          {updateAvailable && !downloading && !installing && !error && (
-            <Stack spacing={2} width="100%">
-              <Alert severity="info" sx={{ borderRadius: 2 }}>
-                A new version ({updateInfo?.version}) is available and will be downloaded automatically.
-              </Alert>
-            </Stack>
-          )}
+        {/* Error Message */}
+        {error && status === 'error' && (
+          <div className="error-message device-error">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 1C4.134 1 1 4.134 1 8s3.134 7 7 7 7-3.134 7-7-3.134-7-7-7zm0 12.5c-.414 0-.75-.336-.75-.75s.336-.75.75-.75.75.336.75.75-.336.75-.75.75zm.75-3.5c0 .414-.336.75-.75.75s-.75-.336-.75-.75V5c0-.414.336-.75.75-.75s.75.336.75.75v5z"/>
+            </svg>
+            {error}
+          </div>
+        )}
 
-          {downloading && (
-            <Box sx={{ width: '100%' }}>
-              <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ mb: 2 }}>
-                Downloading version {updateInfo?.version}
-              </Typography>
-              <LinearProgress
-                variant="determinate"
-                value={downloadProgress}
-                sx={{
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: alpha('#667eea', 0.1),
-                  '& .MuiLinearProgress-bar': {
-                    borderRadius: 4,
-                    background: 'linear-gradient(90deg, #667eea, #764ba2)',
-                  },
-                }}
-              />
-              <Typography variant="caption" color="text.secondary" textAlign="center" sx={{ display: 'block', mt: 1 }}>
-                {Math.round(downloadProgress)}%
-              </Typography>
-            </Box>
-          )}
+        {/* Action Buttons */}
+        {status === 'available' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' }}>
+            <button onClick={handleStartUpdate} className="submit-button">
+              Update Now
+            </button>
+            <button
+              onClick={handleSkipUpdate}
+              style={{
+                padding: '12px',
+                background: 'none',
+                border: '1px solid rgba(0, 0, 0, 0.1)',
+                borderRadius: '12px',
+                color: '#86868b',
+                fontSize: '14px',
+                fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(0, 0, 0, 0.03)';
+                e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.15)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'none';
+                e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.1)';
+              }}
+            >
+              Skip This Update
+            </button>
+          </div>
+        )}
 
-          {installing && (
-            <Typography variant="body2" color="text.secondary" textAlign="center">
-              The app will restart automatically to complete the installation
-            </Typography>
-          )}
-
-          {error && (
-            <Stack spacing={2} width="100%">
-              <Alert severity="error" sx={{ borderRadius: 2 }}>
-                {error}
-              </Alert>
-              <Button
-                variant="outlined"
-                onClick={handleSkipUpdate}
-                sx={{
-                  borderRadius: 2,
-                  textTransform: 'none',
-                }}
-              >
-                Continue Without Updating
-              </Button>
-            </Stack>
-          )}
-        </Stack>
-      </DialogContent>
-    </UpdateDialog>
+        {status === 'error' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <button onClick={handleRetry} className="submit-button retry-button">
+              Try Again
+            </button>
+            <button
+              onClick={handleSkipUpdate}
+              style={{
+                padding: '12px',
+                background: 'none',
+                border: '1px solid rgba(0, 0, 0, 0.1)',
+                borderRadius: '12px',
+                color: '#86868b',
+                fontSize: '14px',
+                fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(0, 0, 0, 0.03)';
+                e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.15)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'none';
+                e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.1)';
+              }}
+            >
+              Continue Without Updating
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 };
 

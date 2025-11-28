@@ -60,11 +60,11 @@ export interface IpcApi {
   offAuthSuccess?: (callback: (event: any, data: any) => void) => void;
   offAuthError?: (callback: (event: any, error: string) => void) => void;
   offAuthLogout?: (callback: (event: any) => void) => void;
-  onUpdateAvailable: (callback: (event: any, info: any) => void) => void;
-  onUpdateNotAvailable: (callback: () => void) => void;
-  onDownloadProgress: (callback: (event: any, progress: any) => void) => void;
-  onUpdateDownloaded: (callback: () => void) => void;
-  onUpdateError: (callback: (event: any, error: string) => void) => void;
+  onUpdateAvailable?: (callback: (event: any, info: any) => void) => void;
+  onUpdateNotAvailable?: (callback: () => void) => void;
+  onDownloadProgress?: (callback: (event: any, progress: any) => void) => void;
+  onUpdateDownloaded?: (callback: () => void) => void;
+  onUpdateError?: (callback: (event: any, error: string) => void) => void;
   offUpdateAvailable?: (callback: (event: any, info: any) => void) => void;
   offUpdateNotAvailable?: (callback: () => void) => void;
   offDownloadProgress?: (callback: (event: any, progress: any) => void) => void;
