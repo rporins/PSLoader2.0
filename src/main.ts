@@ -101,13 +101,20 @@ function createMainWindow(): void {
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     void mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
   } else {
-    void mainWindow.loadFile(
-      path.join(
-        __dirname,
-        `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`
-      )
+    const rendererPath = path.join(
+      __dirname,
+      `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`
     );
+    logger.info('Loading renderer from:', rendererPath);
+    logger.info('__dirname:', __dirname);
+    logger.info('MAIN_WINDOW_VITE_NAME:', MAIN_WINDOW_VITE_NAME);
+    void mainWindow.loadFile(rendererPath);
   }
+
+  // Log any load failures
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    logger.error('Failed to load:', validatedURL, 'Error:', errorDescription, 'Code:', errorCode);
+  });
 
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
