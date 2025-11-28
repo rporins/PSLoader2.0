@@ -77,8 +77,9 @@ export function createAppHandlers(): Record<string, IpcHandler> {
         return { success: true, devMode: true };
       }
       console.log('[AppHandlers] Installing update and restarting...');
-      // isSilent=true (silent install), isForceRunAfter=true (restart after)
-      autoUpdater.quitAndInstall(true, true);
+      // For Squirrel.Windows: isSilent=false, isForceRunAfter=true
+      // Silent mode can cause issues with Squirrel installer execution
+      autoUpdater.quitAndInstall(false, true);
       return { success: true };
     },
   };
