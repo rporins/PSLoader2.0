@@ -5,23 +5,8 @@ import pkg from './package.json';
 
 export const builtins = ['electron', ...builtinModules.map((m) => [m, `node:${m}`]).flat()];
 
-// Modules that should not be externalized (native modules, complex deps, or runtime issues)
-const nativeModules = [
-  'electron-updater',
-  '@libsql/client',
-  '@libsql/darwin-arm64',
-  '@libsql/darwin-x64',
-  '@libsql/linux-arm64-gnu',
-  '@libsql/linux-arm64-musl',
-  '@libsql/linux-x64-gnu',
-  '@libsql/linux-x64-musl',
-  '@libsql/win32-x64-msvc',
-  'nodejs-polars',
-  'systeminformation',
-  'node-machine-id',
-  'xlsx',
-  'csv-parse',
-  'uuid',
+// Modules that should not be bundled by Vite (will be handled by Electron at runtime)
+const notBundledModules = [
   'three',
   'framer-motion',
   '@react-three/fiber',
@@ -32,8 +17,10 @@ const nativeModules = [
 
 export const external = [
   ...builtins,
+  // Externalize all @libsql packages (native modules with dynamic requires)
+  /^@libsql\//,
   ...Object.keys('dependencies' in pkg ? (pkg.dependencies as Record<string, unknown>) : {})
-    .filter(dep => !nativeModules.includes(dep))
+    .filter(dep => !notBundledModules.includes(dep) && !dep.startsWith('@libsql/'))
 ];
 
 export function getBuildConfig(env: ConfigEnv<'build'>): UserConfig {
