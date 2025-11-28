@@ -5,10 +5,19 @@ import pkg from './package.json';
 
 export const builtins = ['electron', ...builtinModules.map((m) => [m, `node:${m}`]).flat()];
 
+// Native modules that should not be externalized
+const nativeModules = [
+  'electron-updater',
+  '@libsql/client',
+  'nodejs-polars',
+  'systeminformation',
+  'node-machine-id'
+];
+
 export const external = [
   ...builtins,
   ...Object.keys('dependencies' in pkg ? (pkg.dependencies as Record<string, unknown>) : {})
-    .filter(dep => dep !== 'electron-updater')
+    .filter(dep => !nativeModules.includes(dep))
 ];
 
 export function getBuildConfig(env: ConfigEnv<'build'>): UserConfig {
