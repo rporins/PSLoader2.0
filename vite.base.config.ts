@@ -5,13 +5,22 @@ import pkg from './package.json';
 
 export const builtins = ['electron', ...builtinModules.map((m) => [m, `node:${m}`]).flat()];
 
-// Native modules that should not be externalized
+// Modules that should not be externalized (native modules, complex deps, or runtime issues)
 const nativeModules = [
   'electron-updater',
   '@libsql/client',
   'nodejs-polars',
   'systeminformation',
-  'node-machine-id'
+  'node-machine-id',
+  'xlsx',
+  'csv-parse',
+  'uuid',
+  'three',
+  'framer-motion',
+  '@react-three/fiber',
+  '@react-three/drei',
+  '@mui/x-data-grid-premium',
+  'electron-squirrel-startup'
 ];
 
 export const external = [
