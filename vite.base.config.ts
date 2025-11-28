@@ -10,6 +10,7 @@ export const builtins = ['electron', ...builtinModules.map((m) => [m, `node:${m}
 const bundledModules = [
   // Main process modules that CAN be bundled
   'electron-updater',
+  'electron-log',
   // 3D rendering libraries (renderer only)
   'three',
   'framer-motion',
