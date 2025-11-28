@@ -18,11 +18,17 @@ const config: ForgeConfig = {
   },
   rebuildConfig: {},
   hooks: {
-    packageAfterPrune: async (_config, buildPath) => {
+    postPackage: async (_config, options) => {
       console.log('\n========================================');
-      console.log('PACKAGE AFTER PRUNE HOOK STARTED');
-      console.log('Build path:', buildPath);
+      console.log('POST PACKAGE HOOK STARTED');
+      console.log('Platform:', options.platform);
+      console.log('Arch:', options.arch);
+      console.log('Output paths:', options.outputPaths);
       console.log('========================================\n');
+
+      // Find the app resources path
+      const appPath = options.outputPaths[0] + '/resources/app';
+      console.log('Installing dependencies to:', appPath);
 
       return new Promise<void>((resolve, reject) => {
         // Install external native dependencies that weren't bundled by Vite
@@ -37,7 +43,7 @@ const config: ForgeConfig = {
         console.log('Installing dependencies:', externalDeps.join(', '));
 
         const npm = spawn('npm', ['install', '--production', ...externalDeps], {
-          cwd: buildPath,
+          cwd: appPath,
           stdio: 'inherit',
           shell: true,
         });

@@ -163,7 +163,7 @@ find node_modules/{module-name} -name "*.node"
 
 **Example:** `@libsql/client`, `nodejs-polars`, `better-sqlite3`, etc.
 
-**These CANNOT be bundled by Vite.** You must use the `packageAfterPrune` hook.
+**These CANNOT be bundled by Vite.** You must use the `postPackage` hook.
 
 **Solution:** Add hook to `forge.config.ts`:
 
@@ -177,7 +177,10 @@ const config: ForgeConfig = {
     prune: false,
   },
   hooks: {
-    packageAfterPrune: async (_config, buildPath) => {
+    postPackage: async (_config, options) => {
+      // Find the app resources path
+      const appPath = options.outputPaths[0] + '/resources/app';
+
       return new Promise<void>((resolve, reject) => {
         // List ALL native/external dependencies here
         const externalDeps = [
@@ -188,9 +191,9 @@ const config: ForgeConfig = {
           'electron-squirrel-startup',
         ];
 
-        console.log('Installing external native dependencies...');
-        const npm = spawn('npm', ['install', '--no-package-lock', '--no-save', ...externalDeps], {
-          cwd: buildPath,
+        console.log('Installing external native dependencies to:', appPath);
+        const npm = spawn('npm', ['install', '--production', ...externalDeps], {
+          cwd: appPath,
           stdio: 'inherit',
           shell: true,
         });
@@ -213,6 +216,8 @@ const config: ForgeConfig = {
   // ... rest of config
 };
 ```
+
+**CRITICAL:** Use `postPackage` hook, NOT `packageAfterPrune`. The `packageAfterPrune` hook does not run with the Vite plugin.
 
 **What this does:**
 1. Runs AFTER Forge creates the package structure
@@ -473,7 +478,7 @@ ls "out/PS Loader 2.0-win32-x64/resources/app/node_modules/"
 4. **Don't just move modules between arrays** - Understand bundled vs external vs native
 5. **Always verify by inspecting the package output** - Don't assume a config change worked
 6. **The error path shows it's a packaged app issue** - If path includes `AppData\Local\{app}\app-{version}`, it's a packaging problem
-7. **Use `packageAfterPrune` hook for native modules** - This is the ONLY working solution for modules that can't be bundled
+7. **Use `postPackage` hook for native modules** - This is the ONLY working solution for modules that can't be bundled. **DO NOT use `packageAfterPrune`** - it does not run with the Vite plugin!
 8. **⚠️ CRITICAL: Check for scoped package sub-dependencies AND transitive dependencies** - Scoped packages like `@libsql/client` have:
    - Sub-packages within the scope (e.g., `@libsql/core`, `@libsql/hrana-client`)
    - Regular dependencies (e.g., `libsql`, `js-base64`, `promise-limit`)
