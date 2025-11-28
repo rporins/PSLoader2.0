@@ -86,12 +86,14 @@ function createMainWindow(): void {
     width: 1100,
     height: 800,
     show: false, // show when ready-to-show for smoother UX
+    autoHideMenuBar: true, // Hide menu bar (File, Edit, View, Window)
     icon: path.join(__dirname, "../src/images/marriott_logo.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
       contextIsolation: true, // critical for security
       webSecurity: false, // Disable CORS for desktop app - allows API requests to any origin
+      devTools: true, // Keep devTools available but don't open by default
     },
   });
 
@@ -109,9 +111,8 @@ function createMainWindow(): void {
 
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
-    if (isDev) {
-      mainWindow?.webContents.openDevTools({ mode: "detach" });
-    }
+    // DevTools can be opened with Ctrl+Shift+I or F12 (Electron default shortcuts)
+    // No automatic opening in production or development
   });
 
   mainWindow.on("closed", () => {
