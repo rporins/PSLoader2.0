@@ -5,6 +5,7 @@
 
 import { app, BrowserWindow } from "electron";
 import { autoUpdater } from "electron-updater";
+import log from "electron-log";
 import path from "path";
 import dotenv from "dotenv";
 import { initializeDatabase } from "./local_db";
@@ -17,8 +18,16 @@ import { setupAutoUpdaterEvents } from "./ipc/handlers/app";
 
 dotenv.config();
 
+// ────────────────────────────────────────────────────────────
+// Configure electron-log for auto-updater debugging
+// Logs are saved to: C:\Users\ricis\Documents\PSLoader\updater.log
+// ────────────────────────────────────────────────────────────
+log.transports.file.resolvePathFn = () => path.join('C:\\Users\\ricis\\Documents\\PSLoader', 'updater.log');
+log.transports.file.level = "info";
+autoUpdater.logger = log;
+
 /**
- * Vite’s Electron plugin exposes these build-time globals.
+ * Vite's Electron plugin exposes these build-time globals.
  * Declare them so TypeScript is happy in this file.
  */
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL:
