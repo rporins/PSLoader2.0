@@ -50,7 +50,17 @@ const config: ForgeConfig = {
 
       // List of external native dependencies that need to be copied
       const externalDeps = [
-        '@libsql',
+        '@libsql/client',
+        '@libsql/core',
+        '@libsql/hrana-client',
+        '@libsql/isomorphic-fetch',
+        '@libsql/isomorphic-ws',
+        '@libsql/win32-x64-msvc',
+        'libsql',
+        'js-base64',
+        'promise-limit',
+        '@neon-rs/load',
+        'detect-libc',
         'nodejs-polars',
         'node-machine-id',
         'systeminformation',
