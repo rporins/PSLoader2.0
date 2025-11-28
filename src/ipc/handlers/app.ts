@@ -19,31 +19,61 @@ export function createAppHandlers(): Record<string, IpcHandler> {
     },
 
     'app:check-for-updates': async () => {
-      // Skip update check in development
+      console.log('[AppHandlers] Checking for updates...');
+      console.log('[AppHandlers] Current version:', app.getVersion());
+      console.log('[AppHandlers] isDev:', isDev);
+
       if (isDev) {
+        console.log('[AppHandlers] DEV MODE: Auto-updater only works in packed builds');
+        console.log('[AppHandlers] To test updates, run: npm run package');
+        // In dev mode, electron-updater won't actually check GitHub
         return {
           updateAvailable: false,
           currentVersion: app.getVersion(),
-          latestVersion: app.getVersion()
+          latestVersion: app.getVersion(),
+          devMode: true,
+          message: 'Update checks only work in production builds'
         };
       }
 
-      // This will trigger update events that we forward to renderer
-      const result = await autoUpdater.checkForUpdates();
-      return {
-        updateAvailable: result?.updateInfo?.version !== app.getVersion(),
-        currentVersion: app.getVersion(),
-        latestVersion: result?.updateInfo?.version
-      };
+      try {
+        // Check for updates (production only)
+        const result = await autoUpdater.checkForUpdates();
+        const latestVersion = result?.updateInfo?.version;
+        const updateAvailable = latestVersion && latestVersion !== app.getVersion();
+
+        console.log('[AppHandlers] Latest version:', latestVersion);
+        console.log('[AppHandlers] Update available:', updateAvailable);
+
+        // In production, the events will be triggered automatically
+        return {
+          updateAvailable: !!updateAvailable,
+          currentVersion: app.getVersion(),
+          latestVersion: latestVersion || app.getVersion(),
+          devMode: false
+        };
+      } catch (error: any) {
+        console.error('[AppHandlers] Update check failed:', error.message);
+        throw error;
+      }
     },
 
     'app:download-update': async () => {
+      if (isDev) {
+        console.log('[AppHandlers] DEV MODE: Skipping download');
+        return { success: true, devMode: true };
+      }
+      console.log('[AppHandlers] Downloading update...');
       await autoUpdater.downloadUpdate();
       return { success: true };
     },
 
     'app:install-update': async () => {
-      // This will quit and install the update
+      if (isDev) {
+        console.log('[AppHandlers] DEV MODE: Skipping install');
+        return { success: true, devMode: true };
+      }
+      console.log('[AppHandlers] Installing update...');
       autoUpdater.quitAndInstall(false, true);
       return { success: true };
     },

@@ -63,37 +63,33 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
   const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
+    console.log('[UpdateChecker] Starting update check');
+
     if (!window.ipcApi) {
-      // If IPC API not available, skip update check and continue
-      console.log('IPC API not available, skipping update check');
+      console.log('[UpdateChecker] IPC API not available, skipping');
       setTimeout(() => onUpdateComplete(), 100);
       return;
     }
 
-    // In development, skip update check immediately
-    const isDev = process.env.NODE_ENV !== 'production';
-    if (isDev) {
-      console.log('Development mode detected, skipping update check');
-      setTimeout(() => onUpdateComplete(), 100);
-      return;
-    }
+    console.log('[UpdateChecker] Registering event listeners');
 
     // Listen for update events from main process
     const handleUpdateAvailable = (_event: any, info: UpdateInfo) => {
-      console.log('Update available:', info);
+      console.log('[UpdateChecker] Update available:', info);
       setUpdateAvailable(true);
       setUpdateInfo(info);
       setChecking(false);
 
       // Auto-download the update
+      console.log('[UpdateChecker] Triggering download');
       window.ipcApi!.sendIpcRequest('app:download-update').catch((err: any) => {
-        console.error('Failed to download update:', err);
+        console.error('[UpdateChecker] Download failed:', err);
         setError(err.message || 'Failed to download update');
       });
     };
 
     const handleUpdateNotAvailable = () => {
-      console.log('No updates available');
+      console.log('[UpdateChecker] No updates available, continuing to app');
       setChecking(false);
       // Close dialog and continue to login
       setTimeout(() => {
@@ -102,19 +98,21 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
     };
 
     const handleDownloadProgress = (_event: any, progressInfo: any) => {
+      console.log('[UpdateChecker] Download progress:', progressInfo.percent);
       setDownloading(true);
       setDownloadProgress(progressInfo.percent || 0);
     };
 
     const handleUpdateDownloaded = () => {
-      console.log('Update downloaded');
+      console.log('[UpdateChecker] Update downloaded, preparing install');
       setDownloading(false);
       setInstalling(true);
 
       // Auto-install the update (will quit and restart the app)
       setTimeout(() => {
+        console.log('[UpdateChecker] Triggering install');
         window.ipcApi!.sendIpcRequest('app:install-update').catch((err: any) => {
-          console.error('Failed to install update:', err);
+          console.error('[UpdateChecker] Install failed:', err);
           setError(err.message || 'Failed to install update');
           setInstalling(false);
         });
@@ -122,7 +120,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
     };
 
     const handleUpdateError = (_event: any, errorMessage: string) => {
-      console.error('Update error:', errorMessage);
+      console.error('[UpdateChecker] Error:', errorMessage);
       setError(errorMessage);
       setChecking(false);
       setDownloading(false);
@@ -136,11 +134,38 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
     window.ipcApi.onUpdateError(handleUpdateError);
 
     // Trigger update check
-    window.ipcApi.sendIpcRequest('app:check-for-updates').catch((err: any) => {
-      console.error('Failed to check for updates:', err);
-      setError(err.message || 'Failed to check for updates');
-      setChecking(false);
-    });
+    console.log('[UpdateChecker] Sending check-for-updates request');
+    window.ipcApi.sendIpcRequest('app:check-for-updates')
+      .then((response: any) => {
+        console.log('[UpdateChecker] Raw response:', response);
+
+        // Unwrap the IPC response (it's wrapped in {success: true, data: {...}})
+        const result = response?.data || response;
+        console.log('[UpdateChecker] Check result:', result);
+
+        // In dev mode, just log and continue
+        if (result?.devMode) {
+          console.log('[UpdateChecker] DEV MODE ENABLED');
+          console.log('[UpdateChecker] Message:', result.message);
+          console.log('[UpdateChecker] Current version:', result.currentVersion);
+          console.log('[UpdateChecker] Continuing to app...');
+          // Skip to app immediately
+          onUpdateComplete();
+          return;
+        }
+
+        // In production, events will be triggered automatically via IPC events
+        // If no events are triggered, we still need to handle the response
+        if (!result?.updateAvailable) {
+          console.log('[UpdateChecker] No update available, continuing to app');
+          setTimeout(() => onUpdateComplete(), 500);
+        }
+      })
+      .catch((err: any) => {
+        console.error('[UpdateChecker] Check failed:', err);
+        setError(err.message || 'Failed to check for updates');
+        setChecking(false);
+      });
 
     return () => {
       window.ipcApi?.offUpdateAvailable?.(handleUpdateAvailable);
