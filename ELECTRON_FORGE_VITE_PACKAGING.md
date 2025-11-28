@@ -370,13 +370,18 @@ Require stack:
 
 ### Root Cause
 The `@libsql/client` package has internal dependencies on:
-- `@libsql/core`
-- `@libsql/hrana-client`
-- `@libsql/isomorphic-fetch`
-- `@libsql/isomorphic-ws`
-- `@libsql/win32-x64-msvc` (platform-specific native module)
+- `@libsql/core` - Core library
+- `@libsql/hrana-client` - Hrana protocol client
+- `@libsql/isomorphic-fetch` - Fetch polyfill
+- `@libsql/isomorphic-ws` - WebSocket polyfill
+- `libsql` - Native bindings wrapper (uses @neon-rs/load)
+- `@libsql/win32-x64-msvc` - Platform-specific native module (Windows x64)
+- `js-base64` - Base64 encoding utility
+- `promise-limit` - Promise concurrency utility
+- `@neon-rs/load` - Neon native module loader
+- `detect-libc` - libc detection utility
 
-When the `packageAfterPrune` hook runs `npm install @libsql/client`, it may not properly resolve all the sub-package dependencies in the monorepo structure.
+When the `packageAfterPrune` hook runs `npm install @libsql/client`, it may not properly resolve all the sub-package dependencies and their transitive dependencies in the monorepo structure.
 
 ### Solution
 **Explicitly list ALL sub-packages** in both configuration files:
@@ -390,6 +395,11 @@ const externalDeps = [
   '@libsql/isomorphic-fetch',
   '@libsql/isomorphic-ws',
   '@libsql/win32-x64-msvc',
+  'libsql',
+  'js-base64',
+  'promise-limit',
+  '@neon-rs/load',
+  'detect-libc',
   // ... other deps
 ];
 ```
@@ -403,28 +413,46 @@ const nativeModules = [
   '@libsql/isomorphic-fetch',
   '@libsql/isomorphic-ws',
   '@libsql/win32-x64-msvc',
+  'libsql',
+  'js-base64',
+  'promise-limit',
+  '@neon-rs/load',
+  'detect-libc',
   // ... other modules
 ];
 ```
 
-### How to Find Sub-Packages
+### How to Find Sub-Packages and Dependencies
 ```bash
-# List all sub-packages for a scoped package
+# 1. List all sub-packages for a scoped package
 ls node_modules/@libsql/
 # or on Windows
 dir node_modules\@libsql\
 
-# Check which ones have native bindings
+# 2. Check which ones have native bindings
 find node_modules/@libsql -name "*.node"
 # or on Windows
 dir /s /b node_modules\@libsql\*.node
+
+# 3. Check package.json for dependencies
+cat node_modules/@libsql/client/package.json | grep -A 10 '"dependencies"'
+# or on Windows PowerShell
+Get-Content node_modules\@libsql\client\package.json | Select-String -Pattern '"dependencies"' -Context 0,10
+
+# 4. Check for transitive dependencies (dependencies of dependencies)
+npm list @libsql/client --all
 ```
 
 ### Verification
-After packaging, verify all sub-packages are present:
+After packaging, verify all packages and dependencies are present:
 ```bash
+# Check scoped packages
 ls "out/PS Loader 2.0-win32-x64/resources/app/node_modules/@libsql/"
 # Should show: client, core, hrana-client, isomorphic-fetch, isomorphic-ws, win32-x64-msvc
+
+# Check additional dependencies
+ls "out/PS Loader 2.0-win32-x64/resources/app/node_modules/"
+# Should include: libsql, js-base64, promise-limit, @neon-rs, detect-libc, etc.
 ```
 
 ---
@@ -446,4 +474,12 @@ ls "out/PS Loader 2.0-win32-x64/resources/app/node_modules/@libsql/"
 5. **Always verify by inspecting the package output** - Don't assume a config change worked
 6. **The error path shows it's a packaged app issue** - If path includes `AppData\Local\{app}\app-{version}`, it's a packaging problem
 7. **Use `packageAfterPrune` hook for native modules** - This is the ONLY working solution for modules that can't be bundled
-8. **⚠️ CRITICAL: Check for scoped package sub-dependencies** - Scoped packages like `@libsql/client` have sub-packages that MUST be explicitly listed in BOTH `forge.config.ts` AND `vite.base.config.ts`. Use `ls node_modules/@scope/` to find all sub-packages and add them ALL to both configuration files.
+8. **⚠️ CRITICAL: Check for scoped package sub-dependencies AND transitive dependencies** - Scoped packages like `@libsql/client` have:
+   - Sub-packages within the scope (e.g., `@libsql/core`, `@libsql/hrana-client`)
+   - Regular dependencies (e.g., `libsql`, `js-base64`, `promise-limit`)
+   - Transitive dependencies (dependencies of dependencies, e.g., `@neon-rs/load`, `detect-libc`)
+
+   ALL of these MUST be explicitly listed in BOTH `forge.config.ts` AND `vite.base.config.ts`. Use:
+   - `ls node_modules/@scope/` to find sub-packages
+   - `cat node_modules/@scope/package/package.json` to find direct dependencies
+   - `npm list <package> --all` to find ALL transitive dependencies

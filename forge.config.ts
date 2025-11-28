@@ -9,7 +9,6 @@ import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { spawn } from 'child_process';
-import path from 'path';
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -29,6 +28,11 @@ const config: ForgeConfig = {
           '@libsql/isomorphic-fetch',
           '@libsql/isomorphic-ws',
           '@libsql/win32-x64-msvc',
+          'libsql',
+          'js-base64',
+          'promise-limit',
+          '@neon-rs/load',
+          'detect-libc',
           'nodejs-polars',
           'node-machine-id',
           'systeminformation',
