@@ -4,6 +4,7 @@
  */
 
 import { app, BrowserWindow } from "electron";
+import { autoUpdater } from "electron-updater";
 import path from "path";
 import dotenv from "dotenv";
 import { initializeDatabase } from "./local_db";
@@ -149,7 +150,64 @@ const stubAuthService = {
 };
 
 // ────────────────────────────────────────────────────────────
-// 5) APP LIFECYCLE (create window, init DB & IPC)
+// 5) AUTO-UPDATER CONFIGURATION
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Configure auto-updater behavior
+ * For private repos, set GH_TOKEN environment variable
+ */
+autoUpdater.autoDownload = false; // Ask user before downloading
+autoUpdater.autoInstallOnAppQuit = true;
+
+// Auto-updater event handlers
+autoUpdater.on("checking-for-update", () => {
+  logger.info("Checking for updates...");
+});
+
+autoUpdater.on("update-available", (info) => {
+  logger.info("Update available:", info.version);
+  sendToRenderer("update-available", info);
+});
+
+autoUpdater.on("update-not-available", (info) => {
+  logger.info("No updates available:", info.version);
+});
+
+autoUpdater.on("download-progress", (progressObj) => {
+  logger.debug(`Download progress: ${progressObj.percent}%`);
+  sendToRenderer("download-progress", progressObj);
+});
+
+autoUpdater.on("update-downloaded", (info) => {
+  logger.info("Update downloaded:", info.version);
+  sendToRenderer("update-downloaded", info);
+});
+
+autoUpdater.on("error", (err) => {
+  logger.error("Auto-updater error:", err);
+  sendToRenderer("update-error", err.message);
+});
+
+/**
+ * Check for updates (called after app is ready and window is shown)
+ */
+function checkForUpdates(): void {
+  if (isDev) {
+    logger.debug("Skipping update check in development mode");
+    return;
+  }
+
+  // Check for updates 5 seconds after launch
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      logger.error("Failed to check for updates:", err);
+    });
+  }, 5000);
+}
+
+// ────────────────────────────────────────────────────────────
+// 6) APP LIFECYCLE (create window, init DB & IPC)
 // ────────────────────────────────────────────────────────────
 
 app.on("ready", async () => {
@@ -161,6 +219,9 @@ app.on("ready", async () => {
     await initializeDatabase();
 
     createMainWindow();
+
+    // Check for updates after window is ready
+    checkForUpdates();
   } catch (err) {
     logger.error("Startup error:", err);
     // In a real prod app, consider user-facing error UI here.
