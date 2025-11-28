@@ -33,7 +33,6 @@ const bundledModules = [
 
 // Native modules that MUST be externalized (cannot be bundled)
 const nativeModules = [
-  'electron-updater',
   'electron-squirrel-startup',
   '@libsql/client',
   'node-machine-id',
