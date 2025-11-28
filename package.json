@@ -1,7 +1,7 @@
 {
   "name": "ps-loader",
   "productName": "PS Loader 2.0",
-  "version": "1.0.44",
+  "version": "1.0.45",
   "description": "PS Loader - A comprehensive planning and scheduling application",
   "main": ".vite/build/main.js",
   "scripts": {
