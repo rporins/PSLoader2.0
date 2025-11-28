@@ -5,9 +5,11 @@ import pkg from './package.json';
 
 export const builtins = ['electron', ...builtinModules.map((m) => [m, `node:${m}`]).flat()];
 
-// Modules that SHOULD be bundled by Vite (for renderer process)
+// Modules that SHOULD be bundled by Vite
 // These are pure JS modules that work well when bundled
 const bundledModules = [
+  // Main process modules that CAN be bundled
+  'electron-updater',
   // 3D rendering libraries (renderer only)
   'three',
   'framer-motion',
