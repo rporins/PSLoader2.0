@@ -164,10 +164,13 @@ releaseDate: ${new Date().toISOString()}
             const latestYmlPath = join(squirrelDir, 'latest.yml');
             writeFileSync(latestYmlPath, latestYml, 'utf8');
 
+            // Add latest.yml to artifacts so it gets published
+            result.artifacts.push(latestYmlPath);
+
             console.log('✓ latest.yml generated at:', latestYmlPath);
+            console.log('✓ Added to artifacts for automatic publishing');
             console.log('\nContent:');
             console.log(latestYml);
-            console.log('IMPORTANT: Upload latest.yml along with the installer to your GitHub release!\n');
 
           } catch (err) {
             console.error('✗ Failed to generate latest.yml:', err);
@@ -176,6 +179,7 @@ releaseDate: ${new Date().toISOString()}
       }
 
       console.log('========================================\n');
+      return makeResults;
     },
   },
   makers: [
