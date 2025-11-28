@@ -42,8 +42,9 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
     const handleUpdateAvailable = (_event: any, info: UpdateInfo) => {
       console.log('[UpdateChecker] Update available:', info);
       setUpdateInfo(info);
-      setStatus('available');
-      setMessage(`Version ${info.version} is available`);
+      setStatus('downloading');
+      setMessage(`Downloading version ${info.version}...`);
+      // Auto-download is now enabled in main.ts, so download will start automatically
     };
 
     const handleUpdateNotAvailable = () => {
@@ -337,38 +338,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
           </div>
         )}
 
-        {/* Action Buttons */}
-        {status === 'available' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' }}>
-            <button onClick={handleStartUpdate} className="submit-button">
-              Update Now
-            </button>
-            <button
-              onClick={handleSkipUpdate}
-              style={{
-                padding: '12px',
-                background: 'none',
-                border: '1px solid rgba(0, 0, 0, 0.1)',
-                borderRadius: '12px',
-                color: '#86868b',
-                fontSize: '14px',
-                fontWeight: 500,
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(0, 0, 0, 0.03)';
-                e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.15)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'none';
-                e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.1)';
-              }}
-            >
-              Skip This Update
-            </button>
-          </div>
-        )}
+        {/* No action buttons - updates are forced */}
 
         {status === 'error' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
