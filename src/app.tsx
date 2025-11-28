@@ -3,7 +3,7 @@ import React from "react";
 import { LicenseInfo } from "@mui/x-license";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { createHashRouter, RouterProvider } from "react-router-dom";
 import AppThemeProvider from "./components/AppThemeProvider";
 import AppInitializer from "./components/AppInitializer";
 
@@ -25,7 +25,7 @@ import Settings from "./routes/nestedPages/settings";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 // define the route
-const router = createBrowserRouter([
+const router = createHashRouter([
   {
     path: "/",
     element: <Landing />,
