@@ -8,8 +8,9 @@ import { VitePlugin } from '@electron-forge/plugin-vite';
 // import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
-import { cpSync, mkdirSync, writeFileSync } from 'fs';
+import { cpSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
+import { createHash } from 'crypto';
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -113,6 +114,68 @@ updaterCacheDirName: ps_loader-updater`;
         console.error('========================================\n');
         throw err;
       }
+    },
+    postMake: async (_config, makeResults) => {
+      console.log('\n========================================');
+      console.log('POST MAKE HOOK - Generating latest.yml');
+      console.log('========================================\n');
+
+      const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
+      const version = packageJson.version;
+
+      // Find Squirrel.Windows artifacts
+      for (const result of makeResults) {
+        if (result.platform === 'win32' && result.artifacts.some(a => a.includes('squirrel.windows'))) {
+          const squirrelDir = result.artifacts.find(a => a.includes('squirrel.windows') && a.endsWith('.nupkg'))?.replace(/[^/\\]+$/, '') || '';
+
+          if (!squirrelDir) continue;
+
+          try {
+            // Find the .nupkg file
+            const files = readdirSync(squirrelDir);
+            const nupkgFile = files.find(f => f.endsWith('-full.nupkg'));
+
+            if (!nupkgFile) {
+              console.log('⚠ No .nupkg file found in:', squirrelDir);
+              continue;
+            }
+
+            // Calculate SHA512 hash
+            const nupkgPath = join(squirrelDir, nupkgFile);
+            const fileBuffer = readFileSync(nupkgPath);
+            const hash = createHash('sha512').update(fileBuffer).digest('base64');
+
+            // Get file size
+            const stats = statSync(nupkgPath);
+            const size = stats.size;
+
+            // Generate latest.yml
+            const latestYml = `version: ${version}
+files:
+  - url: ${nupkgFile}
+    sha512: ${hash}
+    size: ${size}
+path: ${nupkgFile}
+sha512: ${hash}
+releaseDate: ${new Date().toISOString()}
+`;
+
+            // Write latest.yml
+            const latestYmlPath = join(squirrelDir, 'latest.yml');
+            writeFileSync(latestYmlPath, latestYml, 'utf8');
+
+            console.log('✓ latest.yml generated at:', latestYmlPath);
+            console.log('\nContent:');
+            console.log(latestYml);
+            console.log('IMPORTANT: Upload latest.yml along with the installer to your GitHub release!\n');
+
+          } catch (err) {
+            console.error('✗ Failed to generate latest.yml:', err);
+          }
+        }
+      }
+
+      console.log('========================================\n');
     },
   },
   makers: [
