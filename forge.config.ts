@@ -8,7 +8,7 @@ import { VitePlugin } from '@electron-forge/plugin-vite';
 // import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
-import { cpSync, mkdirSync } from 'fs';
+import { cpSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
 const config: ForgeConfig = {
@@ -87,6 +87,18 @@ const config: ForgeConfig = {
         console.log('\n========================================');
         console.log('✓ Dependencies copied successfully');
         console.log('========================================\n');
+
+        // Create app-update.yml for electron-updater
+        const updateYml = `provider: github
+owner: rporins
+repo: PSLoader2.0
+updaterCacheDirName: ps_loader-updater`;
+
+        const updateYmlPath = join(appPath, 'app-update.yml');
+        console.log('Creating app-update.yml at:', updateYmlPath);
+        writeFileSync(updateYmlPath, updateYml, 'utf8');
+        console.log('✓ app-update.yml created successfully\n');
+
       } catch (err) {
         console.error('\n========================================');
         console.error('✗ Copy failed:', err);
