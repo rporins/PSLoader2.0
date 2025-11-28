@@ -14,11 +14,6 @@ const config: ForgeConfig = {
     asar: false,
     icon: './src/images/marriott_logo',
     prune: false,
-    ignore: [
-      /^\/\.vite($|\/)/,
-      /^\/out($|\/)/,
-      /^\/node_modules\/\.cache($|\/)/,
-    ],
   },
   rebuildConfig: {},
   makers: [
