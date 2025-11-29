@@ -128,8 +128,8 @@ export default function Settings() {
   const loadAppVersion = async () => {
     try {
       if (window.ipcApi) {
-        const version = await window.ipcApi.sendIpcRequest("app:get-version");
-        setAppVersion(version);
+        const response = await window.ipcApi.sendIpcRequest("app:get-version");
+        setAppVersion(response.version);
       }
     } catch (error) {
       console.warn('Failed to load app version:', error);
