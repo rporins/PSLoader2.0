@@ -31,7 +31,6 @@ import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import PersonAddAltRoundedIcon from "@mui/icons-material/PersonAddAltRounded";
 import HelpOutlineRoundedIcon from "@mui/icons-material/HelpOutlineRounded";
 import marriottLogo from "../images/marriott_logo.png";
-import UpdateChecker from "../components/UpdateChecker";
 
 // 3D imports
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -768,9 +767,8 @@ export default function Landing() {
   const navigate = useNavigate();
   const theme = useTheme();
   const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
-  const [updateCheckComplete, setUpdateCheckComplete] = useState(false);
 
-  const { initialized, loading, isAuthenticated, user, error, login, clearError, cancelLogin } = useIpcAuth();
+  const { initialized, loading, isAuthenticated, user, error, clearError, cancelLogin } = useIpcAuth();
 
   // Auto-forward once authenticated
   useEffect(() => {
@@ -779,11 +777,6 @@ export default function Landing() {
       return () => clearTimeout(t);
     }
   }, [isAuthenticated, user, navigate]);
-
-  // Show update checker first, before anything else
-  if (!updateCheckComplete) {
-    return <UpdateChecker onUpdateComplete={() => setUpdateCheckComplete(true)} />;
-  }
 
   return (
     <PageRoot>
