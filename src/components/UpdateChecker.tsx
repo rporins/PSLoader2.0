@@ -64,20 +64,21 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
     };
 
     const handleUpdateDownloaded = () => {
-      console.log('[UpdateChecker] Update downloaded, preparing install');
+      console.log('[UpdateChecker] Update downloaded, installing now...');
       setStatus('installing');
-      setMessage('Update ready to install');
+      setMessage('Installing update and restarting...');
       setDownloadProgress(100);
 
-      // Auto-install the update after a brief moment
+      // Install immediately - the app will restart automatically
       setTimeout(() => {
-        console.log('[UpdateChecker] Triggering install');
+        console.log('[UpdateChecker] Triggering install and restart');
         window.ipcApi!.sendIpcRequest('app:install-update').catch((err: any) => {
           console.error('[UpdateChecker] Install failed:', err);
           setError(err.message || 'Failed to install update');
           setStatus('error');
+          setMessage('Installation failed');
         });
-      }, 1500);
+      }, 1000);
     };
 
     const handleUpdateError = (_event: any, errorMessage: string) => {
@@ -148,8 +149,8 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
     });
   };
 
-  const handleSkipUpdate = () => {
-    console.log('[UpdateChecker] User skipped update');
+  const handleContinueWithoutUpdate = () => {
+    console.log('[UpdateChecker] Continuing without update (only allowed on error)');
     onUpdateComplete();
   };
 
@@ -295,22 +296,43 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
           </div>
         )}
 
-        {/* Progress Bar - Show when downloading */}
+        {/* Progress Bar or Spinner - Show when downloading */}
         {status === 'downloading' && (
-          <div className="progress-container">
-            <div className="progress-bar">
-              <div className="progress-fill" style={{ width: `${downloadProgress}%` }} />
-            </div>
-            <div style={{
-              marginTop: '12px',
-              fontSize: '14px',
-              color: '#86868b',
-              fontWeight: 500,
-              textAlign: 'center',
-            }}>
-              {downloadProgress}%
-            </div>
-          </div>
+          <>
+            {downloadProgress > 0 ? (
+              <div className="progress-container">
+                <div className="progress-bar">
+                  <div className="progress-fill" style={{ width: `${downloadProgress}%` }} />
+                </div>
+                <div style={{
+                  marginTop: '12px',
+                  fontSize: '14px',
+                  color: '#86868b',
+                  fontWeight: 500,
+                  textAlign: 'center',
+                }}>
+                  {downloadProgress}%
+                </div>
+              </div>
+            ) : (
+              <div style={{
+                padding: '16px',
+                background: 'rgba(0, 122, 255, 0.08)',
+                borderRadius: '12px',
+                border: '1px solid rgba(0, 122, 255, 0.15)',
+                fontSize: '14px',
+                color: '#1d1d1f',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '12px',
+              }}>
+                <div className="pulse-ring" style={{ width: '24px', height: '24px' }} />
+                <span>Please wait while the update downloads...</span>
+              </div>
+            )}
+          </>
         )}
 
         {/* Installing message */}
@@ -346,7 +368,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
               Try Again
             </button>
             <button
-              onClick={handleSkipUpdate}
+              onClick={handleContinueWithoutUpdate}
               style={{
                 padding: '12px',
                 background: 'none',

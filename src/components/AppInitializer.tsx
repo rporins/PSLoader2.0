@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { CircularProgress, Box, Typography } from "@mui/material";
 import { useSettingsStore } from "../store/settings";
+import UpdateChecker from "./UpdateChecker";
 
 interface AppInitializerProps {
   children: React.ReactNode;
@@ -8,16 +9,27 @@ interface AppInitializerProps {
 
 /**
  * AppInitializer Component
- * Ensures all app settings are loaded from the database before rendering children
- * This prevents any race conditions with settings persistence
+ * 1. Checks for updates first (blocking - user must wait for download/install)
+ * 2. Then loads app settings from database
+ * 3. Finally renders the main app
  */
 const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
+  const [updateCheckComplete, setUpdateCheckComplete] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const loadSettingsFromDb = useSettingsStore((s) => s.loadSettingsFromDb);
   const storeInitialized = useSettingsStore((s) => s.initialized);
 
+  // Step 1: Check for updates (blocking)
+  const handleUpdateComplete = () => {
+    console.log("Update check completed, proceeding to app initialization");
+    setUpdateCheckComplete(true);
+  };
+
+  // Step 2: Initialize app settings after update check
   useEffect(() => {
+    if (!updateCheckComplete) return;
+
     const initializeApp = async () => {
       try {
         console.log("Initializing app settings...");
@@ -41,9 +53,14 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
     } else if (storeInitialized) {
       setIsInitialized(true);
     }
-  }, [loadSettingsFromDb, storeInitialized, isInitialized]);
+  }, [updateCheckComplete, loadSettingsFromDb, storeInitialized, isInitialized]);
 
-  // Show loading screen while initializing
+  // Show update checker first (blocks app until update complete)
+  if (!updateCheckComplete) {
+    return <UpdateChecker onUpdateComplete={handleUpdateComplete} />;
+  }
+
+  // Show loading screen while initializing settings
   if (!isInitialized) {
     return (
       <Box
