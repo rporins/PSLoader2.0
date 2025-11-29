@@ -8,9 +8,8 @@ import { VitePlugin } from '@electron-forge/plugin-vite';
 // import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
-import { cpSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync } from 'fs';
+import { cpSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { createHash } from 'crypto';
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -117,13 +116,12 @@ updaterCacheDirName: ps_loader-updater`;
     },
     postMake: async (_config, makeResults) => {
       console.log('\n========================================');
-      console.log('POST MAKE HOOK - Generating latest.yml');
+      console.log('POST MAKE HOOK - Verifying Squirrel artifacts');
       console.log('========================================\n');
 
-      const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
-      const version = packageJson.version;
-
-      // Find Squirrel.Windows artifacts
+      // Verify that all required Squirrel.Windows artifacts are present
+      // update-electron-app works with update.electronjs.org which reads
+      // artifacts directly from GitHub Releases, so no custom metadata needed
       for (const result of makeResults) {
         if (result.platform === 'win32' && result.artifacts.some(a => a.includes('squirrel.windows'))) {
           const squirrelDir = result.artifacts.find(a => a.includes('squirrel.windows') && a.endsWith('.nupkg'))?.replace(/[^/\\]+$/, '') || '';
@@ -131,49 +129,25 @@ updaterCacheDirName: ps_loader-updater`;
           if (!squirrelDir) continue;
 
           try {
-            // Find the .nupkg file
             const files = readdirSync(squirrelDir);
             const nupkgFile = files.find(f => f.endsWith('-full.nupkg'));
+            const setupExe = files.find(f => f.endsWith(' Setup.exe'));
+            const releasesFile = files.find(f => f === 'RELEASES');
 
-            if (!nupkgFile) {
-              console.log('⚠ No .nupkg file found in:', squirrelDir);
-              continue;
+            console.log('Squirrel.Windows artifacts:');
+            console.log('  ✓ .nupkg:', nupkgFile || 'NOT FOUND');
+            console.log('  ✓ Setup.exe:', setupExe || 'NOT FOUND');
+            console.log('  ✓ RELEASES:', releasesFile || 'NOT FOUND');
+
+            if (!nupkgFile || !setupExe || !releasesFile) {
+              console.warn('⚠ Warning: Some Squirrel artifacts are missing!');
+            } else {
+              console.log('\n✓ All required artifacts generated successfully');
+              console.log('These will be uploaded to GitHub Releases for auto-update');
             }
 
-            // Calculate SHA512 hash
-            const nupkgPath = join(squirrelDir, nupkgFile);
-            const fileBuffer = readFileSync(nupkgPath);
-            const hash = createHash('sha512').update(fileBuffer).digest('base64');
-
-            // Get file size
-            const stats = statSync(nupkgPath);
-            const size = stats.size;
-
-            // Generate latest.yml
-            const latestYml = `version: ${version}
-files:
-  - url: ${nupkgFile}
-    sha512: ${hash}
-    size: ${size}
-path: ${nupkgFile}
-sha512: ${hash}
-releaseDate: ${new Date().toISOString()}
-`;
-
-            // Write latest.yml
-            const latestYmlPath = join(squirrelDir, 'latest.yml');
-            writeFileSync(latestYmlPath, latestYml, 'utf8');
-
-            // Add latest.yml to artifacts so it gets published
-            result.artifacts.push(latestYmlPath);
-
-            console.log('✓ latest.yml generated at:', latestYmlPath);
-            console.log('✓ Added to artifacts for automatic publishing');
-            console.log('\nContent:');
-            console.log(latestYml);
-
           } catch (err) {
-            console.error('✗ Failed to generate latest.yml:', err);
+            console.error('✗ Failed to verify artifacts:', err);
           }
         }
       }

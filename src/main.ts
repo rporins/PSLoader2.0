@@ -4,7 +4,8 @@
  */
 
 import { app, BrowserWindow } from "electron";
-import { autoUpdater } from "electron-updater";
+import { autoUpdater } from "electron";
+import { updateElectronApp } from "update-electron-app";
 import log from "electron-log";
 import path from "path";
 import dotenv from "dotenv";
@@ -24,7 +25,6 @@ dotenv.config();
 // ────────────────────────────────────────────────────────────
 log.transports.file.resolvePathFn = () => path.join('C:\\Users\\ricis\\Documents\\PSLoader', 'updater.log');
 log.transports.file.level = "info";
-autoUpdater.logger = log;
 
 /**
  * Vite's Electron plugin exposes these build-time globals.
@@ -172,38 +172,49 @@ const stubAuthService = {
 // ────────────────────────────────────────────────────────────
 
 /**
- * Configure auto-updater behavior
- * For private repos, set GH_TOKEN environment variable
+ * Configure auto-updater using update-electron-app
+ * This works with Electron Forge + Squirrel.Windows
+ * Only runs in packaged/production builds
  */
-autoUpdater.autoDownload = true; // Automatically download updates when found
-autoUpdater.autoInstallOnAppQuit = true;
-autoUpdater.allowDowngrade = false; // Prevent downgrades
-autoUpdater.allowPrerelease = false; // Skip pre-releases
+if (app.isPackaged) {
+  logger.info("Initializing auto-updater for packaged app");
 
-// Auto-updater event handlers for logging
-autoUpdater.on("checking-for-update", () => {
-  logger.info("Checking for updates...");
-});
+  // Initialize update-electron-app with configuration
+  updateElectronApp({
+    updateInterval: '10 minutes',
+    logger: log,
+    notifyUser: false, // We handle notifications via IPC to renderer
+  });
 
-autoUpdater.on("update-available", (info) => {
-  logger.info("Update available:", info.version);
-});
+  // Set up event listeners for Electron's native autoUpdater
+  // These events are triggered by update-electron-app
+  autoUpdater.on("checking-for-update", () => {
+    log.info("Checking for updates...");
+    logger.info("Checking for updates...");
+  });
 
-autoUpdater.on("update-not-available", (info) => {
-  logger.info("No updates available:", info.version);
-});
+  autoUpdater.on("update-available", () => {
+    log.info("Update available");
+    logger.info("Update available");
+  });
 
-autoUpdater.on("download-progress", (progressObj) => {
-  logger.debug(`Download progress: ${progressObj.percent}%`);
-});
+  autoUpdater.on("update-not-available", () => {
+    log.info("No updates available");
+    logger.info("No updates available");
+  });
 
-autoUpdater.on("update-downloaded", (info) => {
-  logger.info("Update downloaded:", info.version);
-});
+  autoUpdater.on("update-downloaded", () => {
+    log.info("Update downloaded");
+    logger.info("Update downloaded");
+  });
 
-autoUpdater.on("error", (err) => {
-  logger.error("Auto-updater error:", err);
-});
+  autoUpdater.on("error", (err) => {
+    log.error("Auto-updater error:", err);
+    logger.error("Auto-updater error:", err);
+  });
+} else {
+  logger.info("Auto-updater disabled in development mode");
+}
 
 // ────────────────────────────────────────────────────────────
 // 6) APP LIFECYCLE (create window, init DB & IPC)
