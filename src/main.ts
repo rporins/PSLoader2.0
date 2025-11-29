@@ -175,8 +175,10 @@ const stubAuthService = {
  * Configure auto-updater behavior
  * For private repos, set GH_TOKEN environment variable
  */
-autoUpdater.autoDownload = false; // Manual download triggered by user
+autoUpdater.autoDownload = true; // Automatically download updates when found
 autoUpdater.autoInstallOnAppQuit = true;
+autoUpdater.allowDowngrade = false; // Prevent downgrades
+autoUpdater.allowPrerelease = false; // Skip pre-releases
 
 // Auto-updater event handlers for logging
 autoUpdater.on("checking-for-update", () => {
