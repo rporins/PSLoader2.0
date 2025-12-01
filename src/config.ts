@@ -3,7 +3,7 @@
 // Updated testing 6
 
 // Test/Development Server
-export const API_BASE_URL = 'http://127.0.0.1:8000';
+//xport const API_BASE_URL = 'http://127.0.0.1:8000';
 
 // Production Server
-//export const API_BASE_URL = 'https://fastapi-fafyfgcmaqgsbncg.uksouth-01.azurewebsites.net';
+export const API_BASE_URL = 'https://fastapi-fafyfgcmaqgsbncg.uksouth-01.azurewebsites.net';

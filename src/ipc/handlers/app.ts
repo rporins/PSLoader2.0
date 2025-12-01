@@ -6,11 +6,70 @@
 import { autoUpdater } from 'electron';
 import { BrowserWindow, app } from 'electron';
 import type { IpcHandler } from '../types';
+import https from 'https';
 
 // Use app.isPackaged to properly detect production vs development
 // app.isPackaged is true when running from a built/installed app
 // app.isPackaged is false when running with npm start
 const isDev = !app.isPackaged;
+
+// Store the latest release info when update is available
+let latestReleaseInfo: { version: string; releaseNotes: string } | null = null;
+
+/**
+ * Fetch latest release info from GitHub
+ */
+async function fetchLatestRelease(): Promise<{ version: string; releaseNotes: string } | null> {
+  return new Promise((resolve) => {
+    const options = {
+      hostname: 'api.github.com',
+      path: '/repos/rporins/PSLoader2.0/releases/latest',
+      method: 'GET',
+      headers: {
+        'User-Agent': 'PSLoader-Update-Checker',
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+
+      res.on('end', () => {
+        try {
+          if (res.statusCode === 200) {
+            const release = JSON.parse(data);
+            resolve({
+              version: release.tag_name?.replace(/^v/, '') || release.name || 'Unknown',
+              releaseNotes: release.body || '',
+            });
+          } else {
+            console.log('[AppHandlers] Failed to fetch release info:', res.statusCode);
+            resolve(null);
+          }
+        } catch (err) {
+          console.error('[AppHandlers] Error parsing release info:', err);
+          resolve(null);
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      console.error('[AppHandlers] Error fetching release info:', err);
+      resolve(null);
+    });
+
+    req.setTimeout(5000, () => {
+      req.destroy();
+      console.log('[AppHandlers] Release fetch timed out');
+      resolve(null);
+    });
+
+    req.end();
+  });
+}
 
 /**
  * Create app-related IPC handlers
@@ -95,17 +154,29 @@ export function setupAutoUpdaterEvents(mainWindow: BrowserWindow | null): void {
   if (!mainWindow) return;
 
   // Note: Native autoUpdater doesn't provide version info in the event
-  // We'll fetch it separately when needed
-  autoUpdater.on('update-available', () => {
+  // We'll fetch it from GitHub when needed
+  autoUpdater.on('update-available', async () => {
     console.log('[AutoUpdater] Update available event received');
-    mainWindow.webContents.send('update-available', {
-      version: 'Loading...', // Native autoUpdater doesn't provide version in event
-      releaseNotes: '',
-    });
+
+    // Fetch release info from GitHub
+    const releaseInfo = await fetchLatestRelease();
+
+    if (releaseInfo) {
+      latestReleaseInfo = releaseInfo;
+      console.log('[AutoUpdater] Fetched release info:', releaseInfo);
+      mainWindow.webContents.send('update-available', releaseInfo);
+    } else {
+      console.log('[AutoUpdater] Could not fetch release info, using fallback');
+      mainWindow.webContents.send('update-available', {
+        version: 'Latest version',
+        releaseNotes: '',
+      });
+    }
   });
 
   autoUpdater.on('update-not-available', () => {
     console.log('[AutoUpdater] No update available');
+    latestReleaseInfo = null;
     mainWindow.webContents.send('update-not-available');
   });
 
@@ -119,6 +190,7 @@ export function setupAutoUpdaterEvents(mainWindow: BrowserWindow | null): void {
 
   autoUpdater.on('error', (error) => {
     console.error('[AutoUpdater] Error:', error);
+    latestReleaseInfo = null;
     const errorMessage = error instanceof Error ? error.message : 'Update failed';
     mainWindow.webContents.send('update-error', errorMessage);
   });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import '../styles/auth.css';
 
 interface UpdateCheckerProps {
@@ -11,7 +11,7 @@ interface UpdateInfo {
 }
 
 const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
-  const [status, setStatus] = useState<'checking' | 'available' | 'downloading' | 'installing' | 'error'>('checking');
+  const [status, setStatus] = useState<'checking' | 'available' | 'downloading' | 'installing' | 'restart-required' | 'error'>('checking');
   const [message, setMessage] = useState('Checking for updates...');
   const [currentVersion, setCurrentVersion] = useState<string>('');
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
@@ -19,12 +19,14 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const [updateInstalled, setUpdateInstalled] = useState(false);
+  const checkingCompleteRef = useRef(false);
 
   useEffect(() => {
     console.log('[UpdateChecker] Starting update check');
 
     if (!window.ipcApi) {
       console.log('[UpdateChecker] IPC API not available, skipping');
+      checkingCompleteRef.current = true;
       setTimeout(() => onUpdateComplete(), 100);
       return;
     }
@@ -52,6 +54,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
       console.log('[UpdateChecker] No updates available, continuing to app');
       setStatus('checking');
       setMessage('You have the latest version');
+      checkingCompleteRef.current = true;
       setTimeout(() => {
         onUpdateComplete();
       }, 1000);
@@ -67,20 +70,28 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
     const handleUpdateDownloaded = () => {
       console.log('[UpdateChecker] Update downloaded, installing now...');
       setStatus('installing');
-      setMessage('Update complete - please restart the application');
+      setMessage('Installing update...');
       setDownloadProgress(100);
-      setUpdateInstalled(true);
 
       // Install immediately - may or may not restart automatically
       setTimeout(() => {
         console.log('[UpdateChecker] Triggering install');
-        window.ipcApi!.sendIpcRequest('app:install-update').catch((err: any) => {
-          console.error('[UpdateChecker] Install failed:', err);
-          setError(err.message || 'Failed to install update');
-          setStatus('error');
-          setMessage('Installation failed');
-          setUpdateInstalled(false);
-        });
+        window.ipcApi!.sendIpcRequest('app:install-update')
+          .then(() => {
+            // If we reach here, Squirrel didn't auto-restart
+            console.log('[UpdateChecker] Update installed, but app did not auto-restart');
+            setStatus('restart-required');
+            setUpdateInstalled(true);
+            const newVersion = updateInfo?.version || 'the latest version';
+            setMessage(`Update to version ${newVersion} installed successfully`);
+          })
+          .catch((err: any) => {
+            console.error('[UpdateChecker] Install failed:', err);
+            setError(err.message || 'Failed to install update');
+            setStatus('error');
+            setMessage('Installation failed');
+            setUpdateInstalled(false);
+          });
       }, 1000);
 
       // NOTE: Intentionally NOT calling onUpdateComplete() here
@@ -93,6 +104,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
       setError(errorMessage);
       setStatus('error');
       setMessage('Update failed');
+      checkingCompleteRef.current = true;
     };
 
     // Register IPC listeners
@@ -118,21 +130,28 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
           console.log('[UpdateChecker] Message:', result.message);
           console.log('[UpdateChecker] Current version:', result.currentVersion);
           console.log('[UpdateChecker] Continuing to app...');
+          checkingCompleteRef.current = true;
           onUpdateComplete();
           return;
         }
 
-        // If no events are triggered, handle the response
-        if (!result?.updateAvailable) {
-          console.log('[UpdateChecker] No update available, continuing to app');
-          setTimeout(() => onUpdateComplete(), 1000);
-        }
+        // Set a timeout to mark check as complete if no events fire within 5 seconds
+        // This handles the case where update check completes but no event is emitted
+        setTimeout(() => {
+          if (!checkingCompleteRef.current) {
+            console.log('[UpdateChecker] No update events received within timeout, assuming no update');
+            checkingCompleteRef.current = true;
+            setMessage('You have the latest version');
+            setTimeout(() => onUpdateComplete(), 1000);
+          }
+        }, 5000);
       })
       .catch((err: any) => {
         console.error('[UpdateChecker] Check failed:', err);
         setError(err.message || 'Failed to check for updates');
         setStatus('error');
         setMessage('Update check failed');
+        checkingCompleteRef.current = true;
       });
 
     return () => {
@@ -179,6 +198,28 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
               <circle cx="40" cy="40" r="38" stroke="#FF3B30" strokeWidth="2" opacity="0.3"/>
               <path d="M50 30L30 50M30 30L50 50" stroke="#FF3B30" strokeWidth="3" strokeLinecap="round"/>
             </svg>
+          ) : status === 'restart-required' ? (
+            <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+              <circle cx="40" cy="40" r="38" stroke="url(#restartGradient)" strokeWidth="2" opacity="0.3"/>
+              <path d="M40 20 L40 35 M40 35 L50 25 M40 35 L30 25" stroke="url(#restartGradient)" strokeWidth="3"
+                    strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="40" cy="50" r="10" stroke="url(#restartGradient)" strokeWidth="3" fill="none"
+                      strokeDasharray="3 2" className="restart-icon">
+                <animateTransform
+                  attributeName="transform"
+                  type="rotate"
+                  from="0 40 50"
+                  to="360 40 50"
+                  dur="2s"
+                  repeatCount="indefinite"/>
+              </circle>
+              <defs>
+                <linearGradient id="restartGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#FF9500" />
+                  <stop offset="100%" stopColor="#FF3B30" />
+                </linearGradient>
+              </defs>
+            </svg>
           ) : status === 'installing' ? (
             <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
               <circle cx="40" cy="40" r="38" stroke="url(#updateGradient)" strokeWidth="2" opacity="0.3"/>
@@ -217,6 +258,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
           {status === 'available' && 'Update Available'}
           {status === 'downloading' && 'Downloading Update'}
           {status === 'installing' && 'Installing Update'}
+          {status === 'restart-required' && 'Restart Required'}
           {status === 'error' && 'Update Error'}
         </h2>
 
@@ -305,74 +347,47 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
 
         {/* Progress Bar or Spinner - Show when downloading */}
         {status === 'downloading' && (
-          <>
-            {downloadProgress > 0 ? (
-              <div className="progress-container">
-                <div className="progress-bar">
-                  <div className="progress-fill" style={{ width: `${downloadProgress}%` }} />
-                </div>
-                <div style={{
-                  marginTop: '12px',
-                  fontSize: '14px',
-                  color: '#86868b',
-                  fontWeight: 500,
-                  textAlign: 'center',
-                }}>
-                  {downloadProgress}%
-                </div>
-              </div>
-            ) : (
-              <div style={{
-                padding: '16px',
-                background: 'rgba(0, 122, 255, 0.08)',
-                borderRadius: '12px',
-                border: '1px solid rgba(0, 122, 255, 0.15)',
-                fontSize: '14px',
-                color: '#1d1d1f',
-                marginBottom: '16px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '12px',
-              }}>
-                <div className="pulse-ring" style={{ width: '24px', height: '24px' }} />
-                <span>Please wait while the update downloads...</span>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Installing message */}
-        {status === 'installing' && updateInstalled && (
           <div style={{
             padding: '20px',
-            background: 'rgba(255, 149, 0, 0.1)',
+            background: 'rgba(0, 122, 255, 0.08)',
             borderRadius: '12px',
-            border: '2px solid rgba(255, 149, 0, 0.3)',
-            fontSize: '15px',
+            border: '1px solid rgba(0, 122, 255, 0.15)',
+            fontSize: '14px',
             color: '#1d1d1f',
             marginBottom: '16px',
-            textAlign: 'center',
-            fontWeight: 600,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '16px',
           }}>
-            ⚠️ Update installed successfully
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div className="pulse-ring" style={{ width: '32px', height: '32px' }} />
+              <span style={{ fontWeight: 500 }}>Downloading update...</span>
+            </div>
             <div style={{
-              marginTop: '8px',
-              fontSize: '14px',
-              fontWeight: 500,
+              fontSize: '13px',
               color: '#86868b',
+              textAlign: 'center',
+              lineHeight: '1.5',
             }}>
-              You must close and reopen the application to continue
+              Please wait. This may take a few moments.
+              {updateInfo?.version && (
+                <div style={{ marginTop: '8px', color: '#007AFF', fontWeight: 600 }}>
+                  Version {updateInfo.version}
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {status === 'installing' && !updateInstalled && (
+        {/* Installing message */}
+        {status === 'installing' && (
           <div style={{
-            padding: '16px',
-            background: 'rgba(52, 199, 89, 0.08)',
+            padding: '20px',
+            background: 'rgba(0, 122, 255, 0.08)',
             borderRadius: '12px',
-            border: '1px solid rgba(52, 199, 89, 0.15)',
+            border: '1px solid rgba(0, 122, 255, 0.15)',
             fontSize: '14px',
             color: '#1d1d1f',
             marginBottom: '16px',
@@ -381,8 +396,50 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
             justifyContent: 'center',
             gap: '12px',
           }}>
-            <div className="pulse-ring" style={{ width: '24px', height: '24px' }} />
-            <span>Installing update...</span>
+            <div className="pulse-ring" style={{ width: '32px', height: '32px' }} />
+            <span style={{ fontWeight: 500 }}>Installing update...</span>
+          </div>
+        )}
+
+        {/* Restart Required message */}
+        {status === 'restart-required' && (
+          <div style={{
+            padding: '24px',
+            background: 'linear-gradient(135deg, rgba(255, 149, 0, 0.12) 0%, rgba(255, 59, 48, 0.12) 100%)',
+            borderRadius: '16px',
+            border: '2px solid rgba(255, 149, 0, 0.4)',
+            fontSize: '15px',
+            color: '#1d1d1f',
+            marginBottom: '16px',
+            textAlign: 'center',
+          }}>
+            <div style={{
+              fontSize: '48px',
+              marginBottom: '12px',
+            }}>
+              ⚠️
+            </div>
+            <div style={{ fontWeight: 700, fontSize: '16px', marginBottom: '12px' }}>
+              Update Installed Successfully
+            </div>
+            <div style={{
+              fontSize: '14px',
+              fontWeight: 600,
+              color: '#FF9500',
+              marginBottom: '8px',
+            }}>
+              Please close and reopen PSLoader to apply the update
+            </div>
+            {updateInfo?.version && (
+              <div style={{
+                marginTop: '16px',
+                fontSize: '13px',
+                color: '#86868b',
+                fontWeight: 500,
+              }}>
+                New version: <span style={{ color: '#007AFF', fontWeight: 700 }}>{updateInfo.version}</span>
+              </div>
+            )}
           </div>
         )}
 
