@@ -145,6 +145,11 @@ export const IPC_CHANNELS = {
   DB_GET_FINANCIAL_DATA_COUNT: 'db:get-financial-data-count',
   DB_GET_FINANCIAL_DATA_LAST_IMPORT: 'db:get-financial-data-last-import',
   DB_GET_FINANCIAL_REPORT_DATA: 'db:get-financial-report-data',
+
+  // Cache metadata channels
+  DB_UPDATE_CACHE_METADATA: 'db:update-cache-metadata',
+  DB_GET_CACHE_METADATA: 'db:get-cache-metadata',
+  DB_SHOULD_REFRESH_CACHE: 'db:should-refresh-cache',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];

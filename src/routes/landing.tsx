@@ -766,7 +766,6 @@ function LoadingOverlay({ message, onCancel }: { message: string; onCancel?: () 
 export default function Landing() {
   const navigate = useNavigate();
   const theme = useTheme();
-  const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 
   const { initialized, loading, isAuthenticated, user, error, clearError, cancelLogin } = useIpcAuth();
 
@@ -781,10 +780,10 @@ export default function Landing() {
   return (
     <PageRoot>
       {/* 3D Scene with chrome spheres and particles */}
-      <Scene3D reduceMotion={!!reduceMotion} />
+      <Scene3D reduceMotion={false} />
 
       {/* Liquid metal morphing background */}
-      <LiquidMetalOrbs $reduceMotion={!!reduceMotion}>
+      <LiquidMetalOrbs $reduceMotion={false}>
         <div className="metal-orb orb1" />
         <div className="metal-orb orb2" />
         <div className="metal-orb orb3" />

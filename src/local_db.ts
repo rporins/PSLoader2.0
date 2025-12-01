@@ -745,6 +745,17 @@ export async function initializeDatabase() {
       `
         CREATE INDEX IF NOT EXISTS idx_import_sessions_period ON import_sessions(year, month)
         `,
+      `
+        CREATE TABLE IF NOT EXISTS cache_metadata (
+            key TEXT PRIMARY KEY,
+            last_fetched_at TEXT,
+            fetch_status TEXT DEFAULT 'idle',
+            error_message TEXT
+        )
+        `,
+      `
+        CREATE INDEX IF NOT EXISTS idx_cache_metadata_status ON cache_metadata(fetch_status)
+        `,
     ]);
 
     console.log("All necessary tables have been created or already exist.");
@@ -3548,5 +3559,86 @@ export async function getFinancialDataLastImport(ou: string): Promise<string | n
   } catch (error) {
     console.error("Error getting last import timestamp:", error);
     return null;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//----------------- CACHE METADATA FUNCTIONS ---------------------------------------------------------------------
+
+/**
+ * Update cache metadata for a specific key
+ */
+export async function updateCacheMetadata(
+  key: string,
+  status: 'idle' | 'fetching' | 'success' | 'failed',
+  errorMessage?: string
+): Promise<void> {
+  try {
+    await client.execute({
+      sql: `
+        INSERT INTO cache_metadata (key, last_fetched_at, fetch_status, error_message)
+        VALUES (?, CURRENT_TIMESTAMP, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+          last_fetched_at = CURRENT_TIMESTAMP,
+          fetch_status = excluded.fetch_status,
+          error_message = excluded.error_message
+      `,
+      args: [key, status, errorMessage || null],
+    });
+  } catch (error) {
+    console.error(`Error updating cache metadata for ${key}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Get cache metadata for a specific key
+ */
+export async function getCacheMetadata(key: string): Promise<{
+  last_fetched_at: string | null;
+  fetch_status: string;
+  error_message: string | null;
+} | null> {
+  try {
+    const result = await client.execute({
+      sql: `SELECT last_fetched_at, fetch_status, error_message FROM cache_metadata WHERE key = ?`,
+      args: [key],
+    });
+
+    if (result.rows.length > 0) {
+      const row = result.rows[0];
+      return {
+        last_fetched_at: row.last_fetched_at as string | null,
+        fetch_status: row.fetch_status as string,
+        error_message: row.error_message as string | null,
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error(`Error getting cache metadata for ${key}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Check if cache needs refresh (older than specified minutes)
+ */
+export async function shouldRefreshCache(key: string, maxAgeMinutes: number = 60): Promise<boolean> {
+  try {
+    const metadata = await getCacheMetadata(key);
+
+    if (!metadata || !metadata.last_fetched_at) {
+      return true; // No cache, needs refresh
+    }
+
+    // Check if cache is too old
+    const lastFetched = new Date(metadata.last_fetched_at);
+    const now = new Date();
+    const ageMinutes = (now.getTime() - lastFetched.getTime()) / (1000 * 60);
+
+    return ageMinutes > maxAgeMinutes;
+  } catch (error) {
+    console.error(`Error checking cache age for ${key}:`, error);
+    return true; // On error, assume refresh needed
   }
 }

@@ -338,7 +338,6 @@ const BackButton = styled(IconButton)(({ theme }) => ({
 const Login: React.FC = () => {
   const navigate = useNavigate();
   const theme = useTheme();
-  const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -370,7 +369,7 @@ const Login: React.FC = () => {
 
   return (
     <PageRoot>
-      <LiquidMetalOrbs $reduceMotion={!!reduceMotion}>
+      <LiquidMetalOrbs $reduceMotion={false}>
         <div className="metal-orb orb1" />
         <div className="metal-orb orb2" />
         <div className="metal-orb orb3" />

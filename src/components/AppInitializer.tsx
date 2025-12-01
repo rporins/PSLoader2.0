@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { CircularProgress, Box, Typography } from "@mui/material";
 import { useSettingsStore } from "../store/settings";
 import UpdateChecker from "./UpdateChecker";
+import backgroundSyncService from "../services/backgroundSync";
 
 interface AppInitializerProps {
   children: React.ReactNode;
@@ -37,6 +38,10 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
         // Load settings from database
         await loadSettingsFromDb();
 
+        // Start background sync service
+        backgroundSyncService.start();
+        console.log("Background sync service started");
+
         console.log("App settings initialized successfully");
         setIsInitialized(true);
       } catch (err) {
@@ -52,7 +57,14 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
       initializeApp();
     } else if (storeInitialized) {
       setIsInitialized(true);
+      // Still start background sync if already initialized
+      backgroundSyncService.start();
     }
+
+    // Cleanup: stop background sync on unmount
+    return () => {
+      backgroundSyncService.stop();
+    };
   }, [updateCheckComplete, loadSettingsFromDb, storeInitialized, isInitialized]);
 
   // Show update checker first (blocks app until update complete)

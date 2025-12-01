@@ -442,6 +442,34 @@ export class DatabaseHandlers {
       timestamp: Date.now(),
     };
   };
+
+  // Cache metadata handlers
+  updateCacheMetadataHandler: IpcHandler = async (event, request) => {
+    await db.updateCacheMetadata(request.key, request.status, request.errorMessage);
+    return {
+      success: true,
+      data: { message: 'Cache metadata updated successfully' },
+      timestamp: Date.now(),
+    };
+  };
+
+  getCacheMetadataHandler: IpcHandler = async (event, request) => {
+    const result = await db.getCacheMetadata(request.key);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  shouldRefreshCacheHandler: IpcHandler = async (event, request) => {
+    const result = await db.shouldRefreshCache(request.key, request.maxAgeMinutes);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
 }
 
 // Factory function to create and register database handlers
@@ -495,5 +523,8 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_COUNT]: handlers.getFinancialDataCountHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_LAST_IMPORT]: handlers.getFinancialDataLastImportHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_REPORT_DATA]: handlers.getFinancialReportDataHandler,
+    [IPC_CHANNELS.DB_UPDATE_CACHE_METADATA]: handlers.updateCacheMetadataHandler,
+    [IPC_CHANNELS.DB_GET_CACHE_METADATA]: handlers.getCacheMetadataHandler,
+    [IPC_CHANNELS.DB_SHOULD_REFRESH_CACHE]: handlers.shouldRefreshCacheHandler,
   };
 }

@@ -271,7 +271,6 @@ interface ApiError {
 export default function Register() {
   const navigate = useNavigate();
   const theme = useTheme();
-  const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 
   const [formData, setFormData] = useState<RegisterFormData>({
     email: "",
@@ -382,7 +381,7 @@ export default function Register() {
   return (
     <PageRoot>
       {/* Liquid metal morphing background */}
-      <LiquidMetalOrbs $reduceMotion={!!reduceMotion}>
+      <LiquidMetalOrbs $reduceMotion={false}>
         <div className="metal-orb orb1" />
         <div className="metal-orb orb2" />
       </LiquidMetalOrbs>

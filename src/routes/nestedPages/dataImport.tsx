@@ -112,6 +112,9 @@ const DataImport: React.FC = () => {
   // Error notification state
   const [errorSnackbar, setErrorSnackbar] = useState<{ open: boolean; message: string }>({ open: false, message: '' });
 
+  // Cache status state
+  const [dataFreshness, setDataFreshness] = useState<'cached' | 'fresh' | 'fetching'>('cached');
+
   // Fetch import groups when OU is selected or changes
   useEffect(() => {
     const fetchImportGroups = async () => {
@@ -121,41 +124,64 @@ const DataImport: React.FC = () => {
       setSelectedImportGroup('');
       handleRestart();
 
-      setLoadingImportGroups(true);
       try {
-        // First try to get cached data
-        const cached = await importConfigService.getCachedImportGroups(selectedOU);
-        if (cached) {
-          setImportGroups(cached);
-          // Set the first group as default
-          if (cached.length > 0) {
-            const uniqueGroups = importConfigService.getUniqueGroupNames(cached);
-            setSelectedImportGroup(uniqueGroups[0]);
-          }
-        }
+        // Use cache-first strategy: load cached data immediately, then fetch fresh in background
+        setDataFreshness('fetching');
 
-        // Fetch fresh data from API and sync mapping configs
-        const groups = await importConfigService.fetchAndSyncImportGroups(selectedOU);
+        const groups = await importConfigService.getImportGroupsCacheFirst(
+          selectedOU,
+          // Callback when fresh data arrives
+          (freshGroups) => {
+            console.log('Fresh import groups received, updating UI...');
+            setImportGroups(freshGroups);
+            setDataFreshness('fresh');
+
+            // Update selected group if needed
+            if (freshGroups.length > 0 && !selectedImportGroup) {
+              const uniqueGroups = importConfigService.getUniqueGroupNames(freshGroups);
+              setSelectedImportGroup(uniqueGroups[0]);
+            }
+
+            // Auto-hide "fresh" indicator after 3 seconds
+            setTimeout(() => {
+              setDataFreshness('cached');
+            }, 3000);
+          }
+        );
+
+        // Set initial data from cache (or empty if no cache)
         setImportGroups(groups);
 
-        // Set the first group as default
+        // Set the first group as default if we have data
         if (groups.length > 0) {
           const uniqueGroups = importConfigService.getUniqueGroupNames(groups);
           setSelectedImportGroup(uniqueGroups[0]);
-        }
-      } catch (error) {
-        console.error('Failed to fetch import groups:', error);
-        // Use cached data if available
-        const cached = await importConfigService.getCachedImportGroups(selectedOU);
-        if (cached) {
-          setImportGroups(cached);
-          if (cached.length > 0) {
-            const uniqueGroups = importConfigService.getUniqueGroupNames(cached);
-            setSelectedImportGroup(uniqueGroups[0]);
+          setLoadingImportGroups(false);
+          setDataFreshness('cached'); // Data is from cache
+        } else {
+          // No cached data, need to wait for fresh fetch
+          setLoadingImportGroups(true);
+
+          // Trigger a fresh fetch since cache is empty
+          try {
+            const freshGroups = await importConfigService.fetchAndSyncImportGroups(selectedOU);
+            setImportGroups(freshGroups);
+            if (freshGroups.length > 0) {
+              const uniqueGroups = importConfigService.getUniqueGroupNames(freshGroups);
+              setSelectedImportGroup(uniqueGroups[0]);
+            }
+            setDataFreshness('fresh');
+            setTimeout(() => setDataFreshness('cached'), 3000);
+          } catch (error) {
+            console.error('Failed to fetch import groups:', error);
+          } finally {
+            setLoadingImportGroups(false);
           }
         }
-      } finally {
+      } catch (error) {
+        console.error('Error in fetchImportGroups:', error);
         setLoadingImportGroups(false);
+        setDataFreshness('cached');
       }
     };
 
@@ -537,9 +563,28 @@ const DataImport: React.FC = () => {
 
               {!loadingImportGroups && selectedImportGroup && (
                 <Box flex={isMobile ? undefined : 1}>
-                  <Typography variant="body2" color="text.secondary">
-                    {importFiles.length} imports available • {importFiles.filter(f => f.required).length} required
-                  </Typography>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Typography variant="body2" color="text.secondary">
+                      {importFiles.length} imports available • {importFiles.filter(f => f.required).length} required
+                    </Typography>
+                    {dataFreshness === 'fresh' && (
+                      <Fade in>
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            color: 'success.main',
+                            fontWeight: 600,
+                            fontSize: '0.7rem'
+                          }}
+                        >
+                          ✓ Updated
+                        </Typography>
+                      </Fade>
+                    )}
+                    {dataFreshness === 'fetching' && (
+                      <CircularProgress size={12} />
+                    )}
+                  </Stack>
                 </Box>
               )}
             </Stack>

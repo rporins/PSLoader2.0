@@ -213,10 +213,19 @@ class ImportGroupsService {
   /**
    * Fetch import groups and sync with mapping configs
    * @param ou The organizational unit
+   * @param silent If true, don't throw errors (for background sync)
    * @returns Promise<ImportGroup[]> Array of import groups with synced mappings
    */
-  async fetchAndSyncImportGroups(ou: string): Promise<ImportGroup[]> {
+  async fetchAndSyncImportGroups(ou: string, silent: boolean = false): Promise<ImportGroup[]> {
     try {
+      // Update cache metadata to "fetching"
+      if (typeof window !== 'undefined' && window.ipcApi) {
+        await window.ipcApi.sendIpcRequest('db:update-cache-metadata', {
+          key: `import_groups_${ou}`,
+          status: 'fetching'
+        }).catch(() => {}); // Ignore errors
+      }
+
       // Fetch import groups from API
       const importGroups = await this.getImportGroups(ou);
 
@@ -252,9 +261,26 @@ class ImportGroupsService {
       // NOW cache the import groups (after mapping configs are stored)
       await this.cacheImportGroups(ou, importGroups);
 
+      // Update cache metadata to "success"
+      if (typeof window !== 'undefined' && window.ipcApi) {
+        await window.ipcApi.sendIpcRequest('db:update-cache-metadata', {
+          key: `import_groups_${ou}`,
+          status: 'success'
+        }).catch(() => {}); // Ignore errors
+      }
+
       return importGroups;
     } catch (error) {
       console.error('Error fetching and syncing import groups:', error);
+
+      // Update cache metadata to "failed"
+      if (typeof window !== 'undefined' && window.ipcApi) {
+        await window.ipcApi.sendIpcRequest('db:update-cache-metadata', {
+          key: `import_groups_${ou}`,
+          status: 'failed',
+          errorMessage: error instanceof Error ? error.message : 'Unknown error'
+        }).catch(() => {}); // Ignore errors
+      }
 
       // Try to return cached data if available
       const cached = await this.getCachedImportGroups(ou);
@@ -263,8 +289,41 @@ class ImportGroupsService {
         return cached;
       }
 
+      if (silent) {
+        return []; // Return empty array for background sync
+      }
+
       throw error;
     }
+  }
+
+  /**
+   * Get import groups with cache-first strategy
+   * Returns cached data immediately, then fetches fresh data in background
+   * @param ou The organizational unit
+   * @param onUpdate Callback when fresh data is available
+   */
+  async getImportGroupsCacheFirst(
+    ou: string,
+    onUpdate?: (groups: ImportGroup[]) => void
+  ): Promise<ImportGroup[]> {
+    // Try to get cached data first
+    const cached = await this.getCachedImportGroups(ou);
+
+    // Start background fetch (don't await)
+    this.fetchAndSyncImportGroups(ou, true)
+      .then(freshData => {
+        // Only notify if data changed
+        if (onUpdate && JSON.stringify(cached) !== JSON.stringify(freshData)) {
+          onUpdate(freshData);
+        }
+      })
+      .catch(error => {
+        console.error('Background fetch failed:', error);
+      });
+
+    // Return cached data immediately (or empty if no cache)
+    return cached || [];
   }
 }
 
