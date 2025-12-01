@@ -26,6 +26,11 @@ import {
   MenuItem,
   SelectChangeEvent,
   Snackbar,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  DialogContentText,
 } from '@mui/material';
 import { styled, useTheme, keyframes } from '@mui/material/styles';
 import {
@@ -33,7 +38,9 @@ import {
   Refresh as RefreshIcon,
   Info as InfoIcon,
   TaskAlt as TaskAltIcon,
+  Lock as LockIcon,
 } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
 import ImportCard from '../../components/dataImport/ImportCard';
 import { ImportFile, ImportStatus } from '../../types/dataImport';
 import importConfigService, { ImportGroup } from '../../services/importConfigService';
@@ -84,6 +91,7 @@ const HeaderCard = styled(Card)(({ theme }) => ({
 const DataImport: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const navigate = useNavigate();
 
   // State
   const [loading, setLoading] = useState(true);
@@ -92,6 +100,9 @@ const DataImport: React.FC = () => {
   const [sessionStatus, setSessionStatus] = useState<'idle' | 'importing' | 'complete'>('idle');
   const [importSessionStarted, setImportSessionStarted] = useState(false);
   const [currentImportSessionId, setCurrentImportSessionId] = useState<number | null>(null);
+  const [importCompleted, setImportCompleted] = useState(false);
+  const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
+  const [showLockedMessage, setShowLockedMessage] = useState(false);
 
   // Import Groups state
   const [importGroups, setImportGroups] = useState<ImportGroup[]>([]);
@@ -115,6 +126,29 @@ const DataImport: React.FC = () => {
   // Cache status state
   const [dataFreshness, setDataFreshness] = useState<'cached' | 'fresh' | 'fetching'>('cached');
 
+  // Check if imports are already completed for this OU
+  useEffect(() => {
+    const checkImportState = async () => {
+      if (!selectedOU) return;
+
+      try {
+        // @ts-ignore
+        const result = await window.ipcApi.sendIpcRequest('db:get-import-completed-state', { ou: selectedOU });
+        if (result?.success) {
+          const isCompleted = result.data as boolean;
+          setImportCompleted(isCompleted);
+          if (isCompleted) {
+            setShowLockedMessage(true);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to check import state:', error);
+      }
+    };
+
+    checkImportState();
+  }, [selectedOU]);
+
   // Fetch import groups when OU is selected or changes
   useEffect(() => {
     const fetchImportGroups = async () => {
@@ -122,7 +156,6 @@ const DataImport: React.FC = () => {
 
       // Reset import group selection when hotel changes
       setSelectedImportGroup('');
-      handleRestart();
 
       try {
         // Use cache-first strategy: load cached data immediately, then fetch fresh in background
@@ -415,6 +448,19 @@ const DataImport: React.FC = () => {
       console.error('Failed to clear staging table:', error);
     }
 
+    // Clear the import completed state
+    if (selectedOU) {
+      try {
+        // @ts-ignore
+        await window.ipcApi.sendIpcRequest('db:set-import-completed-state', { ou: selectedOU, completed: false });
+        console.log('Import completed state cleared');
+        setImportCompleted(false);
+        setShowLockedMessage(false);
+      } catch (error) {
+        console.error('Failed to clear import completed state:', error);
+      }
+    }
+
     setImportFiles(prev =>
       prev.map(imp => ({
         ...imp,
@@ -432,21 +478,42 @@ const DataImport: React.FC = () => {
     setCurrentActiveIndex(0);
     setCompletedImports(new Set());
     setCurrentImportSessionId(null); // Clear the import session ID for a fresh start
-  }, []);
+  }, [selectedOU]);
 
-  // Handle start import session
-  const handleStartImport = useCallback(() => {
-    setImportSessionStarted(true);
-    setSessionStatus('importing');
-    setIsProcessing(false); // Don't block the first import
+  // Handle start import session or validate import
+  const handleStartImport = useCallback(async () => {
+    // Check if all imports are complete
+    const allComplete = importFiles.every(f => f.status === ImportStatus.Complete);
 
-    // In sequential mode, set the first import as current
-    const sortedImports = [...importFiles].sort((a, b) => a.order - b.order);
-    if (sortedImports.length > 0) {
-      setCurrentProcessingId(sortedImports[0].id);
-      setCurrentActiveIndex(0);
+    if (allComplete && !importCompleted) {
+      // Mark imports as completed and navigate to validations
+      if (selectedOU) {
+        try {
+          // @ts-ignore
+          await window.ipcApi.sendIpcRequest('db:set-import-completed-state', { ou: selectedOU, completed: true });
+          console.log('Import marked as completed');
+          setImportCompleted(true);
+          setShowLockedMessage(true);
+          // Navigate to validations page
+          navigate('/signed-in-landing/validations');
+        } catch (error) {
+          console.error('Failed to set import completed state:', error);
+        }
+      }
+    } else {
+      // Normal import start
+      setImportSessionStarted(true);
+      setSessionStatus('importing');
+      setIsProcessing(false); // Don't block the first import
+
+      // In sequential mode, set the first import as current
+      const sortedImports = [...importFiles].sort((a, b) => a.order - b.order);
+      if (sortedImports.length > 0) {
+        setCurrentProcessingId(sortedImports[0].id);
+        setCurrentActiveIndex(0);
+      }
     }
-  }, [importFiles]);
+  }, [importFiles, importCompleted, selectedOU, navigate]);
 
   // Stats calculation
   const stats = {
@@ -455,9 +522,11 @@ const DataImport: React.FC = () => {
     uploaded: importFiles.filter((f) => f.fileName).length,
   };
 
+  const allImportsComplete = importFiles.every(f => f.status === ImportStatus.Complete);
   const canStartImport =
     importFiles.filter((f) => f.required).every((f) => f.fileName) &&
     !importSessionStarted;
+  const canValidateImport = allImportsComplete && !importCompleted;
 
   if (loading) {
     return (
@@ -540,9 +609,8 @@ const DataImport: React.FC = () => {
                   label="Import Group"
                   onChange={(event: SelectChangeEvent) => {
                     setSelectedImportGroup(event.target.value);
-                    handleRestart();
                   }}
-                  disabled={loadingImportGroups || importSessionStarted}
+                  disabled={loadingImportGroups || importSessionStarted || importCompleted}
                 >
                   {importConfigService.getUniqueGroupNames(importGroups).map((groupName) => (
                     <MenuItem key={groupName} value={groupName}>
@@ -606,7 +674,7 @@ const DataImport: React.FC = () => {
                   onChange={(event: SelectChangeEvent<number | ''>) => {
                     setSelectedYear(event.target.value as number | '');
                   }}
-                  disabled={importSessionStarted}
+                  disabled={importSessionStarted || importCompleted}
                 >
                   <MenuItem value="" disabled>
                     <em>Select Year</em>
@@ -635,7 +703,7 @@ const DataImport: React.FC = () => {
                   onChange={(event: SelectChangeEvent<number | ''>) => {
                     setSelectedMonth(event.target.value as number | '');
                   }}
-                  disabled={importSessionStarted}
+                  disabled={importSessionStarted || importCompleted}
                 >
                   <MenuItem value="" disabled>
                     <em>Select Month</em>
@@ -838,57 +906,110 @@ const DataImport: React.FC = () => {
         </Card>
       )}
 
-      {/* Action Buttons */}
-      <Stack
-        direction={isMobile ? 'column' : 'row'}
-        spacing={2}
-        justifyContent="flex-end"
-        sx={{
-          position: 'sticky',
-          bottom: 16,
-          background: alpha(theme.palette.background.default, 0.8),
-          backdropFilter: 'blur(20px)',
-          p: 2,
-          borderRadius: 3,
-          border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
-        }}
-      >
-        <Button
-          variant="outlined"
-          startIcon={<RefreshIcon />}
-          onClick={handleRestart}
-          disabled={isProcessing}
-          fullWidth={isMobile}
+      {/* Locked State Message */}
+      {importCompleted && showLockedMessage && (
+        <Alert
+          severity="warning"
+          onClose={() => setShowLockedMessage(false)}
           sx={{
-            borderRadius: 2,
-            textTransform: 'none',
-            fontWeight: 600,
-            fontSize: '0.9rem',
+            mb: 2,
+            borderRadius: 3,
+            border: `1px solid ${alpha(theme.palette.warning.main, 0.3)}`,
           }}
         >
-          Restart Import
-        </Button>
+          <Typography variant="body2" fontWeight={600} mb={0.5}>
+            Import Session Locked
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            This import session has been completed and locked. To start a new import, click "Reset Imports" below.
+          </Typography>
+        </Alert>
+      )}
 
-        <Button
-          variant="contained"
-          startIcon={importSessionStarted ? <RefreshIcon /> : <TaskAltIcon />}
-          onClick={handleStartImport}
-          disabled={!canStartImport || isProcessing}
-          fullWidth={isMobile}
+      {/* Action Buttons */}
+      {!importCompleted ? (
+        <Stack
+          direction={isMobile ? 'column' : 'row'}
+          spacing={2}
+          justifyContent="flex-end"
           sx={{
-            borderRadius: 2,
-            textTransform: 'none',
-            fontWeight: 600,
-            fontSize: '0.9rem',
-            background: 'linear-gradient(135deg, #667eea, #764ba2)',
-            '&:hover': {
-              background: 'linear-gradient(135deg, #764ba2, #667eea)',
-            },
+            position: 'sticky',
+            bottom: 16,
+            background: alpha(theme.palette.background.default, 0.8),
+            backdropFilter: 'blur(20px)',
+            p: 2,
+            borderRadius: 3,
+            border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
           }}
         >
-          {importSessionStarted ? 'Import in Progress...' : 'Start Import Session'}
-        </Button>
-      </Stack>
+          <Button
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={handleRestart}
+            disabled={isProcessing}
+            fullWidth={isMobile}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+            }}
+          >
+            Restart Import
+          </Button>
+
+          <Button
+            variant="contained"
+            startIcon={allImportsComplete ? <CheckCircleIcon /> : (importSessionStarted ? <RefreshIcon /> : <TaskAltIcon />)}
+            onClick={handleStartImport}
+            disabled={(!canStartImport && !canValidateImport) || isProcessing}
+            fullWidth={isMobile}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+              background: 'linear-gradient(135deg, #667eea, #764ba2)',
+              '&:hover': {
+                background: 'linear-gradient(135deg, #764ba2, #667eea)',
+              },
+            }}
+          >
+            {allImportsComplete ? 'Validate Import' : (importSessionStarted ? 'Import in Progress...' : 'Start Import Session')}
+          </Button>
+        </Stack>
+      ) : (
+        <Stack
+          direction={isMobile ? 'column' : 'row'}
+          spacing={2}
+          justifyContent="center"
+          sx={{
+            position: 'sticky',
+            bottom: 16,
+            background: alpha(theme.palette.background.default, 0.8),
+            backdropFilter: 'blur(20px)',
+            p: 2,
+            borderRadius: 3,
+            border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+          }}
+        >
+          <Button
+            variant="contained"
+            color="warning"
+            startIcon={<LockIcon />}
+            onClick={() => setShowResetConfirmModal(true)}
+            fullWidth={isMobile}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+            }}
+          >
+            Reset Imports
+          </Button>
+        </Stack>
+      )}
 
       {/* Info Section */}
       <Box mt={3}>
@@ -934,6 +1055,62 @@ const DataImport: React.FC = () => {
           </Typography>
         </Alert>
       </Snackbar>
+
+      {/* Reset Confirmation Modal */}
+      <Dialog
+        open={showResetConfirmModal}
+        onClose={() => setShowResetConfirmModal(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600, color: 'warning.main' }}>
+          Reset Import Session?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            <Typography variant="body1" color="text.secondary" mb={2}>
+              Are you sure you want to reset the import session? This will:
+            </Typography>
+            <Typography variant="body2" color="text.secondary" component="ul" sx={{ pl: 2 }}>
+              <li>Clear all imported data from the staging table</li>
+              <li>Reset the import completion state</li>
+              <li>Unlock the validation page</li>
+              <li>Allow you to re-import data</li>
+            </Typography>
+            <Typography variant="body2" color="error.main" mt={2} fontWeight={600}>
+              This action cannot be undone. You will need to re-import all data files.
+            </Typography>
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button
+            variant="outlined"
+            onClick={() => setShowResetConfirmModal(false)}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={() => {
+              setShowResetConfirmModal(false);
+              handleRestart();
+            }}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Yes, Reset Imports
+          </Button>
+        </DialogActions>
+      </Dialog>
     </PageContainer>
   );
 };

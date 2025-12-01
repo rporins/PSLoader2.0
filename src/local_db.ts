@@ -756,6 +756,25 @@ export async function initializeDatabase() {
       `
         CREATE INDEX IF NOT EXISTS idx_cache_metadata_status ON cache_metadata(fetch_status)
         `,
+      `
+        CREATE TABLE IF NOT EXISTS validations (
+            id INTEGER PRIMARY KEY,
+            ou TEXT NOT NULL,
+            name TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            is_required BOOLEAN DEFAULT 0,
+            description TEXT,
+            sequence INTEGER DEFAULT 0,
+            cached_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(ou, name)
+        )
+        `,
+      `
+        CREATE INDEX IF NOT EXISTS idx_validations_ou ON validations(ou)
+        `,
+      `
+        CREATE INDEX IF NOT EXISTS idx_validations_sequence ON validations(sequence)
+        `,
     ]);
 
     console.log("All necessary tables have been created or already exist.");
@@ -1639,6 +1658,49 @@ export async function deleteUserSetting(key: string): Promise<string> {
     return JSON.stringify({ success: true, message: "Setting deleted successfully" });
   } catch (error) {
     console.error("Error deleting user setting:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- IMPORT COMPLETION STATE FUNCTIONS ---------------------------------------------------------------------------
+// Get import completion state for a specific OU
+export async function getImportCompletedState(ou: string): Promise<boolean> {
+  try {
+    const key = `import_completed_${ou}`;
+    const result = await client.execute({
+      sql: "SELECT value FROM user_settings WHERE key = ?",
+      args: [key]
+    });
+
+    if (result.rows.length > 0) {
+      const value = result.rows[0].value as string;
+      return value === 'true';
+    }
+    return false; // Default to false if not set
+  } catch (error) {
+    console.error("Error getting import completed state:", error);
+    return false;
+  }
+}
+
+// Set import completion state for a specific OU
+export async function setImportCompletedState(ou: string, completed: boolean): Promise<void> {
+  try {
+    const key = `import_completed_${ou}`;
+    await client.execute({
+      sql: `
+        INSERT INTO user_settings (key, value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = CURRENT_TIMESTAMP
+      `,
+      args: [key, completed.toString()]
+    });
+    console.log(`Import completed state set to ${completed} for OU: ${ou}`);
+  } catch (error) {
+    console.error("Error setting import completed state:", error);
     throw error;
   }
 }
@@ -3640,5 +3702,101 @@ export async function shouldRefreshCache(key: string, maxAgeMinutes: number = 60
   } catch (error) {
     console.error(`Error checking cache age for ${key}:`, error);
     return true; // On error, assume refresh needed
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//------VALIDATION FUNCTIONS --------------------------------------------------------------------------------------
+
+/**
+ * Store validations for an OU
+ */
+export async function storeValidations(ou: string, validations: Array<{
+  id: number;
+  name: string;
+  display_name: string;
+  is_required: boolean;
+  description: string;
+  sequence: number;
+}>): Promise<void> {
+  try {
+    await client.execute("BEGIN TRANSACTION");
+
+    try {
+      // Delete existing validations for this OU
+      await client.execute({
+        sql: "DELETE FROM validations WHERE ou = ?",
+        args: [ou],
+      });
+
+      // Insert new validations
+      for (const validation of validations) {
+        await client.execute({
+          sql: `
+            INSERT INTO validations (
+              id, ou, name, display_name, is_required, description, sequence, cached_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          `,
+          args: [
+            validation.id,
+            ou,
+            validation.name,
+            validation.display_name,
+            validation.is_required ? 1 : 0,
+            validation.description,
+            validation.sequence,
+          ],
+        });
+      }
+
+      await client.execute("COMMIT");
+      console.log(`Stored ${validations.length} validations for OU ${ou}`);
+    } catch (error) {
+      await client.execute("ROLLBACK");
+      throw error;
+    }
+  } catch (error) {
+    console.error(`Error storing validations for OU ${ou}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Get validations for an OU
+ */
+export async function getValidations(ou: string): Promise<Array<{
+  id: number;
+  name: string;
+  display_name: string;
+  is_required: boolean;
+  description: string;
+  sequence: number;
+}> | null> {
+  try {
+    const result = await client.execute({
+      sql: `
+        SELECT id, name, display_name, is_required, description, sequence
+        FROM validations
+        WHERE ou = ?
+        ORDER BY sequence ASC
+      `,
+      args: [ou],
+    });
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return result.rows.map(row => ({
+      id: row.id as number,
+      name: row.name as string,
+      display_name: row.display_name as string,
+      is_required: row.is_required === 1,
+      description: row.description as string,
+      sequence: row.sequence as number,
+    }));
+  } catch (error) {
+    console.error(`Error getting validations for OU ${ou}:`, error);
+    return null;
   }
 }

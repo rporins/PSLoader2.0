@@ -150,6 +150,15 @@ export const IPC_CHANNELS = {
   DB_UPDATE_CACHE_METADATA: 'db:update-cache-metadata',
   DB_GET_CACHE_METADATA: 'db:get-cache-metadata',
   DB_SHOULD_REFRESH_CACHE: 'db:should-refresh-cache',
+
+  // Validation channels
+  DB_STORE_VALIDATIONS: 'db:store-validations',
+  DB_GET_VALIDATIONS: 'db:get-validations',
+  VALIDATION_RUN: 'validation:run',
+
+  // Import completion state channels
+  DB_GET_IMPORT_COMPLETED_STATE: 'db:get-import-completed-state',
+  DB_SET_IMPORT_COMPLETED_STATE: 'db:set-import-completed-state',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];

@@ -16,6 +16,7 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import CheckIcon from "@mui/icons-material/Check";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import ListItem from "@mui/material/ListItem";
 import ListItemButton from "@mui/material/ListItemButton";
@@ -44,6 +45,10 @@ import Chip from "@mui/material/Chip";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import FileUploadIcon from "@mui/icons-material/FileUpload";
 import TableRowsIcon from "@mui/icons-material/TableRows";
+import VerifiedUserIcon from "@mui/icons-material/VerifiedUser";
+import AssessmentIcon from "@mui/icons-material/Assessment";
+import DescriptionIcon from "@mui/icons-material/Description";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import ThemeToggle from "./customComponents/themeToggle";
 import { useSettingsStore } from "../store/settings";
 import authService, { Hotel } from "../services/auth";
@@ -681,15 +686,8 @@ const handleSignOut = useCallback(async () => {
             whiteSpace: 'nowrap'
           }}
         >
-          User Account
+          Active User
         </Typography>
-        <Chip 
-          label="Pro Plan" 
-          size="small" 
-          color="primary" 
-          variant="outlined"
-          sx={{ mt: 0.5, height: 20, fontSize: '0.75rem' }}
-        />
       </Box>
     </UserInfoSection>
 
@@ -847,12 +845,66 @@ const handleSignOut = useCallback(async () => {
         </DrawerHeader>
         <Divider />
         <List>
-          <ListItem key="create_new" disablePadding sx={{ display: "none" }}>
-            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/create-new")}>
+          {/* Main Navigation */}
+          <ListItem key="home" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/home")}>
               <ListItemIcon sx={listItemIconStyle}>
-                <ApartmentIcon />
+                <HomeIcon />
               </ListItemIcon>
-              <ListItemText primary="Create New" sx={listItemTextStyle} />
+              <ListItemText primary="Home" sx={listItemTextStyle} />
+            </ListItemButton>
+          </ListItem>
+
+          <ListItem key="DataImport" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/data-import")}>
+              <ListItemIcon sx={listItemIconStyle}>
+                <FileUploadIcon />
+              </ListItemIcon>
+              <ListItemText primary="Data Import" sx={listItemTextStyle} />
+            </ListItemButton>
+          </ListItem>
+
+          <ListItem key="Validations" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/validations")}>
+              <ListItemIcon sx={listItemIconStyle}>
+                <CheckCircleIcon />
+              </ListItemIcon>
+              <ListItemText primary="Validations" sx={listItemTextStyle} />
+            </ListItemButton>
+          </ListItem>
+
+          <ListItem key="SignOffUpload" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/sign-off-upload")}>
+              <ListItemIcon sx={listItemIconStyle}>
+                <CloudUploadIcon />
+              </ListItemIcon>
+              <ListItemText primary="Sign-Off & Upload" sx={listItemTextStyle} />
+            </ListItemButton>
+          </ListItem>
+
+          {/* Reports Section */}
+          <Divider sx={{ my: 1 }} />
+          {open && (
+            <ListItem disablePadding sx={{ display: "block" }}>
+              <ListItemText
+                primary="REPORTS"
+                sx={{
+                  px: 2.5,
+                  py: 1,
+                  color: 'text.secondary',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                }}
+              />
+            </ListItem>
+          )}
+
+          <ListItem key="navigate" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/report")}>
+              <ListItemIcon sx={listItemIconStyle}>
+                <AssessmentIcon />
+              </ListItemIcon>
+              <ListItemText primary="Report" sx={listItemTextStyle} />
             </ListItemButton>
           </ListItem>
 
@@ -865,14 +917,31 @@ const handleSignOut = useCallback(async () => {
             </ListItemButton>
           </ListItem>
 
-          <ListItem key="navigate" disablePadding sx={{ display: "block" }}>
-            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/report")}>
+          <ListItem key="pl" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/pl")}>
               <ListItemIcon sx={listItemIconStyle}>
-                <HomeIcon />
+                <DescriptionIcon />
               </ListItemIcon>
-              <ListItemText primary="Report" sx={listItemTextStyle} />
+              <ListItemText primary="P&L" sx={listItemTextStyle} />
             </ListItemButton>
           </ListItem>
+
+          {/* Tools Section */}
+          <Divider sx={{ my: 1 }} />
+          {open && (
+            <ListItem disablePadding sx={{ display: "block" }}>
+              <ListItemText
+                primary="TOOLS"
+                sx={{
+                  px: 2.5,
+                  py: 1,
+                  color: 'text.secondary',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                }}
+              />
+            </ListItem>
+          )}
 
           <ListItem key="COA" disablePadding sx={{ display: "block" }}>
             <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/coa")}>
@@ -880,15 +949,6 @@ const handleSignOut = useCallback(async () => {
                 <AccountBalanceIcon />
               </ListItemIcon>
               <ListItemText primary="COA" sx={listItemTextStyle} />
-            </ListItemButton>
-          </ListItem>
-
-          <ListItem key="DataImport" disablePadding sx={{ display: "block" }}>
-            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/data-import")}>
-              <ListItemIcon sx={listItemIconStyle}>
-                <FileUploadIcon />
-              </ListItemIcon>
-              <ListItemText primary="Data Import" sx={listItemTextStyle} />
             </ListItemButton>
           </ListItem>
 

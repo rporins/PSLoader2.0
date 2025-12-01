@@ -103,7 +103,7 @@ export default function Profile() {
               </Typography>
               <Typography variant="body2" sx={{ color: "text.secondary" }}>User ID: {user?.id}</Typography>
               <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-                <Chip size="small" color="primary" variant="outlined" label="Pro Plan" />
+                <Chip size="small" color="success" variant="outlined" label="Active User" />
                 <Chip size="small" variant="outlined" label="Member since 2025" />
               </Stack>
             </Box>

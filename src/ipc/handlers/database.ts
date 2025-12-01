@@ -470,6 +470,44 @@ export class DatabaseHandlers {
       timestamp: Date.now(),
     };
   };
+
+  // Validation handlers
+  storeValidationsHandler: IpcHandler = async (event, request) => {
+    await db.storeValidations(request.ou, request.validations);
+    return {
+      success: true,
+      data: { message: 'Validations stored successfully' },
+      timestamp: Date.now(),
+    };
+  };
+
+  getValidationsHandler: IpcHandler = async (event, request) => {
+    const result = await db.getValidations(request.ou);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  // Import completion state handlers
+  getImportCompletedStateHandler: IpcHandler = async (event, request) => {
+    const result = await db.getImportCompletedState(request.ou);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  setImportCompletedStateHandler: IpcHandler = async (event, request) => {
+    await db.setImportCompletedState(request.ou, request.completed);
+    return {
+      success: true,
+      data: { message: 'Import completed state updated successfully' },
+      timestamp: Date.now(),
+    };
+  };
 }
 
 // Factory function to create and register database handlers
@@ -526,5 +564,9 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_UPDATE_CACHE_METADATA]: handlers.updateCacheMetadataHandler,
     [IPC_CHANNELS.DB_GET_CACHE_METADATA]: handlers.getCacheMetadataHandler,
     [IPC_CHANNELS.DB_SHOULD_REFRESH_CACHE]: handlers.shouldRefreshCacheHandler,
+    [IPC_CHANNELS.DB_STORE_VALIDATIONS]: handlers.storeValidationsHandler,
+    [IPC_CHANNELS.DB_GET_VALIDATIONS]: handlers.getValidationsHandler,
+    [IPC_CHANNELS.DB_GET_IMPORT_COMPLETED_STATE]: handlers.getImportCompletedStateHandler,
+    [IPC_CHANNELS.DB_SET_IMPORT_COMPLETED_STATE]: handlers.setImportCompletedStateHandler,
   };
 }

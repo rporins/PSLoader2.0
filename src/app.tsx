@@ -19,9 +19,13 @@ import Report from "./routes/nestedPages/report";
 import CreateNew from "./routes/nestedPages/createNew";
 import COA from "./routes/nestedPages/coa";
 import DataImport from "./routes/nestedPages/dataImport";
+import Validations from "./routes/nestedPages/validations";
 import MappingReview from "./routes/nestedPages/mappingReview";
 import Profile from "./routes/nestedPages/profile";
 import Settings from "./routes/nestedPages/settings";
+import Home from "./routes/nestedPages/home";
+import SignOffUpload from "./routes/nestedPages/signOffUpload";
+import PL from "./routes/nestedPages/pl";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 // define the route
@@ -56,6 +60,26 @@ const router = createHashRouter([
     handle: { title: "Dashboard" },
     children: [
       {
+        path: "home",
+        element: <Home />,
+        handle: { title: "Home" },
+      },
+      {
+        path: "data-import",
+        element: <DataImport />,
+        handle: { title: "Data Import" },
+      },
+      {
+        path: "validations",
+        element: <Validations />,
+        handle: { title: "Validations" },
+      },
+      {
+        path: "sign-off-upload",
+        element: <SignOffUpload />,
+        handle: { title: "Sign-Off & Upload" },
+      },
+      {
         path: "report",
         element: <Report />,
         handle: { title: "Report" },
@@ -66,9 +90,9 @@ const router = createHashRouter([
         handle: { title: "Data Table" },
       },
       {
-        path: "create-new",
-        element: <CreateNew />,
-        handle: { title: "Create New" },
+        path: "pl",
+        element: <PL />,
+        handle: { title: "P&L" },
       },
       {
         path: "coa",
@@ -76,14 +100,14 @@ const router = createHashRouter([
         handle: { title: "COA" },
       },
       {
-        path: "data-import",
-        element: <DataImport />,
-        handle: { title: "Data Import" },
-      },
-      {
         path: "mapping-review",
         element: <MappingReview />,
         handle: { title: "Mapping Review" },
+      },
+      {
+        path: "create-new",
+        element: <CreateNew />,
+        handle: { title: "Create New" },
       },
       {
         path: "profile",
