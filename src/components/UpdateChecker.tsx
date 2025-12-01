@@ -18,6 +18,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
   const [error, setError] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
+  const [updateInstalled, setUpdateInstalled] = useState(false);
 
   useEffect(() => {
     console.log('[UpdateChecker] Starting update check');
@@ -66,19 +67,25 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
     const handleUpdateDownloaded = () => {
       console.log('[UpdateChecker] Update downloaded, installing now...');
       setStatus('installing');
-      setMessage('Installing update and restarting...');
+      setMessage('Update complete - please restart the application');
       setDownloadProgress(100);
+      setUpdateInstalled(true);
 
-      // Install immediately - the app will restart automatically
+      // Install immediately - may or may not restart automatically
       setTimeout(() => {
-        console.log('[UpdateChecker] Triggering install and restart');
+        console.log('[UpdateChecker] Triggering install');
         window.ipcApi!.sendIpcRequest('app:install-update').catch((err: any) => {
           console.error('[UpdateChecker] Install failed:', err);
           setError(err.message || 'Failed to install update');
           setStatus('error');
           setMessage('Installation failed');
+          setUpdateInstalled(false);
         });
       }, 1000);
+
+      // NOTE: Intentionally NOT calling onUpdateComplete() here
+      // This keeps the update screen visible, forcing the user to restart
+      // to see the new version. The app may or may not auto-restart.
     };
 
     const handleUpdateError = (_event: any, errorMessage: string) => {
@@ -336,7 +343,31 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
         )}
 
         {/* Installing message */}
-        {status === 'installing' && (
+        {status === 'installing' && updateInstalled && (
+          <div style={{
+            padding: '20px',
+            background: 'rgba(255, 149, 0, 0.1)',
+            borderRadius: '12px',
+            border: '2px solid rgba(255, 149, 0, 0.3)',
+            fontSize: '15px',
+            color: '#1d1d1f',
+            marginBottom: '16px',
+            textAlign: 'center',
+            fontWeight: 600,
+          }}>
+            ⚠️ Update installed successfully
+            <div style={{
+              marginTop: '8px',
+              fontSize: '14px',
+              fontWeight: 500,
+              color: '#86868b',
+            }}>
+              You must close and reopen the application to continue
+            </div>
+          </div>
+        )}
+
+        {status === 'installing' && !updateInstalled && (
           <div style={{
             padding: '16px',
             background: 'rgba(52, 199, 89, 0.08)',
@@ -345,8 +376,13 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
             fontSize: '14px',
             color: '#1d1d1f',
             marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '12px',
           }}>
-            The app will restart automatically to complete the installation
+            <div className="pulse-ring" style={{ width: '24px', height: '24px' }} />
+            <span>Installing update...</span>
           </div>
         )}
 
