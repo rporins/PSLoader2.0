@@ -18,6 +18,9 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorIcon from "@mui/icons-material/Error";
 import UploadIcon from "@mui/icons-material/Upload";
 import EditIcon from "@mui/icons-material/Edit";
+import { useSettingsStore } from "../../store/settings";
+import submittedDataService, { SubmittedDataEntry } from "../../services/submittedDataService";
+import authService from "../../services/auth";
 
 const StyledCard = styled(Card)(({ theme }) => ({
   marginBottom: theme.spacing(3),
@@ -37,18 +40,41 @@ export default function SignOffUpload() {
   const [signedOff, setSignedOff] = useState<boolean>(false);
   const [uploading, setUploading] = useState<boolean>(false);
   const [uploadComplete, setUploadComplete] = useState<boolean>(false);
+  const [uploadError, setUploadError] = useState<string>("");
+  const [unmappedCount, setUnmappedCount] = useState<number>(0);
+  const [totalRecords, setTotalRecords] = useState<number>(0);
+  const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
 
-  // Fetch validation status
+  // Fetch validation status and check for unmapped records
   useEffect(() => {
     const fetchValidations = async () => {
       setLoading(true);
       try {
         if (window.ipcApi) {
+          // Fetch validation summary
           const response = await window.ipcApi.sendIpcRequest("db:get-validation-summary");
 
           if (response.success && response.data) {
             const data = JSON.parse(response.data);
             setValidations(data);
+          }
+
+          // Check for unmapped records in staging data
+          const stagingResponse = await window.ipcApi.sendIpcRequest("db:get-staging-data", {
+            ou: selectedHotelOu,
+          });
+
+          if (stagingResponse.success && stagingResponse.data) {
+            const stagingData = JSON.parse(stagingResponse.data as string);
+            setTotalRecords(stagingData.length);
+
+            // Count records with null/undefined department or account
+            const unmapped = stagingData.filter((row: any) =>
+              !row.department || !row.account ||
+              row.department === null || row.account === null
+            ).length;
+
+            setUnmappedCount(unmapped);
           }
         }
       } catch (error) {
@@ -59,7 +85,7 @@ export default function SignOffUpload() {
     };
 
     fetchValidations();
-  }, []);
+  }, [selectedHotelOu]);
 
   const allValidationsPassed = validations.every(v => v.status === "pass");
   const hasWarnings = validations.some(v => v.status === "warning");
@@ -72,20 +98,57 @@ export default function SignOffUpload() {
 
   const handleUpload = async () => {
     setUploading(true);
-    try {
-      if (window.ipcApi) {
-        // Implement actual upload logic here
-        const response = await window.ipcApi.sendIpcRequest("db:upload-data", {
-          signature,
-          timestamp: new Date().toISOString(),
-        });
+    setUploadError("");
 
-        if (response.success) {
-          setUploadComplete(true);
-        }
+    try {
+      // Use the signature name that the user entered
+      const signedBy = signature;
+
+      // Fetch staging data from local database
+      const response = await window.ipcApi.sendIpcRequest("db:get-staging-data", {
+        ou: selectedHotelOu,
+      });
+
+      if (!response.success || !response.data) {
+        throw new Error("Failed to fetch staging data");
       }
+
+      const stagingData = JSON.parse(response.data as string);
+
+      // Filter out unmapped records (those with null/undefined department or account)
+      const mappedData = stagingData.filter((row: any) =>
+        row.department && row.account &&
+        row.department !== null && row.account !== null
+      );
+
+      // Transform staging data to match API format
+      const submittedData: SubmittedDataEntry[] = mappedData.map((row: any) => ({
+        ou: row.ou.padEnd(7, ' '), // Pad OU to minimum 7 characters
+        period: row.period_combo, // Use period_combo (format: "YYYY-MM")
+        department: row.department,
+        account: row.account,
+        amount: Math.round(row.amount), // Convert to integer (round to nearest whole number)
+        scenario: row.scenario,
+        version: row.version,
+        currency: row.currency,
+        load_id: row.import_batch_id || "manual", // Use import_batch_id if available
+      }));
+
+      if (submittedData.length === 0) {
+        throw new Error("No data to upload. Please import data first.");
+      }
+
+      // Upload data via API
+      const uploadedData = await submittedDataService.uploadBulk(submittedData, signedBy);
+
+      const skippedCount = stagingData.length - mappedData.length;
+      console.log(`Successfully uploaded ${uploadedData.length} records${skippedCount > 0 ? ` (skipped ${skippedCount} unmapped records)` : ''}`);
+      setUploadComplete(true);
+
     } catch (error) {
       console.error("Error uploading data:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+      setUploadError(errorMessage);
     } finally {
       setUploading(false);
     }
@@ -96,6 +159,19 @@ export default function SignOffUpload() {
       <Typography variant="h4" gutterBottom sx={{ mb: 3 }}>
         Sign-Off & Upload
       </Typography>
+
+      {/* Unmapped Records Warning */}
+      {unmappedCount > 0 && (
+        <Alert severity="warning" sx={{ mb: 3 }}>
+          <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+            {unmappedCount} of {totalRecords} records have unmapped accounts/departments
+          </Typography>
+          <Typography variant="body2">
+            These records will be automatically skipped during upload. Only {totalRecords - unmappedCount} mapped records will be uploaded.
+            Please review the Data Import page to map missing accounts and departments.
+          </Typography>
+        </Alert>
+      )}
 
       {/* Validation Status Card */}
       <StyledCard>
@@ -251,6 +327,11 @@ export default function SignOffUpload() {
               </Alert>
             ) : (
               <>
+                {uploadError && (
+                  <Alert severity="error" sx={{ mb: 2 }} icon={<ErrorIcon />}>
+                    {uploadError}
+                  </Alert>
+                )}
                 <Typography variant="body1" paragraph>
                   Ready to upload your data. Click the button below to proceed.
                 </Typography>

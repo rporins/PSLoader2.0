@@ -619,6 +619,26 @@ const DataImport: React.FC = () => {
         </CardContent>
       </HeaderCard>
 
+      {/* Locked State Message - Top of Page */}
+      {importCompleted && showLockedMessage && (
+        <Alert
+          severity="warning"
+          onClose={() => setShowLockedMessage(false)}
+          sx={{
+            mb: 2,
+            borderRadius: 3,
+            border: `1px solid ${alpha(theme.palette.warning.main, 0.3)}`,
+          }}
+        >
+          <Typography variant="body2" fontWeight={600} mb={0.5}>
+            Import Session Locked
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            This import session has been completed and locked. To start a new import, click "Reset Imports" below.
+          </Typography>
+        </Alert>
+      )}
+
       {/* Import Groups and Period Selector */}
       <Card
         sx={{
@@ -910,26 +930,6 @@ const DataImport: React.FC = () => {
             {loadingImportGroups ? 'Loading import groups...' : 'Please select an import group to begin'}
           </Typography>
         </Card>
-      )}
-
-      {/* Locked State Message */}
-      {importCompleted && showLockedMessage && (
-        <Alert
-          severity="warning"
-          onClose={() => setShowLockedMessage(false)}
-          sx={{
-            mb: 2,
-            borderRadius: 3,
-            border: `1px solid ${alpha(theme.palette.warning.main, 0.3)}`,
-          }}
-        >
-          <Typography variant="body2" fontWeight={600} mb={0.5}>
-            Import Session Locked
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            This import session has been completed and locked. To start a new import, click "Reset Imports" below.
-          </Typography>
-        </Alert>
       )}
 
       {/* Action Buttons */}
