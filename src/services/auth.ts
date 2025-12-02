@@ -183,6 +183,28 @@ class AuthService {
     const deviceSecretHash = await crypto.subtle.digest('SHA-256', deviceSecretData);
     const deviceSecretArray = Array.from(new Uint8Array(deviceSecretHash));
     this.deviceSecret = deviceSecretArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+    // Log device secret components for debugging
+    try {
+      const logData = {
+        timestamp: new Date().toISOString(),
+        deviceId: this.deviceId,
+        components: {
+          platform,
+          permanentSalt: permanentSalt.substring(0, 16) + '...', // Truncate for security
+          machineId: hardwareInfo?.machineId || 'UNKNOWN',
+          biosSerial: hardwareInfo?.biosSerial || 'UNKNOWN',
+          motherboardSerial: hardwareInfo?.motherboardSerial || 'UNKNOWN',
+          diskSerial: hardwareInfo?.diskSerial || 'UNKNOWN',
+          cpuModel: hardwareInfo?.cpuInfo.model || 'UNKNOWN'
+        },
+        deviceSecretHash: this.deviceSecret,
+        rawString: deviceSecretComponents.join('||')
+      };
+      await window.ipcApi.logDeviceSecret(logData);
+    } catch (error) {
+      console.warn('Failed to log device secret components:', error);
+    }
   }
 
   // Stage 1: User Login

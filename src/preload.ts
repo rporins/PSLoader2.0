@@ -12,6 +12,7 @@ const IPC_CHANNELS = {
   // Hardware channels
   HARDWARE_GET_INFO: 'hardware:get-info',
   HARDWARE_GET_PERMANENT_SALT: 'hardware:get-permanent-salt',
+  HARDWARE_LOG_DEVICE_SECRET: 'hardware:log-device-secret',
 
   // Database channels (legacy support)
   DB_GET_PERIODS: 'db:get-periods',
@@ -54,6 +55,7 @@ export interface IpcApi {
     memoryTotal: number;
   }>;
   getPermanentSalt: () => Promise<string>;
+  logDeviceSecret: (logData: any) => Promise<void>;
   onAuthSuccess: (callback: (event: any, data: any) => void) => void;
   onAuthError: (callback: (event: any, error: string) => void) => void;
   onAuthLogout: (callback: (event: any) => void) => void;
@@ -114,6 +116,16 @@ contextBridge.exposeInMainWorld('ipcApi', {
     if (result && typeof result === 'object' && 'success' in result) {
       if (!result.success) {
         throw new Error(result.error || 'Failed to get permanent salt');
+      }
+      return result.data;
+    }
+    return result;
+  },
+  logDeviceSecret: async (logData: any) => {
+    const result = await ipcRenderer.invoke('ipcMain', IPC_CHANNELS.HARDWARE_LOG_DEVICE_SECRET, logData);
+    if (result && typeof result === 'object' && 'success' in result) {
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to log device secret');
       }
       return result.data;
     }

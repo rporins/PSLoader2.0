@@ -8,6 +8,8 @@ import os from "os";
 import { machineIdSync } from "node-machine-id";
 import si from "systeminformation";
 import * as db from "../../local_db";
+import fs from "fs";
+import path from "path";
 
 export interface HardwareInfo {
   machineId: string;
@@ -154,6 +156,59 @@ export class HardwareHandlers {
     }
   };
 
+  /**
+   * Log device secret components to file for debugging
+   * Logs to Documents/PSLoader/device-secret.log
+   */
+  logDeviceSecret: IpcHandler<any, void> = async (event, logData) => {
+    try {
+      // Get Documents folder path
+      const documentsPath = path.join(os.homedir(), 'Documents', 'PSLoader');
+
+      // Ensure directory exists
+      if (!fs.existsSync(documentsPath)) {
+        fs.mkdirSync(documentsPath, { recursive: true });
+      }
+
+      const logFilePath = path.join(documentsPath, 'device-secret.log');
+
+      // Format log entry
+      const logEntry = `
+═══════════════════════════════════════════════════════════════════
+${logData.timestamp}
+Device ID: ${logData.deviceId}
+
+Components:
+  Platform:           ${logData.components.platform}
+  Permanent Salt:     ${logData.components.permanentSalt}
+  Machine ID:         ${logData.components.machineId}
+  BIOS Serial:        ${logData.components.biosSerial}
+  Motherboard Serial: ${logData.components.motherboardSerial}
+  Disk Serial:        ${logData.components.diskSerial}
+  CPU Model:          ${logData.components.cpuModel}
+
+Raw String (what gets hashed):
+${logData.rawString}
+
+Device Secret Hash (SHA-256):
+${logData.deviceSecretHash}
+═══════════════════════════════════════════════════════════════════
+`;
+
+      // Append to log file
+      fs.appendFileSync(logFilePath, logEntry);
+
+      return {
+        success: true,
+        data: undefined,
+        timestamp: Date.now(),
+      };
+    } catch (error) {
+      console.error('Error logging device secret:', error);
+      throw new Error('Failed to log device secret');
+    }
+  };
+
 }
 
 // Factory function to create and register hardware handlers
@@ -163,5 +218,6 @@ export function createHardwareHandlers() {
   return {
     'hardware:get-info': handlers.getHardwareInfo,
     'hardware:get-permanent-salt': handlers.getPermanentSalt,
+    'hardware:log-device-secret': handlers.logDeviceSecret,
   };
 }
