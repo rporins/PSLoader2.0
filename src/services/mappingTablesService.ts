@@ -18,6 +18,7 @@ export interface MappingTablesDataResponse {
 // Account Map structure from API (matches API response)
 export interface AccountMapAPI {
   base_account: string;
+  account_description_detail_level_max: string;
   level_0: string;
   level_1: string;
   level_2: string;
@@ -55,6 +56,7 @@ export interface AccountMapAPI {
 // Department Map structure from API (matches API response)
 export interface DepartmentMapAPI {
   base_department: string;
+  department_description_detail_level_max: string;
   level_0: string;
   level_1: string;
   level_2: string;
@@ -100,7 +102,7 @@ export interface AccountDepartmentComboAPI {
 // Combos response from API
 export interface CombosDataResponse {
   combos: AccountDepartmentComboAPI[];
-  combo_version: string;
+  combo_version?: string; // Optional since the API doesn't return it
 }
 
 class MappingTablesService {
@@ -350,7 +352,8 @@ class MappingTablesService {
         console.log('Syncing combos data...');
         const combosData = await this.getCombos();
         await this.storeCombosData(combosData);
-        remoteVersion.combo_version = combosData.combo_version;
+        // Use the combo_version from response if available, otherwise use the main version
+        remoteVersion.combo_version = combosData.combo_version || remoteVersion.version;
       }
 
       // Update version after successful sync

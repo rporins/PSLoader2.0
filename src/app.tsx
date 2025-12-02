@@ -14,6 +14,7 @@ import Login from "./routes/login";
 import DeviceVerify from "./routes/device-verify";
 import TOTPVerify from "./routes/totp-verify";
 import DataTable from "./routes/nestedPages/dataTable";
+import StagingDataReview from "./routes/nestedPages/stagingDataReview";
 import SignedInLanding from "./routes/signedinLanding";
 import Report from "./routes/nestedPages/report";
 import CreateNew from "./routes/nestedPages/createNew";
@@ -88,6 +89,11 @@ const router = createHashRouter([
         path: "data-table",
         element: <DataTable />,
         handle: { title: "Data Table" },
+      },
+      {
+        path: "staging-review",
+        element: <StagingDataReview />,
+        handle: { title: "Staging Data Review" },
       },
       {
         path: "pl",

@@ -126,6 +126,7 @@ export const IPC_CHANNELS = {
 
   // Staging table channels
   DB_CLEAR_STAGING_TABLE: 'db:clear-staging-table',
+  DB_GET_STAGING_DATA: 'db:get-staging-data',
 
   // Mapping tables channels
   DB_GET_MAPPING_TABLES_VERSION: 'db:get-mapping-tables-version',
@@ -145,6 +146,7 @@ export const IPC_CHANNELS = {
   DB_GET_FINANCIAL_DATA_COUNT: 'db:get-financial-data-count',
   DB_GET_FINANCIAL_DATA_LAST_IMPORT: 'db:get-financial-data-last-import',
   DB_GET_FINANCIAL_REPORT_DATA: 'db:get-financial-report-data',
+  DB_GET_STAGING_VS_BUDGET_DATA: 'db:get-staging-vs-budget-data',
 
   // Cache metadata channels
   DB_UPDATE_CACHE_METADATA: 'db:update-cache-metadata',

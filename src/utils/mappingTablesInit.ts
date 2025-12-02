@@ -138,10 +138,10 @@ export async function forceMappingTablesSync(): Promise<MappingTablesSyncResult>
     const combosData = await mappingTablesService.getCombos();
     await mappingTablesService.storeCombosData(combosData);
 
-    // Update version
+    // Update version (use combo_version from response if available, otherwise use main version)
     await mappingTablesService.updateVersion(
       data.version,
-      combosData.combo_version
+      combosData.combo_version || data.version
     );
 
     console.log('✅ Forced sync completed successfully');

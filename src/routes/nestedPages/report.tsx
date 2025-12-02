@@ -2,7 +2,6 @@ import { useEffect, useState, useMemo } from "react";
 import {
   DataGridPremium,
   GridColDef,
-  GridColumnGroupingModel,
   GridToolbarContainer,
   GridToolbarExport,
   GridToolbarFilterButton,
@@ -29,13 +28,13 @@ import { styled } from "@mui/material/styles";
 interface FinancialReportRow {
   id: number;
   combo: string;
-  department: string;
-  account: string;
+  base_account: string;
   account_level_4: string;
   account_level_6: string;
   account_level_9: string;
   department_level_4: string;
-  department_level_9: string;
+  department_level_5: string;
+  department_level_7: string;
   act_p1: number;
   act_p2: number;
   act_p3: number;
@@ -93,7 +92,6 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 
 export default function Report() {
   const [rows, setRows] = useState<FinancialReportRow[]>([]);
-  const [selectedDepartment, setSelectedDepartment] = useState<string>("all");
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [startingMonth, setStartingMonth] = useState<number>(1); // 1-based month
   const [loading, setLoading] = useState<boolean>(false);
@@ -203,23 +201,23 @@ export default function Report() {
   const columns: GridColDef[] = useMemo(() => {
     const cols: GridColDef[] = [
       {
-        field: 'department',
-        headerName: 'Department',
-        width: 140,
-      },
-      {
-        field: 'account',
-        headerName: 'Account',
-        width: 140,
-      },
-      {
         field: 'department_level_4',
         headerName: 'Dept L4',
         width: 120,
       },
       {
-        field: 'department_level_9',
-        headerName: 'Dept L9',
+        field: 'department_level_5',
+        headerName: 'Dept L5',
+        width: 120,
+      },
+      {
+        field: 'department_level_7',
+        headerName: 'Dept L7',
+        width: 120,
+      },
+      {
+        field: 'base_account',
+        headerName: 'Base Account',
         width: 120,
       },
       {
@@ -249,6 +247,7 @@ export default function Report() {
         headerName: `${monthLabel} Act`,
         type: 'number',
         width: 110,
+        valueGetter: (_value, row) => -(row[`act_p${i}`] || 0),
         valueFormatter: (value) => currencyFormatter.format(value || 0),
       });
 
@@ -258,6 +257,7 @@ export default function Report() {
         headerName: `${monthLabel} Bud`,
         type: 'number',
         width: 110,
+        valueGetter: (_value, row) => -(row[`bud_p${i}`] || 0),
         valueFormatter: (value) => currencyFormatter.format(value || 0),
         cellClassName: 'budget-column',
       });
@@ -268,7 +268,7 @@ export default function Report() {
         headerName: `${monthLabel} Var`,
         type: 'number',
         width: 110,
-        valueGetter: (_value, row) => (row[`act_p${i}`] || 0) - (row[`bud_p${i}`] || 0),
+        valueGetter: (_value, row) => -(row[`act_p${i}`] || 0) - (-(row[`bud_p${i}`] || 0)),
         valueFormatter: (value) => currencyFormatter.format(value || 0),
         cellClassName: (params) =>
           params.value > 0 ? 'positive-variance' : params.value < 0 ? 'negative-variance' : '',
@@ -286,7 +286,7 @@ export default function Report() {
         for (let i = 1; i <= 12; i++) {
           total += row[`act_p${i}`] || 0;
         }
-        return total;
+        return -total;
       },
       valueFormatter: (value) => currencyFormatter.format(value || 0),
       cellClassName: 'total-column',
@@ -302,7 +302,7 @@ export default function Report() {
         for (let i = 1; i <= 12; i++) {
           total += row[`bud_p${i}`] || 0;
         }
-        return total;
+        return -total;
       },
       valueFormatter: (value) => currencyFormatter.format(value || 0),
       cellClassName: 'total-column',
@@ -320,7 +320,7 @@ export default function Report() {
           actTotal += row[`act_p${i}`] || 0;
           budTotal += row[`bud_p${i}`] || 0;
         }
-        return actTotal - budTotal;
+        return (-actTotal) - (-budTotal);
       },
       valueFormatter: (value) => currencyFormatter.format(value || 0),
       cellClassName: (params) =>
@@ -330,32 +330,6 @@ export default function Report() {
     return cols;
   }, [monthLabels]);
 
-  const columnGroupingModel: GridColumnGroupingModel = useMemo(() => {
-    const groups: GridColumnGroupingModel = [];
-
-    // Group months by quarters
-    for (let q = 0; q < 4; q++) {
-      const monthStart = q * 3 + 1;
-      const children = [];
-
-      for (let m = 0; m < 3; m++) {
-        const monthNum = monthStart + m;
-        children.push(
-          { field: `act_p${monthNum}` },
-          { field: `bud_p${monthNum}` },
-          { field: `var_p${monthNum}` }
-        );
-      }
-
-      groups.push({
-        groupId: `Q${q + 1}`,
-        children,
-        headerName: `Q${q + 1}`,
-      });
-    }
-
-    return groups;
-  }, []);
 
   const aggregationModel: GridAggregationModel = useMemo(() => {
     const model: GridAggregationModel = {};
@@ -374,9 +348,9 @@ export default function Report() {
   }, []);
 
   const filteredRows = useMemo(() => {
-    if (selectedDepartment === "all") return rows;
-    return rows.filter(row => row.department === selectedDepartment);
-  }, [rows, selectedDepartment]);
+    // No department filter needed as filtering is now done in backend
+    return rows;
+  }, [rows]);
 
   const summary = useMemo(() => {
     let totalActuals = 0;
@@ -389,6 +363,9 @@ export default function Report() {
       }
     });
 
+    // Invert signs to match the inverted display
+    totalActuals = -totalActuals;
+    totalBudget = -totalBudget;
     const totalVariance = totalActuals - totalBudget;
 
     return {
@@ -485,22 +462,6 @@ export default function Report() {
           </Select>
         </FormControl>
 
-        <FormControl size="small" sx={{ minWidth: 150 }}>
-          <InputLabel>Department</InputLabel>
-          <Select
-            value={selectedDepartment}
-            label="Department"
-            onChange={(e) => setSelectedDepartment(e.target.value)}
-          >
-            <MenuItem value="all">All Departments</MenuItem>
-            {Array.from(new Set(rows.map(row => row.department))).map((dept) => (
-              <MenuItem key={dept} value={dept}>
-                {dept}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-
         <Button
           variant="outlined"
           onClick={fetchReportData}
@@ -514,7 +475,6 @@ export default function Report() {
         <DataGridPremium
           rows={filteredRows}
           columns={columns}
-          columnGroupingModel={columnGroupingModel}
           aggregationModel={aggregationModel}
           slots={{
             toolbar: CustomToolbar,
@@ -526,11 +486,24 @@ export default function Report() {
             pagination: {
               paginationModel: { pageSize: 25 },
             },
+            rowGrouping: {
+              model: ['department_level_4', 'department_level_5', 'department_level_7', 'account_level_4', 'account_level_6', 'account_level_9', 'base_account'],
+            },
+            columns: {
+              columnVisibilityModel: {
+                department_level_4: false,
+                department_level_5: false,
+                department_level_7: false,
+                account_level_4: false,
+                account_level_6: false,
+                account_level_9: false,
+                base_account: false,
+              },
+            },
           }}
           pageSizeOptions={[25, 50, 100]}
           density="compact"
           cellSelection
-          columnHeaderHeight={80}
           sx={{
             '& .total-column': {
               fontWeight: 'bold',

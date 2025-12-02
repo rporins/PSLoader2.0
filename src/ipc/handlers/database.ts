@@ -302,6 +302,15 @@ export class DatabaseHandlers {
     };
   };
 
+  getStagingDataHandler: IpcHandler = async (event, request) => {
+    const result = await db.getStagingData(request.ou);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
   // Mapping tables handlers
   getMappingTablesVersionHandler: IpcHandler = async (event) => {
     const result = await db.getMappingTablesVersion();
@@ -443,6 +452,18 @@ export class DatabaseHandlers {
     };
   };
 
+  getStagingVsBudgetDataHandler: IpcHandler = async (event, request) => {
+    const result = await db.getStagingVsBudgetData(request.ou);
+    console.log('[getStagingVsBudgetDataHandler] Request:', request);
+    console.log('[getStagingVsBudgetDataHandler] Result type:', typeof result);
+    console.log('[getStagingVsBudgetDataHandler] Result length:', result?.length);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
   // Cache metadata handlers
   updateCacheMetadataHandler: IpcHandler = async (event, request) => {
     await db.updateCacheMetadata(request.key, request.status, request.errorMessage);
@@ -546,6 +567,7 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_IMPORT_SESSION]: handlers.getImportSessionHandler,
     [IPC_CHANNELS.DB_GET_IMPORT_SESSIONS]: handlers.getImportSessionsHandler,
     [IPC_CHANNELS.DB_CLEAR_STAGING_TABLE]: handlers.clearStagingTableHandler,
+    [IPC_CHANNELS.DB_GET_STAGING_DATA]: handlers.getStagingDataHandler,
     [IPC_CHANNELS.DB_GET_MAPPING_TABLES_VERSION]: handlers.getMappingTablesVersionHandler,
     [IPC_CHANNELS.DB_SET_MAPPING_TABLES_VERSION]: handlers.setMappingTablesVersionHandler,
     [IPC_CHANNELS.DB_STORE_ACCOUNT_MAPS]: handlers.storeAccountMapsHandler,
@@ -561,6 +583,7 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_COUNT]: handlers.getFinancialDataCountHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_LAST_IMPORT]: handlers.getFinancialDataLastImportHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_REPORT_DATA]: handlers.getFinancialReportDataHandler,
+    [IPC_CHANNELS.DB_GET_STAGING_VS_BUDGET_DATA]: handlers.getStagingVsBudgetDataHandler,
     [IPC_CHANNELS.DB_UPDATE_CACHE_METADATA]: handlers.updateCacheMetadataHandler,
     [IPC_CHANNELS.DB_GET_CACHE_METADATA]: handlers.getCacheMetadataHandler,
     [IPC_CHANNELS.DB_SHOULD_REFRESH_CACHE]: handlers.shouldRefreshCacheHandler,

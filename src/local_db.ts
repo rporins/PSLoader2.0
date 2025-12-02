@@ -395,6 +395,62 @@ async function migrateFinancialDataStagingTable() {
   }
 }
 
+async function migrateAccountMapsTable() {
+  try {
+    // Check if the account_description_detail_level_max column exists
+    const tableInfo = await client.execute({
+      sql: "PRAGMA table_info(account_maps)",
+      args: []
+    });
+
+    const columnNames = tableInfo.rows.map(row => row.name as string);
+
+    if (!columnNames.includes('account_description_detail_level_max')) {
+      console.log("Migrating account_maps table to add account_description_detail_level_max column");
+
+      await client.execute({
+        sql: `ALTER TABLE account_maps ADD COLUMN account_description_detail_level_max TEXT`,
+        args: []
+      });
+
+      console.log("Successfully added account_description_detail_level_max column to account_maps table");
+    } else {
+      console.log("Account_maps table already has account_description_detail_level_max column");
+    }
+  } catch (error) {
+    console.error("Error during account_maps migration:", error);
+    // If table doesn't exist, it will be created with the new schema
+  }
+}
+
+async function migrateDepartmentMapsTable() {
+  try {
+    // Check if the department_description_detail_level_max column exists
+    const tableInfo = await client.execute({
+      sql: "PRAGMA table_info(department_maps)",
+      args: []
+    });
+
+    const columnNames = tableInfo.rows.map(row => row.name as string);
+
+    if (!columnNames.includes('department_description_detail_level_max')) {
+      console.log("Migrating department_maps table to add department_description_detail_level_max column");
+
+      await client.execute({
+        sql: `ALTER TABLE department_maps ADD COLUMN department_description_detail_level_max TEXT`,
+        args: []
+      });
+
+      console.log("Successfully added department_description_detail_level_max column to department_maps table");
+    } else {
+      console.log("Department_maps table already has department_description_detail_level_max column");
+    }
+  } catch (error) {
+    console.error("Error during department_maps migration:", error);
+    // If table doesn't exist, it will be created with the new schema
+  }
+}
+
 //------------------------------------------------------------------------------------------------------------------
 //--- INITIALIZE DATABASE ---------------------------------------------------------------------------------------
 //create database if it doesn't exist
@@ -607,6 +663,7 @@ export async function initializeDatabase() {
       `
         CREATE TABLE IF NOT EXISTS account_maps (
             base_account TEXT PRIMARY KEY,
+            account_description_detail_level_max TEXT,
             level_0 TEXT,
             level_1 TEXT,
             level_2 TEXT,
@@ -644,6 +701,7 @@ export async function initializeDatabase() {
       `
         CREATE TABLE IF NOT EXISTS department_maps (
             base_department TEXT PRIMARY KEY,
+            department_description_detail_level_max TEXT,
             level_0 TEXT,
             level_1 TEXT,
             level_2 TEXT,
@@ -783,6 +841,8 @@ export async function initializeDatabase() {
     await migrateFinancialDataTable();
     await migrateHotelsCacheTable();
     await migrateFinancialDataStagingTable();
+    await migrateAccountMapsTable();
+    await migrateDepartmentMapsTable();
   } catch (error) {
     console.error("Error during database initialization:", error);
   }
@@ -1015,21 +1075,23 @@ export async function getFinancialReportData(
       )
       SELECT
         a.combo,
-        a.department,
-        a.account,
+        am.base_account,
         am.level_4 AS account_level_4,
         am.level_6 AS account_level_6,
         am.level_9 AS account_level_9,
         dm.level_4 AS department_level_4,
-        dm.level_9 AS department_level_9,
+        dm.level_5 AS department_level_5,
+        dm.level_7 AS department_level_7,
         ${periods.map((_, i) => `COALESCE(a.act_p${i + 1}, 0) AS act_p${i + 1}`).join(',\n        ')},
         ${periods.map((_, i) => `COALESCE(b.bud_p${i + 1}, 0) AS bud_p${i + 1}`).join(',\n        ')}
       FROM actuals_data a
       LEFT JOIN budget_data b ON a.combo = b.combo
       LEFT JOIN account_maps am ON a.account = am.base_account
       LEFT JOIN department_maps dm ON a.department = dm.base_department
-      WHERE ${periods.map((_, i) => `(a.act_p${i + 1} != 0 OR b.bud_p${i + 1} != 0)`).join(' OR ')}
-      ORDER BY a.department, a.account
+      WHERE dm.level_2 = 'Lodging Operations'
+        AND am.level_4 = 'Profit Amount'
+        AND (${periods.map((_, i) => `(a.act_p${i + 1} != 0 OR b.bud_p${i + 1} != 0)`).join(' OR ')})
+      ORDER BY dm.level_4, dm.level_5, dm.level_7, am.level_4, am.level_6, am.level_9
     `;
 
     // Build params array
@@ -1045,13 +1107,13 @@ export async function getFinancialReportData(
       const record: any = {
         id: idCounter++,
         combo: row.combo,
-        department: row.department,
-        account: row.account,
+        base_account: row.base_account,
         account_level_4: row.account_level_4,
         account_level_6: row.account_level_6,
         account_level_9: row.account_level_9,
         department_level_4: row.department_level_4,
-        department_level_9: row.department_level_9,
+        department_level_5: row.department_level_5,
+        department_level_7: row.department_level_7,
       };
 
       // Add monthly actuals and budget
@@ -1066,6 +1128,105 @@ export async function getFinancialReportData(
     return JSON.stringify(result);
   } catch (error) {
     console.error("Error fetching financial report data:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- GET STAGING VS BUDGET DATA TABLE ---------------------------------------------------------------------------------
+export async function getStagingVsBudgetData(ou?: string): Promise<string> {
+  try {
+    // First, detect the period from staging table
+    const periodQuery = `
+      SELECT DISTINCT period_combo
+      FROM financial_data_staging
+      WHERE scenario = 'ACT'
+        ${ou ? 'AND ou = ?' : ''}
+      LIMIT 1
+    `;
+
+    const periodParams = ou ? [ou] : [];
+    const periodResult = await client.execute({ sql: periodQuery, args: periodParams });
+
+    if (periodResult.rows.length === 0) {
+      return JSON.stringify([]);
+    }
+
+    const period = periodResult.rows[0].period_combo as string;
+
+    // Now fetch staging actuals vs budget for this period
+    const query = `
+      WITH staging_actuals AS (
+        SELECT
+          fds.dep_acc_combo_id AS combo,
+          fds.department,
+          fds.account,
+          SUM(fds.amount) AS staging_amount
+        FROM financial_data_staging fds
+        WHERE fds.scenario = 'ACT'
+          ${ou ? 'AND fds.ou = ?' : ''}
+        GROUP BY fds.dep_acc_combo_id, fds.department, fds.account
+      ),
+      budget_data AS (
+        SELECT
+          fd.dep_acc_combo_id AS combo,
+          SUM(fd.amount) AS budget_amount
+        FROM financial_data fd
+        WHERE fd.scenario = 'BUD'
+          AND fd.version = 'MAIN'
+          AND fd.period_combo = ?
+          ${ou ? 'AND fd.ou = ?' : ''}
+        GROUP BY fd.dep_acc_combo_id
+      )
+      SELECT
+        sa.combo,
+        am.account_description_detail_level_max AS account_desc,
+        am.level_4 AS account_level_4,
+        am.level_6 AS account_level_6,
+        am.level_9 AS account_level_9,
+        dm.level_4 AS department_level_4,
+        dm.level_5 AS department_level_5,
+        dm.level_7 AS department_level_7,
+        COALESCE(sa.staging_amount, 0) AS staging_actual,
+        COALESCE(bd.budget_amount, 0) AS budget,
+        (COALESCE(sa.staging_amount, 0) - COALESCE(bd.budget_amount, 0)) AS variance
+      FROM staging_actuals sa
+      LEFT JOIN budget_data bd ON sa.combo = bd.combo
+      LEFT JOIN account_maps am ON sa.account = am.base_account
+      LEFT JOIN department_maps dm ON sa.department = dm.base_department
+      WHERE dm.level_2 = 'Lodging Operations'
+        AND am.level_4 = 'Profit Amount'
+        AND (sa.staging_amount != 0 OR bd.budget_amount != 0)
+      ORDER BY dm.level_4, dm.level_5, dm.level_7, am.level_4, am.level_6, am.level_9
+    `;
+
+    // Build params array
+    const budgetParams = ou ? [period, ou] : [period];
+    const params = ou ? [ou, ...budgetParams] : budgetParams;
+
+    const resultSet = await client.execute({ sql: query, args: params });
+    const rows = resultSet.rows as unknown as any[];
+
+    let idCounter = 1;
+    const result = rows.map((row) => ({
+      id: idCounter++,
+      combo: row.combo,
+      account_desc: row.account_desc,
+      account_level_4: row.account_level_4,
+      account_level_6: row.account_level_6,
+      account_level_9: row.account_level_9,
+      department_level_4: row.department_level_4,
+      department_level_5: row.department_level_5,
+      department_level_7: row.department_level_7,
+      staging_actual: row.staging_actual || 0,
+      budget: row.budget || 0,
+      variance: row.variance || 0,
+      period: period,
+    }));
+
+    return JSON.stringify(result);
+  } catch (error) {
+    console.error("Error fetching staging vs budget data:", error);
     throw error;
   }
 }
@@ -2920,6 +3081,53 @@ export async function clearStagingTable(): Promise<void> {
   }
 }
 
+// Get all staging data
+export async function getStagingData(ou?: string): Promise<string> {
+  try {
+    let sql = `
+      SELECT
+        dep_acc_combo_id,
+        month,
+        year,
+        period_combo,
+        scenario,
+        amount,
+        count,
+        currency,
+        ou,
+        department,
+        account,
+        version,
+        source_account,
+        source_department,
+        source_description,
+        mapping_status,
+        import_batch_id,
+        last_modified
+      FROM financial_data_staging
+    `;
+
+    const args: any[] = [];
+
+    if (ou) {
+      sql += " WHERE ou = ?";
+      args.push(ou);
+    }
+
+    sql += " ORDER BY last_modified DESC, period_combo, dep_acc_combo_id";
+
+    const result = await client.execute({
+      sql,
+      args
+    });
+
+    return JSON.stringify(result.rows);
+  } catch (error) {
+    console.error("Error fetching staging data:", error);
+    throw error;
+  }
+}
+
 // Delete staging rows where source_account matches any of the provided values
 export async function deleteStagingBySourceAccounts(sourceAccounts: (string | null)[]): Promise<number> {
   try {
@@ -3145,14 +3353,14 @@ export async function storeAccountMaps(accountMaps: AccountMap[]): Promise<void>
       const insertStatements = batch.map(am => ({
         sql: `
           INSERT INTO account_maps (
-            base_account, level_0, level_1, level_2, level_3, level_4, level_5, level_6, level_7, level_8, level_9,
+            base_account, account_description_detail_level_max, level_0, level_1, level_2, level_3, level_4, level_5, level_6, level_7, level_8, level_9,
             level_10, level_11, level_12, level_13, level_14, level_15, level_16, level_17, level_18, level_19,
             level_20, level_21, level_22, level_23, level_24, level_25, level_26, level_27, level_28, level_29,
             level_30, description
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         args: [
-          am.base_account, am.level_0 ?? null, am.level_1 ?? null, am.level_2 ?? null, am.level_3 ?? null, am.level_4 ?? null, am.level_5 ?? null, am.level_6 ?? null,
+          am.base_account, am.account_description_detail_level_max ?? null, am.level_0 ?? null, am.level_1 ?? null, am.level_2 ?? null, am.level_3 ?? null, am.level_4 ?? null, am.level_5 ?? null, am.level_6 ?? null,
           am.level_7 ?? null, am.level_8 ?? null, am.level_9 ?? null, am.level_10 ?? null, am.level_11 ?? null, am.level_12 ?? null, am.level_13 ?? null, am.level_14 ?? null,
           am.level_15 ?? null, am.level_16 ?? null, am.level_17 ?? null, am.level_18 ?? null, am.level_19 ?? null, am.level_20 ?? null, am.level_21 ?? null, am.level_22 ?? null,
           am.level_23 ?? null, am.level_24 ?? null, am.level_25 ?? null, am.level_26 ?? null, am.level_27 ?? null, am.level_28 ?? null, am.level_29 ?? null, am.level_30 ?? null,
@@ -3193,14 +3401,14 @@ export async function storeDepartmentMaps(departmentMaps: DepartmentMap[]): Prom
       const insertStatements = batch.map(dm => ({
         sql: `
           INSERT INTO department_maps (
-            base_department, level_0, level_1, level_2, level_3, level_4, level_5, level_6, level_7, level_8, level_9,
+            base_department, department_description_detail_level_max, level_0, level_1, level_2, level_3, level_4, level_5, level_6, level_7, level_8, level_9,
             level_10, level_11, level_12, level_13, level_14, level_15, level_16, level_17, level_18, level_19,
             level_20, level_21, level_22, level_23, level_24, level_25, level_26, level_27, level_28, level_29,
             level_30, description
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         args: [
-          dm.base_department, dm.level_0 ?? null, dm.level_1 ?? null, dm.level_2 ?? null, dm.level_3 ?? null, dm.level_4 ?? null, dm.level_5 ?? null, dm.level_6 ?? null,
+          dm.base_department, dm.department_description_detail_level_max ?? null, dm.level_0 ?? null, dm.level_1 ?? null, dm.level_2 ?? null, dm.level_3 ?? null, dm.level_4 ?? null, dm.level_5 ?? null, dm.level_6 ?? null,
           dm.level_7 ?? null, dm.level_8 ?? null, dm.level_9 ?? null, dm.level_10 ?? null, dm.level_11 ?? null, dm.level_12 ?? null, dm.level_13 ?? null, dm.level_14 ?? null,
           dm.level_15 ?? null, dm.level_16 ?? null, dm.level_17 ?? null, dm.level_18 ?? null, dm.level_19 ?? null, dm.level_20 ?? null, dm.level_21 ?? null, dm.level_22 ?? null,
           dm.level_23 ?? null, dm.level_24 ?? null, dm.level_25 ?? null, dm.level_26 ?? null, dm.level_27 ?? null, dm.level_28 ?? null, dm.level_29 ?? null, dm.level_30 ?? null,
@@ -3223,35 +3431,61 @@ export async function storeDepartmentMaps(departmentMaps: DepartmentMap[]): Prom
  */
 export async function storeAccountDepartmentCombos(combos: AccountDepartmentCombo[]): Promise<void> {
   try {
-    // Clear existing data
-    await client.execute({
-      sql: "DELETE FROM account_department_combos",
-      args: []
-    });
-
     if (combos.length === 0) {
       console.log("No combos to store");
       return;
     }
 
-    // Insert new data in batches
+    console.log(`Received ${combos.length} combos from API`);
+
+    // Deduplicate combos from the API response (in case there are duplicates)
+    // Using account+department as the unique key since that's the UNIQUE constraint
+    const uniqueCombos = Array.from(
+      new Map(combos.map(combo => [`${combo.account}|||${combo.department}`, combo])).values()
+    );
+
+    if (uniqueCombos.length < combos.length) {
+      console.log(`⚠️ Found and removed ${combos.length - uniqueCombos.length} duplicate combos from API response`);
+    }
+
+    console.log(`Clearing existing combos table...`);
+    // Clear existing data
+    const deleteResult = await client.execute({
+      sql: "DELETE FROM account_department_combos",
+      args: []
+    });
+    console.log(`Deleted ${deleteResult.rowsAffected || 0} existing combos`);
+
+    // Verify table is empty
+    const countResult = await client.execute({
+      sql: "SELECT COUNT(*) as count FROM account_department_combos",
+      args: []
+    });
+    const count = countResult.rows[0]?.count as number;
+    console.log(`Table now has ${count} rows (should be 0)`);
+
+    if (count > 0) {
+      console.error("⚠️ WARNING: Table still has rows after DELETE!");
+    }
+
+    // Insert new data in batches using INSERT OR REPLACE for extra safety
     const batchSize = 100;
-    for (let i = 0; i < combos.length; i += batchSize) {
-      const batch = combos.slice(i, i + batchSize);
+    for (let i = 0; i < uniqueCombos.length; i += batchSize) {
+      const batch = uniqueCombos.slice(i, i + batchSize);
       const insertStatements = batch.map(combo => ({
         sql: `
-          INSERT INTO account_department_combos (account, department, description)
+          INSERT OR REPLACE INTO account_department_combos (account, department, description)
           VALUES (?, ?, ?)
         `,
-        args: [combo.account, combo.department, combo.description]
+        args: [combo.account, combo.department, combo.description || null]
       }));
 
       await client.batch(insertStatements);
     }
 
-    console.log(`Stored ${combos.length} account-department combos`);
+    console.log(`✅ Stored ${uniqueCombos.length} account-department combos`);
   } catch (error) {
-    console.error("Error storing account-department combos:", error);
+    console.error("❌ Error storing account-department combos:", error);
     throw error;
   }
 }
