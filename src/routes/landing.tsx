@@ -1,15 +1,3 @@
-// Landing.tsx — Liquid Metal Elite 2025 (Next-Gen Desktop Experience)
-// ---------------------------------------------------------------------------------
-// What's new:
-// - Liquid metal morphing backdrop with prismatic refractions
-// - Dynamic 3D chrome spheres with real-time reflections
-// - Holographic glass panels with depth and chromatic aberration
-// - Particle field with depth-based motion blur
-// - Magnetic hover interactions and force field effects
-// - Register link and support contact
-// - Premium desktop-first design language
-// ---------------------------------------------------------------------------------
-
 import React, { Suspense, useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {

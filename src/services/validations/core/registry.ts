@@ -18,6 +18,7 @@ import {
 // Import validation processors
 import { TestValidationProcessor } from '../processors/testValidation';
 import { DuplicateRecordsValidation } from '../processors/duplicateRecordsValidation';
+import { TestValidationProcessor as A3AccountValidation } from '../processors/test_validation';
 
 /**
  * Central registry for all validation processors
@@ -72,6 +73,9 @@ export class ValidationRegistry {
 
     // Production processors
     this.register(new DuplicateRecordsValidation());
+
+    // Custom validations
+    this.register(new A3AccountValidation());
 
     // TODO: Register additional validation processors here
     // this.register(new BalanceCheckValidation());

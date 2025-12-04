@@ -4034,3 +4034,18 @@ export async function getValidations(ou: string): Promise<Array<{
     return null;
   }
 }
+
+/**
+ * Execute a raw SQL query for validation processors
+ * @param query SQL query with placeholders
+ * @param params Parameters for the query
+ * @returns Query result
+ */
+export async function executeQuery(query: { sql: string; args: any[] }) {
+  try {
+    return await client.execute(query);
+  } catch (error) {
+    console.error('Error executing query:', error);
+    throw error;
+  }
+}

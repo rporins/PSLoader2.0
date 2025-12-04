@@ -15,7 +15,7 @@ import * as db from "../../local_db";
 function initializeRegistry() {
   // Pass a wrapper around the database client that the validations can use
   ValidationRegistry.setDatabase({
-    execute: (query: { sql: string; args: any[] }) => db.default.execute(query),
+    execute: (query: { sql: string; args: any[] }) => db.executeQuery(query),
   });
   ValidationRegistry.initialize();
 }
