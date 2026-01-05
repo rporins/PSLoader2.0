@@ -23,7 +23,7 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
 
   // Step 1: Check for updates (blocking)
   const handleUpdateComplete = () => {
-    console.log("Update check completed, proceeding to app initialization");
+    // console.log("Update check completed, proceeding to app initialization");
     setUpdateCheckComplete(true);
   };
 
@@ -33,16 +33,14 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
 
     const initializeApp = async () => {
       try {
-        console.log("Initializing app settings...");
-
+        // console.log("Initializing app settings...");
         // Load settings from database
         await loadSettingsFromDb();
 
         // Start background sync service
         backgroundSyncService.start();
-        console.log("Background sync service started");
-
-        console.log("App settings initialized successfully");
+        // console.log("Background sync service started");
+        // console.log("App settings initialized successfully");
         setIsInitialized(true);
       } catch (err) {
         console.error("Failed to initialize app:", err);
@@ -95,7 +93,7 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
 
   // Show error if initialization failed (optional - you might want to still render the app)
   if (error) {
-    console.warn("App initialized with error:", error);
+    // console.warn("App initialized with error:", error);
     // We still render children to allow the app to work with defaults
   }
 

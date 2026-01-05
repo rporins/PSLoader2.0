@@ -81,8 +81,7 @@ export default function StagingDataReview() {
         ou: selectedHotelOu,
       });
 
-      console.log('[StagingDataReview] Response:', response);
-
+      // console.log('[StagingDataReview] Response:', response);
       if (response.success && response.data) {
         const data = JSON.parse(response.data as string);
         // Add unique ID for DataGrid
@@ -90,8 +89,8 @@ export default function StagingDataReview() {
           ...row,
           id: index,
         }));
-        console.log('[StagingDataReview] Parsed data:', dataWithIds);
-        console.log('[StagingDataReview] Number of rows:', dataWithIds.length);
+        // console.log('[StagingDataReview] Parsed data:', dataWithIds);
+        // console.log('[StagingDataReview] Number of rows:', dataWithIds.length);
         setRows(dataWithIds);
       } else {
         console.error("Failed to fetch staging data");

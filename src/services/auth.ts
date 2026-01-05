@@ -115,10 +115,9 @@ class AuthService {
       const result = await window.ipcApi.sendIpcRequest('settings-get-single', { key: 'deviceId' });
       if (result.success && result.data) {
         storedDeviceId = result.data;
-        console.log('Loaded existing device ID from database');
       }
     } catch (error) {
-      console.log('No existing device ID found, generating new one...');
+      // No existing device ID found, generating new one
     }
 
     // If device ID exists, use it; otherwise generate and store it
@@ -149,7 +148,6 @@ class AuthService {
           key: 'deviceId',
           value: this.deviceId
         });
-        console.log('Stored new device ID in database');
       } catch (error) {
         console.error('Failed to store device ID:', error);
       }
@@ -163,7 +161,7 @@ class AuthService {
     try {
       hardwareInfo = await window.ipcApi.getHardwareInfo();
     } catch (error) {
-      console.warn('Failed to get hardware info for device secret:', error);
+      // console.warn('Failed to get hardware info for device secret:', error);
     }
 
     // Device secret uses ONLY stable hardware identifiers
@@ -203,7 +201,7 @@ class AuthService {
       };
       await window.ipcApi.logDeviceSecret(logData);
     } catch (error) {
-      console.warn('Failed to log device secret components:', error);
+      // console.warn('Failed to log device secret components:', error);
     }
   }
 
@@ -283,7 +281,7 @@ class AuthService {
       const userInfo = await this.getCurrentUser();
       userEmail = userInfo.email;
     } catch (error) {
-      console.warn('Failed to get user email:', error);
+      // console.warn('Failed to get user email:', error);
     }
 
     // Get stable browser info
@@ -296,7 +294,7 @@ class AuthService {
     try {
       realHardwareInfo = await window.ipcApi.getHardwareInfo();
     } catch (error) {
-      console.warn('Failed to get hardware info from main process:', error);
+      // console.warn('Failed to get hardware info from main process:', error);
     }
 
     // Use real hardware serials or fallback to 'UNKNOWN'
@@ -488,9 +486,8 @@ class AuthService {
     if (typeof window !== 'undefined' && window.ipcApi) {
       try {
         await window.ipcApi.sendIpcRequest('db:cache-hotels', hotels);
-        console.log('Hotels cached successfully');
       } catch (cacheError) {
-        console.warn('Failed to cache hotels:', cacheError);
+        // console.warn('Failed to cache hotels:', cacheError);
       }
     }
 
@@ -504,7 +501,7 @@ class AuthService {
         // Clear existing cache first
         await window.ipcApi.sendIpcRequest('db:clear-hotels-cache');
       } catch (error) {
-        console.warn('Failed to clear hotels cache:', error);
+        // console.warn('Failed to clear hotels cache:', error);
       }
     }
 

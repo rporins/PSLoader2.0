@@ -90,9 +90,9 @@ class ValidationService {
           ou,
           validations
         });
-        console.log('Validations cached successfully');
+        // console.log('Validations cached successfully');
       } catch (cacheError) {
-        console.warn('Failed to cache validations:', cacheError);
+        // console.warn('Failed to cache validations:', cacheError);
       }
     }
   }
@@ -108,7 +108,7 @@ class ValidationService {
         const cached = await window.ipcApi.sendIpcRequest('db:get-validations', { ou });
         return cached?.data || null;
       } catch (error) {
-        console.warn('Failed to get cached validations:', error);
+        // console.warn('Failed to get cached validations:', error);
         return null;
       }
     }
@@ -161,7 +161,7 @@ class ValidationService {
       // Try to return cached data if available
       const cached = await this.getCachedValidations(ou);
       if (cached) {
-        console.log('Returning cached validations due to error');
+        // console.log('Returning cached validations due to error');
         return cached;
       }
 

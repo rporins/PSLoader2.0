@@ -312,8 +312,7 @@ async function migrateFinancialDataTable() {
     const columnsToAdd = newColumns.filter(col => !columnNames.includes(col));
 
     if (columnsToAdd.length > 0) {
-      console.log("Migrating financial_data table to add new columns:", columnsToAdd.join(', '));
-
+      // console.log("Migrating financial_data table to add new columns:", columnsToAdd.join(', '));
       // Add new columns one by one
       const alterQueries = columnsToAdd.map(col => ({
         sql: `ALTER TABLE financial_data ADD COLUMN ${col} TEXT`,
@@ -321,9 +320,9 @@ async function migrateFinancialDataTable() {
       }));
 
       await client.batch(alterQueries);
-      console.log("Successfully added new columns to financial_data table");
+      // console.log("Successfully added new columns to financial_data table");
     } else {
-      console.log("Financial_data table already has all required columns");
+      // console.log("Financial_data table already has all required columns");
     }
   } catch (error) {
     console.error("Error during financial_data migration:", error);
@@ -344,8 +343,7 @@ async function migrateHotelsCacheTable() {
     const columnsToAdd = newColumns.filter(col => !columnNames.includes(col));
 
     if (columnsToAdd.length > 0) {
-      console.log("Migrating hotels_cache table to add new columns:", columnsToAdd.join(', '));
-
+      // console.log("Migrating hotels_cache table to add new columns:", columnsToAdd.join(', '));
       // Add new columns one by one
       const alterQueries = columnsToAdd.map(col => ({
         sql: `ALTER TABLE hotels_cache ADD COLUMN ${col} TEXT`,
@@ -353,9 +351,9 @@ async function migrateHotelsCacheTable() {
       }));
 
       await client.batch(alterQueries);
-      console.log("Successfully added new columns to hotels_cache table");
+      // console.log("Successfully added new columns to hotels_cache table");
     } else {
-      console.log("Hotels_cache table already has all required columns");
+      // console.log("Hotels_cache table already has all required columns");
     }
   } catch (error) {
     console.error("Error during hotels_cache migration:", error);
@@ -376,8 +374,7 @@ async function migrateFinancialDataStagingTable() {
     const columnsToAdd = newColumns.filter(col => !columnNames.includes(col));
 
     if (columnsToAdd.length > 0) {
-      console.log("Migrating financial_data_staging table to add new columns:", columnsToAdd.join(', '));
-
+      // console.log("Migrating financial_data_staging table to add new columns:", columnsToAdd.join(', '));
       // Add new columns one by one
       const alterQueries = columnsToAdd.map(col => ({
         sql: `ALTER TABLE financial_data_staging ADD COLUMN ${col} TEXT`,
@@ -385,9 +382,9 @@ async function migrateFinancialDataStagingTable() {
       }));
 
       await client.batch(alterQueries);
-      console.log("Successfully added new columns to financial_data_staging table");
+      // console.log("Successfully added new columns to financial_data_staging table");
     } else {
-      console.log("Financial_data_staging table already has all required columns");
+      // console.log("Financial_data_staging table already has all required columns");
     }
   } catch (error) {
     console.error("Error during financial_data_staging migration:", error);
@@ -406,16 +403,15 @@ async function migrateAccountMapsTable() {
     const columnNames = tableInfo.rows.map(row => row.name as string);
 
     if (!columnNames.includes('account_description_detail_level_max')) {
-      console.log("Migrating account_maps table to add account_description_detail_level_max column");
-
+      // console.log("Migrating account_maps table to add account_description_detail_level_max column");
       await client.execute({
         sql: `ALTER TABLE account_maps ADD COLUMN account_description_detail_level_max TEXT`,
         args: []
       });
 
-      console.log("Successfully added account_description_detail_level_max column to account_maps table");
+      // console.log("Successfully added account_description_detail_level_max column to account_maps table");
     } else {
-      console.log("Account_maps table already has account_description_detail_level_max column");
+      // console.log("Account_maps table already has account_description_detail_level_max column");
     }
   } catch (error) {
     console.error("Error during account_maps migration:", error);
@@ -434,16 +430,15 @@ async function migrateDepartmentMapsTable() {
     const columnNames = tableInfo.rows.map(row => row.name as string);
 
     if (!columnNames.includes('department_description_detail_level_max')) {
-      console.log("Migrating department_maps table to add department_description_detail_level_max column");
-
+      // console.log("Migrating department_maps table to add department_description_detail_level_max column");
       await client.execute({
         sql: `ALTER TABLE department_maps ADD COLUMN department_description_detail_level_max TEXT`,
         args: []
       });
 
-      console.log("Successfully added department_description_detail_level_max column to department_maps table");
+      // console.log("Successfully added department_description_detail_level_max column to department_maps table");
     } else {
-      console.log("Department_maps table already has department_description_detail_level_max column");
+      // console.log("Department_maps table already has department_description_detail_level_max column");
     }
   } catch (error) {
     console.error("Error during department_maps migration:", error);
@@ -457,9 +452,9 @@ async function migrateDepartmentMapsTable() {
 export async function initializeDatabase() {
   try {
     if (dbExists) {
-      console.log("Database opened successfully at:", dbPath);
+      // console.log("Database opened successfully at:", dbPath);
     } else {
-      console.log("Database does not exist, creating a new one...");
+      // console.log("Database does not exist, creating a new one...");
     }
 
     // Set WAL mode (not required explicitly with libsql but mentioned here for behavior reference)
@@ -835,8 +830,7 @@ export async function initializeDatabase() {
         `,
     ]);
 
-    console.log("All necessary tables have been created or already exist.");
-
+    // console.log("All necessary tables have been created or already exist.");
     // Run migration to add new columns to existing databases
     await migrateFinancialDataTable();
     await migrateHotelsCacheTable();
@@ -1133,6 +1127,182 @@ export async function getFinancialReportData(
 }
 
 //------------------------------------------------------------------------------------------------------------------
+//--- GET CUSTOM P&L REPORT DATA ---------------------------------------------------------------------------------
+export async function getCustomPLData(
+  startMonth: number,
+  startYear: number,
+  endMonth: number,
+  endYear: number,
+  ou?: string
+): Promise<string> {
+  try {
+    const {
+      generatePeriods,
+      generateLYPeriods,
+      buildScenarioQuery,
+      calculatePLRows
+    } = await import('./services/reports/plCalculationEngine');
+
+    const periodRange = { startMonth, startYear, endMonth, endYear };
+    const periods = generatePeriods(periodRange);
+    const lyPeriods = generateLYPeriods(periods);
+
+    // DIAGNOSTIC: Check if rooms statistics data is joinable
+    const diagnosticQuery = `
+      SELECT
+        fd.account,
+        fd.department,
+        am.base_account,
+        am.level_1 as acc_level_1,
+        am.level_6 as acc_level_6,
+        dm.base_department,
+        dm.level_2 as dept_level_2,
+        dm.level_10 as dept_level_10,
+        SUM(fd.amount) as total_amount
+      FROM financial_data fd
+      LEFT JOIN account_maps am ON fd.account = am.base_account
+      LEFT JOIN department_maps dm ON fd.department = dm.base_department
+      WHERE fd.account IN ('A960103', 'A960101')
+        AND fd.scenario = 'ACT'
+        AND fd.period_combo = '2025-01'
+      GROUP BY fd.account, fd.department, am.base_account, dm.base_department
+      LIMIT 10
+    `;
+    const diagnosticResult = await client.execute({ sql: diagnosticQuery, args: [] });
+    // console.log('[getCustomPLData] DIAGNOSTIC - Rooms statistics data check:');
+    // console.log('[getCustomPLData] Found', diagnosticResult.rows.length, 'rows for accounts A960103/A960101');
+    // diagnosticResult.rows.forEach((row: any) => {
+    //   console.log('  - account:', row.account, '| dept:', row.department, '| am.base:', row.base_account,
+    //               '| dm.base:', row.base_department, '| dm.level_10:', row.dept_level_10, '| amount:', row.total_amount);
+    // });
+
+    // DIAGNOSTIC 2: Check what's in combined_data CTE for rooms stats
+    const combinedDataDiagnostic = `
+      WITH combined_data AS (
+        SELECT
+          COALESCE(fds.dep_acc_combo_id, fd.dep_acc_combo_id) AS combo,
+          COALESCE(fds.department, fd.department) AS department,
+          COALESCE(fds.account, fd.account) AS account,
+          COALESCE(fds.amount, fd.amount) AS amount,
+          COALESCE(fds.period_combo, fd.period_combo) AS period_combo
+        FROM financial_data fd
+        LEFT JOIN financial_data_staging fds
+          ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
+          AND fds.period_combo = ?
+          AND fds.scenario = 'ACT'
+        WHERE fd.scenario = 'ACT'
+          AND fd.version = 'MAIN'
+          AND fd.period_combo IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+
+        UNION ALL
+
+        SELECT
+          fds.dep_acc_combo_id AS combo,
+          fds.department,
+          fds.account,
+          fds.amount,
+          fds.period_combo
+        FROM financial_data_staging fds
+        WHERE fds.scenario = 'ACT'
+          AND fds.period_combo IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM financial_data fd2
+            WHERE fd2.dep_acc_combo_id = fds.dep_acc_combo_id
+              AND fd2.period_combo = fds.period_combo
+              AND fd2.scenario = 'ACT'
+          )
+      )
+      SELECT cd.*, dm.level_10, am.base_account
+      FROM combined_data cd
+      LEFT JOIN department_maps dm ON cd.department = dm.base_department
+      LEFT JOIN account_maps am ON cd.account = am.base_account
+      WHERE cd.account IN ('A960103', 'A960101')
+      LIMIT 10
+    `;
+    const latestPeriod = periods[periods.length - 1];
+    const diagnosticParams = [latestPeriod, ...periods, ...periods];
+    const combinedDataResult = await client.execute({ sql: combinedDataDiagnostic, args: diagnosticParams });
+    // console.log('[getCustomPLData] DIAGNOSTIC 2 - combined_data CTE check:');
+    // console.log('[getCustomPLData] Found', combinedDataResult.rows.length, 'rows in combined_data for A960103/A960101');
+    // combinedDataResult.rows.forEach((row: any) => {
+    //   console.log('  - account:', row.account, '| dept:', row.department, '| period:', row.period_combo,
+    //               '| dm.level_10:', row.level_10, '| am.base:', row.base_account, '| amount:', row.amount);
+    // });
+
+    // DIAGNOSTIC 3: Test the actual CASE WHEN logic
+    const caseWhenDiagnostic = `
+      WITH combined_data AS (
+        SELECT
+          COALESCE(fds.dep_acc_combo_id, fd.dep_acc_combo_id) AS combo,
+          COALESCE(fds.department, fd.department) AS department,
+          COALESCE(fds.account, fd.account) AS account,
+          COALESCE(fds.amount, fd.amount) AS amount,
+          COALESCE(fds.period_combo, fd.period_combo) AS period_combo
+        FROM financial_data fd
+        LEFT JOIN financial_data_staging fds
+          ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
+          AND fds.period_combo = ?
+          AND fds.scenario = 'ACT'
+        WHERE fd.scenario = 'ACT'
+          AND fd.version = 'MAIN'
+          AND fd.period_combo IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+
+        UNION ALL
+
+        SELECT
+          fds.dep_acc_combo_id AS combo,
+          fds.department,
+          fds.account,
+          fds.amount,
+          fds.period_combo
+        FROM financial_data_staging fds
+        WHERE fds.scenario = 'ACT'
+          AND fds.period_combo IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM financial_data fd2
+            WHERE fd2.dep_acc_combo_id = fds.dep_acc_combo_id
+              AND fd2.period_combo = fds.period_combo
+              AND fd2.scenario = 'ACT'
+          )
+      )
+      SELECT
+        SUM(CASE WHEN dm.level_10 = 'Rooms' AND am.base_account = 'A960103' THEN cd.amount * 1 ELSE 0 END) AS sold_rooms_test,
+        SUM(CASE WHEN dm.level_10 = 'Rooms' AND am.base_account = 'A960101' THEN cd.amount * 1 ELSE 0 END) AS total_rooms_test
+      FROM combined_data cd
+      LEFT JOIN department_maps dm ON cd.department = dm.base_department
+      LEFT JOIN account_maps am ON cd.account = am.base_account
+    `;
+    const caseWhenResult = await client.execute({ sql: caseWhenDiagnostic, args: diagnosticParams });
+    const testData = caseWhenResult.rows[0] as any || {};
+    // console.log('[getCustomPLData] DIAGNOSTIC 3 - CASE WHEN test with hardcoded values:');
+    // console.log('  sold_rooms_test:', testData.sold_rooms_test, '| total_rooms_test:', testData.total_rooms_test);
+    const actualsQuery = buildScenarioQuery('ACT', periods, ou);
+    const budgetQuery = buildScenarioQuery('BUD', periods, ou);
+    const lyQuery = buildScenarioQuery('PY1', lyPeriods, ou);
+
+    const [actualsResult, budgetResult, lyResult] = await Promise.all([
+      client.execute({ sql: actualsQuery.sql, args: actualsQuery.params }),
+      client.execute({ sql: budgetQuery.sql, args: budgetQuery.params }),
+      client.execute({ sql: lyQuery.sql, args: lyQuery.params })
+    ]);
+
+    const actualsData = actualsResult.rows[0] as any || {};
+    const budgetData = budgetResult.rows[0] as any || {};
+    const lyData = lyResult.rows[0] as any || {};
+
+    // console.log('[getCustomPLData] ACT Query Result - sold_rooms_act:', actualsData.sold_rooms_act, ', total_rooms_act:', actualsData.total_rooms_act);
+    // console.log('[getCustomPLData] BUD Query Result - sold_rooms_act:', budgetData.sold_rooms_act, ', total_rooms_act:', budgetData.total_rooms_act);
+    // console.log('[getCustomPLData] LY Query Result - sold_rooms_act:', lyData.sold_rooms_act, ', total_rooms_act:', lyData.total_rooms_act);
+    const plRows = calculatePLRows(actualsData, budgetData, lyData);
+
+    return JSON.stringify(plRows);
+  } catch (error) {
+    console.error("Error generating custom P&L data:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
 //--- GET STAGING VS BUDGET DATA TABLE ---------------------------------------------------------------------------------
 export async function getStagingVsBudgetData(ou?: string): Promise<string> {
   try {
@@ -1296,7 +1466,7 @@ export async function insertBatchDepartments(batchData: Department[]) {
 
     await client.batch(queries);
 
-    console.log(`${batchData.length} records inserted successfully.`);
+    // console.log(`${batchData.length} records inserted successfully.`);
   } catch (error) {
     console.error("Error inserting batch data:", error);
   }
@@ -1365,7 +1535,7 @@ export async function insertBatchAccounts(batchData: Account[]) {
 
     await client.batch(queries);
 
-    console.log(`${batchData.length} records inserted successfully.`);
+    // console.log(`${batchData.length} records inserted successfully.`);
   } catch (error) {
     console.error("Error inserting batch data:", error);
   }
@@ -1396,7 +1566,7 @@ export async function insertBatchDepartmentAccounts(batchData: DepartmentAccount
 
     await client.batch(queries);
 
-    console.log(`${batchData.length} records inserted successfully.`);
+    // console.log(`${batchData.length} records inserted successfully.`);
   } catch (error) {
     console.error("Error inserting batch data:", error);
   }
@@ -1442,7 +1612,7 @@ export async function insertBatchFinancialData(batchData: FinancialData[]) {
 
     await client.batch(queries);
 
-    console.log(`${batchData.length} records inserted successfully.`);
+    // console.log(`${batchData.length} records inserted successfully.`);
   } catch (error) {
     console.error("Error inserting batch data:", error);
   }
@@ -1453,7 +1623,7 @@ export async function GeneratedDummyData() {
   await insertBatchAccounts(accounts);
   await insertBatchDepartmentAccounts(department_accounts);
   await insertBatchFinancialData(financialData);
-  console.log("Dummy data inserted successfully.");
+  // console.log("Dummy data inserted successfully.");
 }
 
 //------------------------------------------------------------------------------------------------------------------
@@ -1735,7 +1905,7 @@ export async function getPermanentSalt(): Promise<string> {
       args: ['permanentSalt', newSalt]
     });
 
-    console.log('Generated and stored new permanent device salt in database');
+    // console.log('Generated and stored new permanent device salt in database');
     return newSalt;
   } catch (error) {
     console.error('Error getting/creating permanent salt:', error);
@@ -1859,7 +2029,7 @@ export async function setImportCompletedState(ou: string, completed: boolean): P
       `,
       args: [key, completed.toString()]
     });
-    console.log(`Import completed state set to ${completed} for OU: ${ou}`);
+    // console.log(`Import completed state set to ${completed} for OU: ${ou}`);
   } catch (error) {
     console.error("Error setting import completed state:", error);
     throw error;
@@ -2471,7 +2641,7 @@ export async function storeMappingConfig(config: {
         config.updated_at,
       ],
     });
-    console.log("Mapping config stored successfully");
+    // console.log("Mapping config stored successfully");
   } catch (error) {
     console.error("Error storing mapping config:", error);
     throw error;
@@ -2609,7 +2779,7 @@ export async function replaceMappings(configId: number, mappings: Array<{
 
       // Commit transaction
       await client.execute("COMMIT");
-      console.log(`Successfully replaced ${mappings.length} mappings for config ${configId}`);
+      // console.log(`Successfully replaced ${mappings.length} mappings for config ${configId}`);
     } catch (error) {
       // Rollback on error
       await client.execute("ROLLBACK");
@@ -2790,7 +2960,7 @@ export async function storeImportGroups(ou: string, importGroups: Array<{
       }
 
       await client.execute("COMMIT");
-      console.log(`Successfully stored ${importGroups.length} import groups for OU ${ou}`);
+      // console.log(`Successfully stored ${importGroups.length} import groups for OU ${ou}`);
     } catch (error) {
       await client.execute("ROLLBACK");
       throw error;
@@ -2913,7 +3083,7 @@ export async function createImportSession(session: Omit<ImportSession, 'id'>): P
     });
 
     const sessionId = result.lastInsertRowid as number;
-    console.log(`Import session created with ID: ${sessionId} for period ${session.period_combo}`);
+    // console.log(`Import session created with ID: ${sessionId} for period ${session.period_combo}`);
     return sessionId;
   } catch (error) {
     console.error("Error creating import session:", error);
@@ -2935,7 +3105,7 @@ export async function updateImportSessionStatus(
       `,
       args: [status, sessionId],
     });
-    console.log(`Import session ${sessionId} updated to status: ${status}`);
+    // console.log(`Import session ${sessionId} updated to status: ${status}`);
   } catch (error) {
     console.error("Error updating import session status:", error);
     throw error;
@@ -3074,7 +3244,7 @@ export async function clearStagingTable(): Promise<void> {
       sql: "DELETE FROM financial_data_staging",
       args: []
     });
-    console.log("Staging table cleared successfully");
+    // console.log("Staging table cleared successfully");
   } catch (error) {
     console.error("Error clearing staging table:", error);
     throw error;
@@ -3135,7 +3305,7 @@ export async function deleteStagingBySourceAccounts(sourceAccounts: (string | nu
     const validAccounts = sourceAccounts.filter((acc): acc is string => acc !== null && acc !== '');
 
     if (validAccounts.length === 0) {
-      console.log("No valid source accounts to delete, skipping");
+      // console.log("No valid source accounts to delete, skipping");
       return 0;
     }
 
@@ -3148,8 +3318,7 @@ export async function deleteStagingBySourceAccounts(sourceAccounts: (string | nu
     });
 
     const deletedCount = result.rowsAffected || 0;
-    console.log(`Deleted ${deletedCount} rows from staging table matching ${validAccounts.length} source accounts`);
-
+    // console.log(`Deleted ${deletedCount} rows from staging table matching ${validAccounts.length} source accounts`);
     return deletedCount;
   } catch (error) {
     console.error("Error deleting staging rows by source accounts:", error);
@@ -3196,7 +3365,7 @@ export async function insertBatchStagingData(batchData: StagingData[]): Promise<
     }));
 
     await client.batch(queries);
-    console.log(`${batchData.length} staging records inserted successfully.`);
+    // console.log(`${batchData.length} staging records inserted successfully.`);
   } catch (error) {
     console.error("Error inserting batch staging data:", error);
     throw error;
@@ -3323,7 +3492,7 @@ export async function setMappingTablesVersion(version: string, comboVersion: str
       `,
       args: [version, comboVersion]
     });
-    console.log(`Updated mapping tables version to ${version}, combo version to ${comboVersion}`);
+    // console.log(`Updated mapping tables version to ${version}, combo version to ${comboVersion}`);
   } catch (error) {
     console.error("Error setting mapping tables version:", error);
     throw error;
@@ -3342,7 +3511,7 @@ export async function storeAccountMaps(accountMaps: AccountMap[]): Promise<void>
     });
 
     if (accountMaps.length === 0) {
-      console.log("No account maps to store");
+      // console.log("No account maps to store");
       return;
     }
 
@@ -3371,7 +3540,7 @@ export async function storeAccountMaps(accountMaps: AccountMap[]): Promise<void>
       await client.batch(insertStatements);
     }
 
-    console.log(`Stored ${accountMaps.length} account maps`);
+    // console.log(`Stored ${accountMaps.length} account maps`);
   } catch (error) {
     console.error("Error storing account maps:", error);
     throw error;
@@ -3390,7 +3559,7 @@ export async function storeDepartmentMaps(departmentMaps: DepartmentMap[]): Prom
     });
 
     if (departmentMaps.length === 0) {
-      console.log("No department maps to store");
+      // console.log("No department maps to store");
       return;
     }
 
@@ -3419,7 +3588,7 @@ export async function storeDepartmentMaps(departmentMaps: DepartmentMap[]): Prom
       await client.batch(insertStatements);
     }
 
-    console.log(`Stored ${departmentMaps.length} department maps`);
+    // console.log(`Stored ${departmentMaps.length} department maps`);
   } catch (error) {
     console.error("Error storing department maps:", error);
     throw error;
@@ -3432,12 +3601,11 @@ export async function storeDepartmentMaps(departmentMaps: DepartmentMap[]): Prom
 export async function storeAccountDepartmentCombos(combos: AccountDepartmentCombo[]): Promise<void> {
   try {
     if (combos.length === 0) {
-      console.log("No combos to store");
+      // console.log("No combos to store");
       return;
     }
 
-    console.log(`Received ${combos.length} combos from API`);
-
+    // console.log(`Received ${combos.length} combos from API`);
     // Deduplicate combos from the API response (in case there are duplicates)
     // Using account+department as the unique key since that's the UNIQUE constraint
     const uniqueCombos = Array.from(
@@ -3445,25 +3613,23 @@ export async function storeAccountDepartmentCombos(combos: AccountDepartmentComb
     );
 
     if (uniqueCombos.length < combos.length) {
-      console.log(`⚠️ Found and removed ${combos.length - uniqueCombos.length} duplicate combos from API response`);
+      // console.log(`⚠️ Found and removed ${combos.length - uniqueCombos.length} duplicate combos from API response`);
     }
 
-    console.log(`Clearing existing combos table...`);
+    // console.log(`Clearing existing combos table...`);
     // Clear existing data
     const deleteResult = await client.execute({
       sql: "DELETE FROM account_department_combos",
       args: []
     });
-    console.log(`Deleted ${deleteResult.rowsAffected || 0} existing combos`);
-
+    // console.log(`Deleted ${deleteResult.rowsAffected || 0} existing combos`);
     // Verify table is empty
     const countResult = await client.execute({
       sql: "SELECT COUNT(*) as count FROM account_department_combos",
       args: []
     });
     const count = countResult.rows[0]?.count as number;
-    console.log(`Table now has ${count} rows (should be 0)`);
-
+    // console.log(`Table now has ${count} rows (should be 0)`);
     if (count > 0) {
       console.error("⚠️ WARNING: Table still has rows after DELETE!");
     }
@@ -3483,7 +3649,7 @@ export async function storeAccountDepartmentCombos(combos: AccountDepartmentComb
       await client.batch(insertStatements);
     }
 
-    console.log(`✅ Stored ${uniqueCombos.length} account-department combos`);
+    // console.log(`✅ Stored ${uniqueCombos.length} account-department combos`);
   } catch (error) {
     console.error("❌ Error storing account-department combos:", error);
     throw error;
@@ -3753,7 +3919,7 @@ export async function getDepartmentMapByBase(baseDepartment: string): Promise<De
  */
 export async function storeFinancialData(ou: string, records: any[]) {
   if (!Array.isArray(records) || records.length === 0) {
-    console.log("No records to store");
+    // console.log("No records to store");
     return;
   }
 
@@ -3811,7 +3977,7 @@ export async function storeFinancialData(ou: string, records: any[]) {
     // Re-enable foreign key constraints
     await client.execute("PRAGMA foreign_keys = ON");
 
-    console.log(`Successfully stored ${records.length} financial records for OU ${ou}`);
+    // console.log(`Successfully stored ${records.length} financial records for OU ${ou}`);
   } catch (error) {
     // Make sure to re-enable foreign keys even if there's an error
     try {
@@ -3984,7 +4150,7 @@ export async function storeValidations(ou: string, validations: Array<{
       }
 
       await client.execute("COMMIT");
-      console.log(`Stored ${validations.length} validations for OU ${ou}`);
+      // console.log(`Stored ${validations.length} validations for OU ${ou}`);
     } catch (error) {
       await client.execute("ROLLBACK");
       throw error;

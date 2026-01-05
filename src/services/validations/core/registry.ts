@@ -43,8 +43,7 @@ export class ValidationRegistry {
    */
   static setDatabase(db: any): void {
     this.db = db;
-    console.log('[ValidationRegistry] Database client configured');
-
+    // console.log('[ValidationRegistry] Database client configured');
     // Inject database into all existing processors
     for (const processor of this.processors.values()) {
       if ('setDatabase' in processor && typeof processor.setDatabase === 'function') {
@@ -59,12 +58,11 @@ export class ValidationRegistry {
    */
   static initialize(): void {
     if (this.initialized) {
-      console.log('[ValidationRegistry] Already initialized');
+      // console.log('[ValidationRegistry] Already initialized');
       return;
     }
 
-    console.log('[ValidationRegistry] Initializing...');
-
+    // console.log('[ValidationRegistry] Initializing...');
     // Register all processors here
     // Add new validation processors as you create them
 
@@ -84,7 +82,7 @@ export class ValidationRegistry {
     // this.register(new DataRangeValidation());
 
     this.initialized = true;
-    console.log(`[ValidationRegistry] Initialized with ${this.processors.size} validation processors`);
+    // console.log(`[ValidationRegistry] Initialized with ${this.processors.size} validation processors`);
   }
 
   /**
@@ -95,7 +93,7 @@ export class ValidationRegistry {
     const id = processor.metadata.id;
 
     if (this.processors.has(id)) {
-      console.warn(`[ValidationRegistry] Processor '${id}' already registered, replacing...`);
+      // console.warn(`[ValidationRegistry] Processor '${id}' already registered, replacing...`);
     }
 
     // Inject database if available
@@ -104,7 +102,7 @@ export class ValidationRegistry {
     }
 
     this.processors.set(id, processor);
-    console.log(`[ValidationRegistry] Registered validation processor: ${processor.metadata.name} (${id})`);
+    // console.log(`[ValidationRegistry] Registered validation processor: ${processor.metadata.name} (${id})`);
   }
 
   /**
@@ -118,7 +116,7 @@ export class ValidationRegistry {
         processor.cleanup().catch(console.error);
       }
       this.processors.delete(id);
-      console.log(`[ValidationRegistry] Unregistered validation processor: ${id}`);
+      // console.log(`[ValidationRegistry] Unregistered validation processor: ${id}`);
       return true;
     }
     return false;
@@ -213,8 +211,7 @@ export class ValidationRegistry {
     this.initialize();
     const startTime = Date.now();
 
-    console.log(`[ValidationRegistry] Executing validation '${validationId}'`);
-
+    // console.log(`[ValidationRegistry] Executing validation '${validationId}'`);
     const processor = this.getProcessor(validationId);
     if (!processor) {
       return {
@@ -273,7 +270,7 @@ export class ValidationRegistry {
 
       // Stop if stopOnFirstError is set and validation failed
       if (options?.stopOnFirstError && !result.result?.success) {
-        console.log(`[ValidationRegistry] Stopping execution due to failure in '${validationId}'`);
+        // console.log(`[ValidationRegistry] Stopping execution due to failure in '${validationId}'`);
         break;
       }
     }
@@ -336,8 +333,7 @@ export class ValidationRegistry {
    * Called on application shutdown
    */
   static async cleanup(): Promise<void> {
-    console.log('[ValidationRegistry] Cleaning up all validation processors...');
-
+    // console.log('[ValidationRegistry] Cleaning up all validation processors...');
     const cleanupPromises: Promise<void>[] = [];
     for (const processor of this.processors.values()) {
       if (processor.cleanup) {
@@ -349,7 +345,7 @@ export class ValidationRegistry {
     this.processors.clear();
     this.initialized = false;
 
-    console.log('[ValidationRegistry] Cleanup complete');
+    // console.log('[ValidationRegistry] Cleanup complete');
   }
 
   /**

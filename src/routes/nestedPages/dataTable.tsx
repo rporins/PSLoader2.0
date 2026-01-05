@@ -73,13 +73,12 @@ export default function DataTable() {
     try {
       const response = await window.ipcApi.sendIpcRequest("db:get-staging-vs-budget-data", {});
 
-      console.log('[DataTable] Response:', response);
-      console.log('[DataTable] Response.data type:', typeof response.data);
-
+      // console.log('[DataTable] Response:', response);
+      // console.log('[DataTable] Response.data type:', typeof response.data);
       if (response.success && response.data) {
         const data = JSON.parse(response.data as string) as StagingVsBudgetRow[];
-        console.log('[DataTable] Parsed data:', data);
-        console.log('[DataTable] Number of rows:', data.length);
+        // console.log('[DataTable] Parsed data:', data);
+        // console.log('[DataTable] Number of rows:', data.length);
         setRows(data);
 
         // Set the period from the first row if available

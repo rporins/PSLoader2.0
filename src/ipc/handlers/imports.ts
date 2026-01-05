@@ -24,17 +24,16 @@ export function createImportsHandlers(): Record<string, IpcHandler> {
      * Frontend usage: await ipcRenderer.invoke('imports:execute', 'customer_data')
      */
     'imports:execute': async (_event, importName: string, options?: ImportOptions) => {
-      console.log(`[IPC] Executing import: ${importName}`);
-
+      // console.log(`[IPC] Executing import: ${importName}`);
       try {
         const response = await ImportRegistry.executeImport(importName, options);
 
-        console.log(`[IPC] Import result:`, {
-          importName,
-          success: response.success,
-          rowCount: response.result?.rowCount,
-          error: response.error
-        });
+        // console.log(`[IPC] Import result:`, {
+        //   importName,
+        //   success: response.success,
+        //   rowCount: response.result?.rowCount,
+        //   error: response.error
+        // });
 
         // Convert to legacy format for backward compatibility
         return {
@@ -63,17 +62,16 @@ export function createImportsHandlers(): Record<string, IpcHandler> {
      */
     'imports:executeWithFile': async (_event, request: { importName: string, filePath: string, options?: ImportOptions }) => {
       const { importName, filePath, options } = request;
-      console.log(`[IPC] Executing import with file: ${importName}, path: ${filePath}`);
-
+      // console.log(`[IPC] Executing import with file: ${importName}, path: ${filePath}`);
       try {
         const response = await ImportRegistry.executeImportWithFile(importName, filePath, options);
 
-        console.log(`[IPC] Import with file result:`, {
-          importName,
-          filePath,
-          success: response.success,
-          rowCount: response.result?.rowCount
-        });
+        // console.log(`[IPC] Import with file result:`, {
+        //   importName,
+        //   filePath,
+        //   success: response.success,
+        //   rowCount: response.result?.rowCount
+        // });
 
         // Convert to legacy format for backward compatibility
         return {
@@ -103,8 +101,7 @@ export function createImportsHandlers(): Record<string, IpcHandler> {
      */
     'imports:testCount': async (_event, request: { filePath: string, importName?: string }) => {
       const { filePath, importName = 'test_import' } = request;
-      console.log(`[IPC] Test counting rows in: ${filePath}`);
-
+      // console.log(`[IPC] Test counting rows in: ${filePath}`);
       try {
         const response = await ImportRegistry.executeTestImport(filePath, importName);
 
@@ -136,8 +133,7 @@ export function createImportsHandlers(): Record<string, IpcHandler> {
     'imports:getAvailable': async () => {
       const metadata = ImportRegistry.getAllMetadata();
 
-      console.log(`[IPC] Available import methods:`, metadata.map(m => m.id));
-
+      // console.log(`[IPC] Available import methods:`, metadata.map(m => m.id));
       return {
         success: true,
         methods: metadata.map(m => ({
@@ -202,16 +198,15 @@ export function createImportsHandlers(): Record<string, IpcHandler> {
     }) => {
       const { importName, filePath, options } = params;
 
-      console.log(`[IPC] Validating file for import: ${importName}, path: ${filePath}`);
-
+      // console.log(`[IPC] Validating file for import: ${importName}, path: ${filePath}`);
       try {
         const validationResult = await ImportRegistry.validateFile(importName, filePath, options);
 
-        console.log(`[IPC] Validation result:`, {
-          importName,
-          isValid: validationResult.isValid,
-          rowCount: validationResult.rowCount
-        });
+        // console.log(`[IPC] Validation result:`, {
+        //   importName,
+        //   isValid: validationResult.isValid,
+        //   rowCount: validationResult.rowCount
+        // });
 
         return {
           success: validationResult.isValid,
@@ -239,8 +234,7 @@ export function createImportsHandlers(): Record<string, IpcHandler> {
     }) => {
       const { importName, filePath, rows = 10 } = params;
 
-      console.log(`[IPC] Previewing file for import: ${importName}, path: ${filePath}`);
-
+      // console.log(`[IPC] Previewing file for import: ${importName}, path: ${filePath}`);
       try {
         const previewData = await ImportRegistry.previewFile(importName, filePath, rows);
 
@@ -272,8 +266,7 @@ export function createImportsHandlers(): Record<string, IpcHandler> {
     }) => {
       const { importId, filePath, options } = params;
 
-      console.log(`[IPC] Processing import with options: ${importId}`);
-
+      // console.log(`[IPC] Processing import with options: ${importId}`);
       try {
         const response = filePath
           ? await ImportRegistry.executeImportWithFile(importId, filePath, options)

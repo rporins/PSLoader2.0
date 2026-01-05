@@ -91,7 +91,7 @@ class FinancialDataService {
         const response = await window.ipcApi.sendIpcRequest('db:get-financial-data-count', { ou });
         return response.data || 0;
       } catch (error) {
-        console.warn('Failed to get stored data count:', error);
+        // console.warn('Failed to get stored data count:', error);
         return 0;
       }
     }
@@ -107,7 +107,7 @@ class FinancialDataService {
         const response = await window.ipcApi.sendIpcRequest('db:get-financial-data-last-import', { ou });
         return response.data || null;
       } catch (error) {
-        console.warn('Failed to get last import timestamp:', error);
+        // console.warn('Failed to get last import timestamp:', error);
         return null;
       }
     }

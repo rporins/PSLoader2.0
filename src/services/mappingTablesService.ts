@@ -214,16 +214,14 @@ class MappingTablesService {
         await window.ipcApi.sendIpcRequest('db:store-account-maps', {
           accountMaps: data.account_maps
         });
-        console.log(`Stored ${data.account_maps.length} account maps`);
-
+        // console.log(`Stored ${data.account_maps.length} account maps`);
         // Store department maps
         await window.ipcApi.sendIpcRequest('db:store-department-maps', {
           departmentMaps: data.department_maps
         });
-        console.log(`Stored ${data.department_maps.length} department maps`);
-
+        // console.log(`Stored ${data.department_maps.length} department maps`);
         // Update version (will update when combos are also synced)
-        console.log('Mapping tables data stored successfully');
+        // console.log('Mapping tables data stored successfully');
       } catch (error) {
         console.error('Failed to store mapping tables data:', error);
         throw error;
@@ -240,7 +238,7 @@ class MappingTablesService {
         await window.ipcApi.sendIpcRequest('db:store-combos', {
           combos: data.combos
         });
-        console.log(`Stored ${data.combos.length} combos`);
+        // console.log(`Stored ${data.combos.length} combos`);
       } catch (error) {
         console.error('Failed to store combos data:', error);
         throw error;
@@ -258,7 +256,7 @@ class MappingTablesService {
           version,
           comboVersion
         });
-        console.log(`Updated mapping tables version to ${version}, combo version to ${comboVersion}`);
+        // console.log(`Updated mapping tables version to ${version}, combo version to ${comboVersion}`);
       } catch (error) {
         console.error('Failed to update mapping tables version:', error);
         throw error;
@@ -275,7 +273,7 @@ class MappingTablesService {
         const result = await window.ipcApi.sendIpcRequest('db:get-mapping-tables-version');
         return result?.data || null;
       } catch (error) {
-        console.warn('Failed to get stored mapping tables version:', error);
+        // console.warn('Failed to get stored mapping tables version:', error);
         return null;
       }
     }
@@ -296,7 +294,7 @@ class MappingTablesService {
 
       if (!localVersion) {
         // No local data, needs full sync
-        console.log('No local mapping tables version found, sync needed');
+        // console.log('No local mapping tables version found, sync needed');
         return { needsSync: true, needsComboSync: true };
       }
 
@@ -305,11 +303,11 @@ class MappingTablesService {
       const needsComboSync = localVersion.combo_version !== (remoteVersion.combo_version || remoteVersion.version);
 
       if (needsSync) {
-        console.log(`Mapping tables version mismatch: local=${localVersion.version}, remote=${remoteVersion.version}`);
+        // console.log(`Mapping tables version mismatch: local=${localVersion.version}, remote=${remoteVersion.version}`);
       }
 
       if (needsComboSync) {
-        console.log(`Combos version mismatch: local=${localVersion.combo_version}, remote=${remoteVersion.combo_version || remoteVersion.version}`);
+        // console.log(`Combos version mismatch: local=${localVersion.combo_version}, remote=${remoteVersion.combo_version || remoteVersion.version}`);
       }
 
       return { needsSync, needsComboSync };
@@ -330,7 +328,7 @@ class MappingTablesService {
       const { needsSync, needsComboSync } = await this.checkIfSyncNeeded();
 
       if (!needsSync && !needsComboSync) {
-        console.log('Mapping tables are already up-to-date');
+        // console.log('Mapping tables are already up-to-date');
         return false;
       }
 
@@ -338,7 +336,7 @@ class MappingTablesService {
 
       // Sync account and department maps if needed
       if (needsSync) {
-        console.log('Syncing mapping tables data...');
+        // console.log('Syncing mapping tables data...');
         const data = await this.getData();
         await this.storeMappingTablesData(data);
         remoteVersion = { version: data.version, combo_version: data.combo_version };
@@ -349,7 +347,7 @@ class MappingTablesService {
 
       // Sync combos if needed
       if (needsComboSync) {
-        console.log('Syncing combos data...');
+        // console.log('Syncing combos data...');
         const combosData = await this.getCombos();
         await this.storeCombosData(combosData);
         // Use the combo_version from response if available, otherwise use the main version
@@ -362,7 +360,7 @@ class MappingTablesService {
         remoteVersion.combo_version || remoteVersion.version
       );
 
-      console.log('Mapping tables sync completed successfully');
+      // console.log('Mapping tables sync completed successfully');
       return true;
     } catch (error) {
       console.error('Error syncing mapping tables:', error);
@@ -382,7 +380,7 @@ class MappingTablesService {
         });
         return result?.data || false;
       } catch (error) {
-        console.warn('Failed to validate combo:', error);
+        // console.warn('Failed to validate combo:', error);
         return false;
       }
     }
@@ -400,7 +398,7 @@ class MappingTablesService {
         });
         return result?.data || null;
       } catch (error) {
-        console.warn('Failed to get account hierarchy:', error);
+        // console.warn('Failed to get account hierarchy:', error);
         return null;
       }
     }
@@ -418,7 +416,7 @@ class MappingTablesService {
         });
         return result?.data || null;
       } catch (error) {
-        console.warn('Failed to get department hierarchy:', error);
+        // console.warn('Failed to get department hierarchy:', error);
         return null;
       }
     }

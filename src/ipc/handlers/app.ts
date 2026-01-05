@@ -46,7 +46,7 @@ async function fetchLatestRelease(): Promise<{ version: string; releaseNotes: st
               releaseNotes: release.body || '',
             });
           } else {
-            console.log('[AppHandlers] Failed to fetch release info:', res.statusCode);
+            // console.log('[AppHandlers] Failed to fetch release info:', res.statusCode);
             resolve(null);
           }
         } catch (err) {
@@ -63,7 +63,7 @@ async function fetchLatestRelease(): Promise<{ version: string; releaseNotes: st
 
     req.setTimeout(5000, () => {
       req.destroy();
-      console.log('[AppHandlers] Release fetch timed out');
+      // console.log('[AppHandlers] Release fetch timed out');
       resolve(null);
     });
 
@@ -81,13 +81,12 @@ export function createAppHandlers(): Record<string, IpcHandler> {
     },
 
     'app:check-for-updates': async () => {
-      console.log('[AppHandlers] Checking for updates...');
-      console.log('[AppHandlers] Current version:', app.getVersion());
-      console.log('[AppHandlers] isDev:', isDev);
-
+      // console.log('[AppHandlers] Checking for updates...');
+      // console.log('[AppHandlers] Current version:', app.getVersion());
+      // console.log('[AppHandlers] isDev:', isDev);
       if (isDev) {
-        console.log('[AppHandlers] DEV MODE: Auto-updater only works in packed builds');
-        console.log('[AppHandlers] To test updates, run: npm run package');
+        // console.log('[AppHandlers] DEV MODE: Auto-updater only works in packed builds');
+        // console.log('[AppHandlers] To test updates, run: npm run package');
         return {
           updateAvailable: false,
           currentVersion: app.getVersion(),
@@ -103,8 +102,7 @@ export function createAppHandlers(): Record<string, IpcHandler> {
         // This is for manual user-initiated checks
         autoUpdater.checkForUpdates();
 
-        console.log('[AppHandlers] Update check initiated');
-
+        // console.log('[AppHandlers] Update check initiated');
         // Events will be triggered automatically, so just acknowledge the request
         return {
           updateAvailable: false, // Will be updated via events
@@ -121,20 +119,20 @@ export function createAppHandlers(): Record<string, IpcHandler> {
 
     'app:download-update': async () => {
       if (isDev) {
-        console.log('[AppHandlers] DEV MODE: Skipping download');
+        // console.log('[AppHandlers] DEV MODE: Skipping download');
         return { success: true, devMode: true };
       }
-      console.log('[AppHandlers] Download is handled automatically by update-electron-app');
+      // console.log('[AppHandlers] Download is handled automatically by update-electron-app');
       // update-electron-app handles downloads automatically
       return { success: true, message: 'Download handled automatically' };
     },
 
     'app:install-update': async () => {
       if (isDev) {
-        console.log('[AppHandlers] DEV MODE: Skipping install');
+        // console.log('[AppHandlers] DEV MODE: Skipping install');
         return { success: true, devMode: true };
       }
-      console.log('[AppHandlers] Installing update and restarting...');
+      // console.log('[AppHandlers] Installing update and restarting...');
       // For Squirrel.Windows, quitAndInstall() with no parameters is correct
       autoUpdater.quitAndInstall();
       return { success: true };
@@ -156,17 +154,16 @@ export function setupAutoUpdaterEvents(mainWindow: BrowserWindow | null): void {
   // Note: Native autoUpdater doesn't provide version info in the event
   // We'll fetch it from GitHub when needed
   autoUpdater.on('update-available', async () => {
-    console.log('[AutoUpdater] Update available event received');
-
+    // console.log('[AutoUpdater] Update available event received');
     // Fetch release info from GitHub
     const releaseInfo = await fetchLatestRelease();
 
     if (releaseInfo) {
       latestReleaseInfo = releaseInfo;
-      console.log('[AutoUpdater] Fetched release info:', releaseInfo);
+      // console.log('[AutoUpdater] Fetched release info:', releaseInfo);
       mainWindow.webContents.send('update-available', releaseInfo);
     } else {
-      console.log('[AutoUpdater] Could not fetch release info, using fallback');
+      // console.log('[AutoUpdater] Could not fetch release info, using fallback');
       mainWindow.webContents.send('update-available', {
         version: 'Latest version',
         releaseNotes: '',
@@ -175,7 +172,7 @@ export function setupAutoUpdaterEvents(mainWindow: BrowserWindow | null): void {
   });
 
   autoUpdater.on('update-not-available', () => {
-    console.log('[AutoUpdater] No update available');
+    // console.log('[AutoUpdater] No update available');
     latestReleaseInfo = null;
     mainWindow.webContents.send('update-not-available');
   });
@@ -184,7 +181,7 @@ export function setupAutoUpdaterEvents(mainWindow: BrowserWindow | null): void {
   // The download happens automatically and silently
 
   autoUpdater.on('update-downloaded', () => {
-    console.log('[AutoUpdater] Update downloaded and ready to install');
+    // console.log('[AutoUpdater] Update downloaded and ready to install');
     mainWindow.webContents.send('update-downloaded');
   });
 

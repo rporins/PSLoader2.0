@@ -88,8 +88,7 @@ export class AccpacRoomRevImportProcessor extends BaseImportProcessor {
    * STEP 2: CUSTOMIZE VALIDATION
    */
   async validate(filePath: string, fileType: string, options?: ImportOptions): Promise<ValidationResult> {
-    console.log(`[${this.metadata.id}] Running validation`);
-
+    // console.log(`[${this.metadata.id}] Running validation`);
     try {
       const parsed = await this.getParsedFile(filePath, fileType, options);
       const errors: string[] = [];
@@ -253,7 +252,7 @@ export class AccpacRoomRevImportProcessor extends BaseImportProcessor {
     try {
       // Check if local_id_1 is provided in options
       if (options?.custom?.localId1) {
-        console.log(`[${this.metadata.id}] Using local_id_1 from options:`, options.custom.localId1);
+        // console.log(`[${this.metadata.id}] Using local_id_1 from options:`, options.custom.localId1);
         return options.custom.localId1;
       }
 
@@ -264,25 +263,22 @@ export class AccpacRoomRevImportProcessor extends BaseImportProcessor {
         return null;
       }
 
-      console.log(`[${this.metadata.id}] Looking up local_id_1 for OU:`, ou);
-
+      // console.log(`[${this.metadata.id}] Looking up local_id_1 for OU:`, ou);
       // Query the database for the hotel's local_id_1
       try {
         const hotelsJson = await db.getCachedHotels();
         const hotels = JSON.parse(hotelsJson);
-        console.log(`[${this.metadata.id}] Found ${hotels.length} cached hotels`);
-
+        // console.log(`[${this.metadata.id}] Found ${hotels.length} cached hotels`);
         // Find the hotel matching the OU
         const hotel = hotels.find((h: any) => h.ou === ou);
-        console.log(`[${this.metadata.id}] Matched hotel for OU ${ou}:`, hotel);
-
+        // console.log(`[${this.metadata.id}] Matched hotel for OU ${ou}:`, hotel);
         if (hotel && hotel.local_id_1) {
-          console.log(`[${this.metadata.id}] Found local_id_1:`, hotel.local_id_1);
+          // console.log(`[${this.metadata.id}] Found local_id_1:`, hotel.local_id_1);
           return hotel.local_id_1;
         } else if (hotel) {
-          console.warn(`[${this.metadata.id}] Hotel found but local_id_1 is empty:`, hotel);
+          // console.warn(`[${this.metadata.id}] Hotel found but local_id_1 is empty:`, hotel);
         } else {
-          console.warn(`[${this.metadata.id}] No hotel found matching OU ${ou}`);
+          // console.warn(`[${this.metadata.id}] No hotel found matching OU ${ou}`);
         }
       } catch (dbError) {
         console.error(`[${this.metadata.id}] Database error:`, dbError);
@@ -299,8 +295,7 @@ export class AccpacRoomRevImportProcessor extends BaseImportProcessor {
    * STEP 3: CUSTOMIZE PROCESSING
    */
   protected async processRows(parsed: ParsedFile, options?: ImportOptions): Promise<ImportResult> {
-    console.log(`[${this.metadata.id}] Processing ${parsed.rowCount} rows`);
-
+    // console.log(`[${this.metadata.id}] Processing ${parsed.rowCount} rows`);
     const startTime = new Date();
     const warnings: string[] = [];
     let processedRows = 0;
@@ -333,7 +328,7 @@ export class AccpacRoomRevImportProcessor extends BaseImportProcessor {
       const aggregatedData = await this.aggregateAndMapRows(parsed.data, year, month, ou, finalCurrency, batchId);
 
       // Step 5: Batch insert into staging table
-      console.log(`[${this.metadata.id}] Inserting ${aggregatedData.length} aggregated rows into staging...`);
+      // console.log(`[${this.metadata.id}] Inserting ${aggregatedData.length} aggregated rows into staging...`);
       const batchSize = 100;
 
       for (let i = 0; i < aggregatedData.length; i += batchSize) {
@@ -347,8 +342,7 @@ export class AccpacRoomRevImportProcessor extends BaseImportProcessor {
       mappedRows = mappingStats.mapped || 0;
       unmappedRows = mappingStats.unmapped || 0;
 
-      console.log(`[${this.metadata.id}] Import completed: ${processedRows} rows processed (${mappedRows} mapped, ${unmappedRows} unmapped)`);
-
+      // console.log(`[${this.metadata.id}] Import completed: ${processedRows} rows processed (${mappedRows} mapped, ${unmappedRows} unmapped)`);
       // Step 7: Generate report
       const unmappedAccounts = await db.getUnmappedAccounts();
 
@@ -408,11 +402,11 @@ export class AccpacRoomRevImportProcessor extends BaseImportProcessor {
       const hotel = hotels.find((h: any) => h.ou === ou);
 
       if (hotel && hotel.currency) {
-        console.log(`[${this.metadata.id}] Found currency for OU ${ou}: ${hotel.currency}`);
+        // console.log(`[${this.metadata.id}] Found currency for OU ${ou}: ${hotel.currency}`);
         return hotel.currency;
       }
 
-      console.warn(`[${this.metadata.id}] No currency found for OU ${ou}`);
+      // console.warn(`[${this.metadata.id}] No currency found for OU ${ou}`);
       return null;
     } catch (error) {
       console.error(`[${this.metadata.id}] Error getting hotel currency:`, error);
@@ -432,12 +426,10 @@ export class AccpacRoomRevImportProcessor extends BaseImportProcessor {
     currency: string,
     batchId: string
   ): Promise<any[]> {
-    console.log(`[${this.metadata.id}] Aggregating and mapping ${rows.length} rows...`);
-
+    // console.log(`[${this.metadata.id}] Aggregating and mapping ${rows.length} rows...`);
     // Get all mappings for config_id = 11
     const mappings = await db.getMappings(11);
-    console.log(`[${this.metadata.id}] Loaded ${mappings.length} mappings for config_id = 11`);
-
+    // console.log(`[${this.metadata.id}] Loaded ${mappings.length} mappings for config_id = 11`);
     // Build a lookup map for faster access using source_account
     const mappingLookup = new Map<string, any>();
     for (const mapping of mappings) {
@@ -445,9 +437,9 @@ export class AccpacRoomRevImportProcessor extends BaseImportProcessor {
         mappingLookup.set(mapping.source_account, mapping);
       }
     }
-    console.log(`[${this.metadata.id}] Built mapping lookup with ${mappingLookup.size} entries`);
+    // console.log(`[${this.metadata.id}] Built mapping lookup with ${mappingLookup.size} entries`);
     if (mappingLookup.size > 0 && mappingLookup.size < 20) {
-      console.log(`[${this.metadata.id}] Sample mapping keys:`, Array.from(mappingLookup.keys()).slice(0, 10));
+      // console.log(`[${this.metadata.id}] Sample mapping keys:`, Array.from(mappingLookup.keys()).slice(0, 10));
     }
 
     // Aggregate data by combo key
@@ -465,7 +457,7 @@ export class AccpacRoomRevImportProcessor extends BaseImportProcessor {
 
       // Skip rows with no Segments
       if (!segments) {
-        console.warn(`[${this.metadata.id}] Skipping row with missing Segments`);
+        // console.warn(`[${this.metadata.id}] Skipping row with missing Segments`);
         continue;
       }
 
@@ -484,7 +476,7 @@ export class AccpacRoomRevImportProcessor extends BaseImportProcessor {
 
         // Debug: Log first few lookups to help diagnose mapping issues
         if (Math.random() < 0.05) { // Log ~5% of lookups to avoid spam
-          console.log(`[${this.metadata.id}] Looking up "${concatenatedSegment}" -> ${mapping ? 'FOUND' : 'NOT FOUND'}`);
+          // console.log(`[${this.metadata.id}] Looking up "${concatenatedSegment}" -> ${mapping ? 'FOUND' : 'NOT FOUND'}`);
         }
 
         let targetAccount: string | null = null;
@@ -539,8 +531,7 @@ export class AccpacRoomRevImportProcessor extends BaseImportProcessor {
     }
 
     const result = Array.from(aggregationMap.values());
-    console.log(`[${this.metadata.id}] Aggregated ${rows.length} source rows into ${result.length} staging records (3 per source row)`);
-
+    // console.log(`[${this.metadata.id}] Aggregated ${rows.length} source rows into ${result.length} staging records (3 per source row)`);
     return result;
   }
 
@@ -592,8 +583,7 @@ export class AccpacRoomRevImportProcessor extends BaseImportProcessor {
   async preImport(filePath: string, options?: ImportOptions): Promise<void> {
     await super.preImport(filePath, options);
 
-    console.log(`[${this.metadata.id}] Pre-import setup`);
-
+    // console.log(`[${this.metadata.id}] Pre-import setup`);
     // Delete any existing staging data that matches the accounts we're about to import
     // This prevents duplicate data if the import is run multiple times
     await this.clearMatchingStagingData();
@@ -605,8 +595,7 @@ export class AccpacRoomRevImportProcessor extends BaseImportProcessor {
    */
   private async clearMatchingStagingData(): Promise<void> {
     try {
-      console.log(`[${this.metadata.id}] Clearing matching staging data...`);
-
+      // console.log(`[${this.metadata.id}] Clearing matching staging data...`);
       // Get all mappings for config_id = 11
       const mappings = await db.getMappings(11);
 
@@ -618,16 +607,15 @@ export class AccpacRoomRevImportProcessor extends BaseImportProcessor {
         .filter((value, index, self) => self.indexOf(value) === index); // Unique values only
 
       if (sourceDepartments.length === 0) {
-        console.log(`[${this.metadata.id}] No source_department mappings found in config 11, skipping cleanup`);
+        // console.log(`[${this.metadata.id}] No source_department mappings found in config 11, skipping cleanup`);
         return;
       }
 
-      console.log(`[${this.metadata.id}] Found ${sourceDepartments.length} unique source_department values to match against staging.source_account`);
-
+      // console.log(`[${this.metadata.id}] Found ${sourceDepartments.length} unique source_department values to match against staging.source_account`);
       // Delete staging rows where source_account matches any of these source_departments
       const deletedCount = await db.deleteStagingBySourceAccounts(sourceDepartments);
 
-      console.log(`[${this.metadata.id}] Deleted ${deletedCount} matching rows from staging table`);
+      // console.log(`[${this.metadata.id}] Deleted ${deletedCount} matching rows from staging table`);
     } catch (error) {
       console.error(`[${this.metadata.id}] Error clearing matching staging data:`, error);
       // Don't throw - allow import to continue even if cleanup fails
@@ -640,8 +628,7 @@ export class AccpacRoomRevImportProcessor extends BaseImportProcessor {
   async postImport(result: ImportResult, options?: ImportOptions): Promise<void> {
     await super.postImport(result, options);
 
-    console.log(`[${this.metadata.id}] Post-import cleanup`);
-
+    // console.log(`[${this.metadata.id}] Post-import cleanup`);
     // TODO: Add post-import logic
     // - Send notifications
     // - Update statistics

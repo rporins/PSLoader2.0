@@ -84,8 +84,7 @@ export class AccpacWorksheetImportProcessor extends BaseImportProcessor {
    * STEP 2: VALIDATION
    */
   async validate(filePath: string, fileType: string, options?: ImportOptions): Promise<ValidationResult> {
-    console.log(`[${this.metadata.id}] Running validation`);
-
+    // console.log(`[${this.metadata.id}] Running validation`);
     try {
       const parsed = await this.getParsedFile(filePath, fileType, options);
       const errors: string[] = [];
@@ -207,7 +206,7 @@ export class AccpacWorksheetImportProcessor extends BaseImportProcessor {
     try {
       // Check if local_id_1 is provided in options
       if (options?.custom?.localId1) {
-        console.log(`[${this.metadata.id}] Using local_id_1 from options:`, options.custom.localId1);
+        // console.log(`[${this.metadata.id}] Using local_id_1 from options:`, options.custom.localId1);
         return options.custom.localId1;
       }
 
@@ -218,26 +217,23 @@ export class AccpacWorksheetImportProcessor extends BaseImportProcessor {
         return null;
       }
 
-      console.log(`[${this.metadata.id}] Looking up local_id_1 for OU:`, ou);
-
+      // console.log(`[${this.metadata.id}] Looking up local_id_1 for OU:`, ou);
       // Query the database for the hotel's local_id_1
       // This runs in the main process, so we can access the database directly
       try {
         const hotelsJson = await db.getCachedHotels();
         const hotels = JSON.parse(hotelsJson);
-        console.log(`[${this.metadata.id}] Found ${hotels.length} cached hotels:`, hotels);
-
+        // console.log(`[${this.metadata.id}] Found ${hotels.length} cached hotels:`, hotels);
         // Find the hotel matching the OU
         const hotel = hotels.find((h: any) => h.ou === ou);
-        console.log(`[${this.metadata.id}] Matched hotel for OU ${ou}:`, hotel);
-
+        // console.log(`[${this.metadata.id}] Matched hotel for OU ${ou}:`, hotel);
         if (hotel && hotel.local_id_1) {
-          console.log(`[${this.metadata.id}] Found local_id_1:`, hotel.local_id_1);
+          // console.log(`[${this.metadata.id}] Found local_id_1:`, hotel.local_id_1);
           return hotel.local_id_1;
         } else if (hotel) {
-          console.warn(`[${this.metadata.id}] Hotel found but local_id_1 is empty:`, hotel);
+          // console.warn(`[${this.metadata.id}] Hotel found but local_id_1 is empty:`, hotel);
         } else {
-          console.warn(`[${this.metadata.id}] No hotel found matching OU ${ou}`);
+          // console.warn(`[${this.metadata.id}] No hotel found matching OU ${ou}`);
         }
       } catch (dbError) {
         console.error(`[${this.metadata.id}] Database error:`, dbError);
@@ -268,8 +264,7 @@ export class AccpacWorksheetImportProcessor extends BaseImportProcessor {
    * STEP 3: PROCESS ROWS
    */
   protected async processRows(parsed: ParsedFile, options?: ImportOptions): Promise<ImportResult> {
-    console.log(`[${this.metadata.id}] Processing ${parsed.rowCount} rows`);
-
+    // console.log(`[${this.metadata.id}] Processing ${parsed.rowCount} rows`);
     const startTime = new Date();
     const warnings: string[] = [];
     let processedRows = 0;
@@ -304,7 +299,7 @@ export class AccpacWorksheetImportProcessor extends BaseImportProcessor {
       const aggregatedData = await this.aggregateAndMapRows(parsed.data, year, month, ou, finalCurrency, batchId);
 
       // Step 5: Batch insert into staging table
-      console.log(`[${this.metadata.id}] Inserting ${aggregatedData.length} aggregated rows into staging...`);
+      // console.log(`[${this.metadata.id}] Inserting ${aggregatedData.length} aggregated rows into staging...`);
       const batchSize = 100;
 
       for (let i = 0; i < aggregatedData.length; i += batchSize) {
@@ -318,8 +313,7 @@ export class AccpacWorksheetImportProcessor extends BaseImportProcessor {
       mappedRows = mappingStats.mapped || 0;
       unmappedRows = mappingStats.unmapped || 0;
 
-      console.log(`[${this.metadata.id}] Import completed: ${processedRows} rows processed (${mappedRows} mapped, ${unmappedRows} unmapped)`);
-
+      // console.log(`[${this.metadata.id}] Import completed: ${processedRows} rows processed (${mappedRows} mapped, ${unmappedRows} unmapped)`);
       // Step 7: Generate report
       const unmappedAccounts = await db.getUnmappedAccounts();
 
@@ -398,15 +392,14 @@ export class AccpacWorksheetImportProcessor extends BaseImportProcessor {
   async preImport(filePath: string, options?: ImportOptions): Promise<void> {
     await super.preImport(filePath, options);
 
-    console.log(`[${this.metadata.id}] Preparing for ACCPAC worksheet import...`);
-
+    // console.log(`[${this.metadata.id}] Preparing for ACCPAC worksheet import...`);
     // TODO: Add pre-import setup
     // - Check database connection
     // - Create backup
     // - Clear staging tables
     // - Check dependencies
 
-    console.log(`[${this.metadata.id}] Pre-import setup complete`);
+    // console.log(`[${this.metadata.id}] Pre-import setup complete`);
   }
 
   /**
@@ -415,15 +408,14 @@ export class AccpacWorksheetImportProcessor extends BaseImportProcessor {
   async postImport(result: ImportResult, options?: ImportOptions): Promise<void> {
     await super.postImport(result, options);
 
-    console.log(`[${this.metadata.id}] Running post-import tasks...`);
-
+    // console.log(`[${this.metadata.id}] Running post-import tasks...`);
     // TODO: Add post-import tasks
     // - Send notifications
     // - Update statistics
     // - Trigger dependent processes
     // - Clean up temp files
 
-    console.log(`[${this.metadata.id}] Post-import tasks complete`);
+    // console.log(`[${this.metadata.id}] Post-import tasks complete`);
   }
 
   /**
@@ -440,11 +432,11 @@ export class AccpacWorksheetImportProcessor extends BaseImportProcessor {
       const hotel = hotels.find((h: any) => h.ou === ou);
 
       if (hotel && hotel.currency) {
-        console.log(`[${this.metadata.id}] Found currency for OU ${ou}: ${hotel.currency}`);
+        // console.log(`[${this.metadata.id}] Found currency for OU ${ou}: ${hotel.currency}`);
         return hotel.currency;
       }
 
-      console.warn(`[${this.metadata.id}] No currency found for OU ${ou}`);
+      // console.warn(`[${this.metadata.id}] No currency found for OU ${ou}`);
       return null;
     } catch (error) {
       console.error(`[${this.metadata.id}] Error getting hotel currency:`, error);
@@ -466,12 +458,10 @@ export class AccpacWorksheetImportProcessor extends BaseImportProcessor {
     currency: string,
     batchId: string
   ): Promise<any[]> {
-    console.log(`[${this.metadata.id}] Aggregating and mapping ${rows.length} rows...`);
-
+    // console.log(`[${this.metadata.id}] Aggregating and mapping ${rows.length} rows...`);
     // Get all mappings for config_id = 10
     const mappings = await db.getMappings(10);
-    console.log(`[${this.metadata.id}] Loaded ${mappings.length} mappings for config_id = 10`);
-
+    // console.log(`[${this.metadata.id}] Loaded ${mappings.length} mappings for config_id = 10`);
     // Build a lookup map for faster access
     const mappingLookup = new Map<string, any>();
     for (const mapping of mappings) {
@@ -491,7 +481,7 @@ export class AccpacWorksheetImportProcessor extends BaseImportProcessor {
 
       // Skip rows with no ACCTCODE
       if (!sourceAccount) {
-        console.warn(`[${this.metadata.id}] Skipping row with missing ACCTCODE`);
+        // console.warn(`[${this.metadata.id}] Skipping row with missing ACCTCODE`);
         continue;
       }
 
@@ -554,8 +544,7 @@ export class AccpacWorksheetImportProcessor extends BaseImportProcessor {
     }
 
     const result = Array.from(aggregationMap.values());
-    console.log(`[${this.metadata.id}] Aggregated ${rows.length} rows into ${result.length} staging records`);
-
+    // console.log(`[${this.metadata.id}] Aggregated ${rows.length} rows into ${result.length} staging records`);
     return result;
   }
 

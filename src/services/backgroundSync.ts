@@ -27,7 +27,7 @@ class BackgroundSyncService {
    */
   start(ou?: string) {
     if (this.intervalId) {
-      console.log('[BackgroundSync] Service already running');
+      // console.log('[BackgroundSync] Service already running');
       return;
     }
 
@@ -35,8 +35,7 @@ class BackgroundSyncService {
       this.currentOU = ou;
     }
 
-    console.log('[BackgroundSync] Starting service...');
-
+    // console.log('[BackgroundSync] Starting service...');
     // Start periodic sync
     this.intervalId = setInterval(() => {
       this.syncAll();
@@ -55,7 +54,7 @@ class BackgroundSyncService {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
-      console.log('[BackgroundSync] Service stopped');
+      // console.log('[BackgroundSync] Service stopped');
     }
   }
 
@@ -64,8 +63,7 @@ class BackgroundSyncService {
    */
   setOU(ou: string) {
     this.currentOU = ou;
-    console.log(`[BackgroundSync] OU set to: ${ou}`);
-
+    // console.log(`[BackgroundSync] OU set to: ${ou}`);
     // Trigger an immediate sync for the new OU
     this.syncAll();
   }
@@ -76,26 +74,25 @@ class BackgroundSyncService {
   async syncAll() {
     // Prevent concurrent syncs
     if (this.isSyncing) {
-      console.log('[BackgroundSync] Sync already in progress, skipping...');
+      // console.log('[BackgroundSync] Sync already in progress, skipping...');
       return;
     }
 
     // Can't sync without an OU
     if (!this.currentOU) {
-      console.log('[BackgroundSync] No OU selected, skipping sync');
+      // console.log('[BackgroundSync] No OU selected, skipping sync');
       return;
     }
 
     // Check if user is authenticated
     const token = authService.getAccessToken();
     if (!token) {
-      console.log('[BackgroundSync] No access token, skipping sync');
+      // console.log('[BackgroundSync] No access token, skipping sync');
       return;
     }
 
     this.isSyncing = true;
-    console.log(`[BackgroundSync] Starting sync for OU: ${this.currentOU}`);
-
+    // console.log(`[BackgroundSync] Starting sync for OU: ${this.currentOU}`);
     try {
       // Sync hotels
       await this.syncHotels();
@@ -103,7 +100,7 @@ class BackgroundSyncService {
       // Sync import groups for current OU
       await this.syncImportGroups(this.currentOU);
 
-      console.log('[BackgroundSync] Sync completed successfully');
+      // console.log('[BackgroundSync] Sync completed successfully');
     } catch (error) {
       console.error('[BackgroundSync] Sync failed:', error);
       // Don't throw - we don't want to interrupt the app
@@ -125,13 +122,12 @@ class BackgroundSyncService {
         });
 
         if (!shouldRefresh.data) {
-          console.log('[BackgroundSync] Hotels cache is fresh, skipping');
+          // console.log('[BackgroundSync] Hotels cache is fresh, skipping');
           return;
         }
       }
 
-      console.log('[BackgroundSync] Syncing hotels...');
-
+      // console.log('[BackgroundSync] Syncing hotels...');
       // Update cache metadata to "fetching"
       if (typeof window !== 'undefined' && window.ipcApi) {
         await window.ipcApi.sendIpcRequest('db:update-cache-metadata', {
@@ -153,7 +149,7 @@ class BackgroundSyncService {
           status: 'success'
         });
 
-        console.log(`[BackgroundSync] Successfully synced ${hotels.length} hotels`);
+        // console.log(`[BackgroundSync] Successfully synced ${hotels.length} hotels`);
       }
     } catch (error) {
       console.error('[BackgroundSync] Failed to sync hotels:', error);
@@ -182,13 +178,12 @@ class BackgroundSyncService {
         });
 
         if (!shouldRefresh.data) {
-          console.log(`[BackgroundSync] Import groups for ${ou} are fresh, skipping`);
+          // console.log(`[BackgroundSync] Import groups for ${ou} are fresh, skipping`);
           return;
         }
       }
 
-      console.log(`[BackgroundSync] Syncing import groups for ${ou}...`);
-
+      // console.log(`[BackgroundSync] Syncing import groups for ${ou}...`);
       // Update cache metadata to "fetching"
       if (typeof window !== 'undefined' && window.ipcApi) {
         await window.ipcApi.sendIpcRequest('db:update-cache-metadata', {
@@ -208,7 +203,7 @@ class BackgroundSyncService {
         });
       }
 
-      console.log(`[BackgroundSync] Successfully synced import groups for ${ou}`);
+      // console.log(`[BackgroundSync] Successfully synced import groups for ${ou}`);
     } catch (error) {
       console.error(`[BackgroundSync] Failed to sync import groups for ${ou}:`, error);
 
@@ -227,7 +222,7 @@ class BackgroundSyncService {
    * Manually trigger a sync
    */
   async triggerSync() {
-    console.log('[BackgroundSync] Manual sync triggered');
+    // console.log('[BackgroundSync] Manual sync triggered');
     await this.syncAll();
   }
 }

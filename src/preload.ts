@@ -85,8 +85,8 @@ contextBridge.exposeInMainWorld('ipcApi', {
 
     // Debug logging for db:get-all-mapping-configs
     if (request === 'db:get-all-mapping-configs') {
-      console.log('[preload] db:get-all-mapping-configs raw result:', result);
-      console.log('[preload] db:get-all-mapping-configs has data?:', result?.data);
+      // console.log('[preload] db:get-all-mapping-configs raw result:', result);
+      // console.log('[preload] db:get-all-mapping-configs has data?:', result?.data);
     }
 
     // Handle the new wrapped response format

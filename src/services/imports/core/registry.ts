@@ -84,12 +84,11 @@ export class ImportRegistry {
    */
   static initialize(): void {
     if (this.initialized) {
-      console.log('[ImportRegistry] Already initialized');
+      // console.log('[ImportRegistry] Already initialized');
       return;
     }
 
-    console.log('[ImportRegistry] Initializing...');
-
+    // console.log('[ImportRegistry] Initializing...');
     // Register all processors here
     // Add new processors as you create them
 
@@ -110,7 +109,7 @@ export class ImportRegistry {
     // this.register(new BookingReservationsImportProcessor());
 
     this.initialized = true;
-    console.log(`[ImportRegistry] Initialized with ${this.processors.size} processors`);
+    // console.log(`[ImportRegistry] Initialized with ${this.processors.size} processors`);
   }
 
   /**
@@ -121,11 +120,11 @@ export class ImportRegistry {
     const id = processor.metadata.id;
 
     if (this.processors.has(id)) {
-      console.warn(`[ImportRegistry] Processor '${id}' already registered, replacing...`);
+      // console.warn(`[ImportRegistry] Processor '${id}' already registered, replacing...`);
     }
 
     this.processors.set(id, processor);
-    console.log(`[ImportRegistry] Registered processor: ${processor.metadata.name} (${id})`);
+    // console.log(`[ImportRegistry] Registered processor: ${processor.metadata.name} (${id})`);
   }
 
   /**
@@ -139,7 +138,7 @@ export class ImportRegistry {
         processor.cleanup().catch(console.error);
       }
       this.processors.delete(id);
-      console.log(`[ImportRegistry] Unregistered processor: ${id}`);
+      // console.log(`[ImportRegistry] Unregistered processor: ${id}`);
       return true;
     }
     return false;
@@ -346,8 +345,7 @@ export class ImportRegistry {
     this.initialize();
     const startTime = Date.now();
 
-    console.log(`[ImportRegistry] Executing import '${importId}' with file: ${filePath}`);
-
+    // console.log(`[ImportRegistry] Executing import '${importId}' with file: ${filePath}`);
     const processor = this.getProcessor(importId);
     if (!processor) {
       return {
@@ -489,8 +487,7 @@ export class ImportRegistry {
    * Called on application shutdown
    */
   static async cleanup(): Promise<void> {
-    console.log('[ImportRegistry] Cleaning up all processors...');
-
+    // console.log('[ImportRegistry] Cleaning up all processors...');
     const cleanupPromises: Promise<void>[] = [];
     for (const processor of this.processors.values()) {
       if (processor.cleanup) {
@@ -502,7 +499,7 @@ export class ImportRegistry {
     this.processors.clear();
     this.initialized = false;
 
-    console.log('[ImportRegistry] Cleanup complete');
+    // console.log('[ImportRegistry] Cleanup complete');
   }
 
   /**

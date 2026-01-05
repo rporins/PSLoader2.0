@@ -106,14 +106,13 @@ export default function Report() {
         startPeriod,
       });
 
-      console.log('[Report] Response:', response);
-      console.log('[Report] Response.data type:', typeof response.data);
-      console.log('[Report] Response.data:', response.data);
-
+      // console.log('[Report] Response:', response);
+      // console.log('[Report] Response.data type:', typeof response.data);
+      // console.log('[Report] Response.data:', response.data);
       if (response.success && response.data) {
         const data = JSON.parse(response.data as string) as FinancialReportRow[];
-        console.log('[Report] Parsed data:', data);
-        console.log('[Report] Number of rows:', data.length);
+        // console.log('[Report] Parsed data:', data);
+        // console.log('[Report] Number of rows:', data.length);
         setRows(data);
       } else {
         console.error("Failed to fetch report data");

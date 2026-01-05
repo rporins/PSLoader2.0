@@ -285,7 +285,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   // Load all settings from database
   loadSettingsFromDb: async () => {
     if (get().initialized) {
-      console.log("Settings already initialized, skipping load");
+      // console.log("Settings already initialized, skipping load");
       return;
     }
 
@@ -315,7 +315,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         initialized: true,
       });
 
-      console.log("Settings loaded from database:", settings);
+      // console.log("Settings loaded from database:", settings);
     } catch (error) {
       console.error("Failed to load settings from database:", error);
       // Mark as initialized even on error to prevent infinite retries
@@ -345,7 +345,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       };
 
       await settingsService.setSettings(settings);
-      console.log("All settings saved to database");
+      // console.log("All settings saved to database");
     } catch (error) {
       console.error("Failed to save settings to database:", error);
       throw error;
@@ -379,7 +379,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         numberFormat: settings[SETTINGS_KEYS.NUMBER_FORMAT],
       });
 
-      console.log("All settings reset to defaults");
+      // console.log("All settings reset to defaults");
     } catch (error) {
       console.error("Failed to reset settings:", error);
       throw error;

@@ -142,7 +142,7 @@ export default function SignOffUpload() {
       const uploadedData = await submittedDataService.uploadBulk(submittedData, signedBy);
 
       const skippedCount = stagingData.length - mappedData.length;
-      console.log(`Successfully uploaded ${uploadedData.length} records${skippedCount > 0 ? ` (skipped ${skippedCount} unmapped records)` : ''}`);
+      // console.log(`Successfully uploaded ${uploadedData.length} records${skippedCount > 0 ? ` (skipped ${skippedCount} unmapped records)` : ''}`);
       setUploadComplete(true);
 
     } catch (error) {

@@ -115,8 +115,7 @@ export class TestImportProcessor extends BaseImportProcessor {
    * 4. Verify foreign key references
    */
   async validate(filePath: string, fileType: string, options?: ImportOptions): Promise<ValidationResult> {
-    console.log(`[${this.metadata.id}] Running quick validation for test mode`);
-
+    // console.log(`[${this.metadata.id}] Running quick validation for test mode`);
     // For test import, we do minimal validation
     // Just check if we can parse the file and count rows
     try {
@@ -160,8 +159,7 @@ export class TestImportProcessor extends BaseImportProcessor {
    * 4. Generate reports
    */
   protected async processRows(parsed: ParsedFile, options?: ImportOptions): Promise<ImportResult> {
-    console.log(`[${this.metadata.id}] Reading CSV file - found ${parsed.rowCount} rows`);
-
+    // console.log(`[${this.metadata.id}] Reading CSV file - found ${parsed.rowCount} rows`);
     // Return the actual row count from the parsed CSV file
     const actualRowCount = parsed.rowCount;
 
@@ -321,12 +319,10 @@ export class TestImportProcessor extends BaseImportProcessor {
     await super.preImport(filePath, options);
 
     // Test import doesn't need pre-import setup
-    console.log(`[${this.metadata.id}] Test import starting - no setup needed`);
-
+    // console.log(`[${this.metadata.id}] Test import starting - no setup needed`);
     // TEMPLATE FOR REAL PRE-IMPORT:
     /*
-    console.log(`[${this.metadata.id}] Preparing for import...`);
-
+    // console.log(`[${this.metadata.id}] Preparing for import...`);
     // Example: Check if database is accessible
     // await this.checkDatabaseConnection();
 
@@ -339,7 +335,7 @@ export class TestImportProcessor extends BaseImportProcessor {
     // Example: Check for enough disk space
     // await this.checkDiskSpace(filePath);
 
-    console.log(`[${this.metadata.id}] Pre-import setup complete`);
+    // console.log(`[${this.metadata.id}] Pre-import setup complete`);
     */
   }
 
@@ -358,12 +354,10 @@ export class TestImportProcessor extends BaseImportProcessor {
     await super.postImport(result, options);
 
     // Test import doesn't need post-import cleanup
-    console.log(`[${this.metadata.id}] Test import complete - no cleanup needed`);
-
+    // console.log(`[${this.metadata.id}] Test import complete - no cleanup needed`);
     // TEMPLATE FOR REAL POST-IMPORT:
     /*
-    console.log(`[${this.metadata.id}] Running post-import tasks...`);
-
+    // console.log(`[${this.metadata.id}] Running post-import tasks...`);
     if (result.success) {
       // Example: Send success notification
       // await this.sendNotification({
@@ -391,7 +385,7 @@ export class TestImportProcessor extends BaseImportProcessor {
     // Example: Clean up temp files
     // await this.cleanupTempFiles();
 
-    console.log(`[${this.metadata.id}] Post-import tasks complete`);
+    // console.log(`[${this.metadata.id}] Post-import tasks complete`);
     */
   }
 

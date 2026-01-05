@@ -89,11 +89,11 @@ export default function Settings() {
             if (cachedHotels && cachedHotels.length > 0) {
               hotelList = cachedHotels;
               setUsingCache(true);
-              console.log("Using cached hotels in settings");
+              // console.log("Using cached hotels in settings");
             }
           }
         } catch (cacheError) {
-          console.warn("Failed to get cached hotels:", cacheError);
+          // console.warn("Failed to get cached hotels:", cacheError);
         }
       }
 
@@ -132,7 +132,7 @@ export default function Settings() {
         setAppVersion(response.version);
       }
     } catch (error) {
-      console.warn('Failed to load app version:', error);
+      // console.warn('Failed to load app version:', error);
     }
   };
 
@@ -148,7 +148,7 @@ export default function Settings() {
       const storedVersion = await mappingTablesService.getStoredVersion();
       setMappingTablesVersion(storedVersion);
     } catch (error) {
-      console.warn('Failed to load mapping tables version:', error);
+      // console.warn('Failed to load mapping tables version:', error);
     }
   };
 
@@ -165,7 +165,7 @@ export default function Settings() {
       setFinancialDataCount(count);
       setLastImportDate(lastImport);
     } catch (error) {
-      console.warn('Failed to load financial data info:', error);
+      // console.warn('Failed to load financial data info:', error);
     }
   };
 

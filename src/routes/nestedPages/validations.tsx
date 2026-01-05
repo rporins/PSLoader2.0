@@ -159,7 +159,7 @@ const Validations: React.FC = () => {
           selectedOU,
           // Callback when fresh data arrives
           (freshValidations) => {
-            console.log('Fresh validations received, updating UI...');
+            // console.log('Fresh validations received, updating UI...');
             setValidations(freshValidations);
             setDataFreshness('fresh');
 
@@ -179,7 +179,7 @@ const Validations: React.FC = () => {
           setLoading(false);
         } else {
           // No cached data, need to wait for fresh fetch
-          console.log('No cached validations found, fetching from API...');
+          // console.log('No cached validations found, fetching from API...');
           try {
             const freshVals = await validationService.fetchAndSyncValidations(selectedOU);
             setValidations(freshVals);

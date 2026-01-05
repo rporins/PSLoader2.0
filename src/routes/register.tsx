@@ -361,8 +361,7 @@ export default function Register() {
       }
 
       const userData = await response.json();
-      console.log("Registration successful:", userData);
-
+      // console.log("Registration successful:", userData);
       setSuccess(true);
 
       // Redirect to login page after 2 seconds

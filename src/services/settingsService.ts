@@ -90,7 +90,7 @@ class SettingsService {
         this.cache.set(key as SettingsKey, loadedValue !== undefined ? loadedValue : defaultValue);
       });
       this.initialized = true;
-      console.log('Settings service initialized with:', this.cache);
+      // console.log('Settings service initialized with:', this.cache);
     } catch (error) {
       console.error('Failed to initialize settings service:', error);
       // Use defaults on error
@@ -168,7 +168,7 @@ class SettingsService {
     // Save to database
     try {
       await this.saveSetting(key, value);
-      console.log(`Setting ${key} saved:`, value);
+      // console.log(`Setting ${key} saved:`, value);
     } catch (error) {
       console.error(`Failed to save setting ${key}:`, error);
       // Add to sync queue for retry
@@ -191,7 +191,7 @@ class SettingsService {
     // Save to database
     try {
       await this.saveSettings(settings);
-      console.log('Settings saved:', settings);
+      // console.log('Settings saved:', settings);
     } catch (error) {
       console.error('Failed to save settings:', error);
       // Add to sync queue for retry
@@ -235,7 +235,7 @@ class SettingsService {
    */
   private async loadAllSettings(): Promise<Record<string, any>> {
     if (!this.ipcApi?.sendIpcRequest) {
-      console.warn('IPC API not available, using defaults');
+      // console.warn('IPC API not available, using defaults');
       return {};
     }
 
@@ -298,7 +298,7 @@ class SettingsService {
     try {
       await this.saveSettings(settings);
       this.syncQueue.clear();
-      console.log('Synced pending settings:', settings);
+      // console.log('Synced pending settings:', settings);
     } catch (error) {
       console.error('Failed to sync pending settings:', error);
     }

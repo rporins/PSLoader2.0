@@ -196,7 +196,7 @@ const DataImport: React.FC = () => {
           selectedOU,
           // Callback when fresh data arrives
           (freshGroups) => {
-            console.log('Fresh import groups received, updating UI...');
+            // console.log('Fresh import groups received, updating UI...');
             setImportGroups(freshGroups);
             setDataFreshness('fresh');
 
@@ -329,14 +329,14 @@ const DataImport: React.FC = () => {
 
   // Handle file selection from ImportCard
   const handleFileSelect = useCallback((importId: string, file: File) => {
-    console.log(`File selected for import ${importId}:`, file.name);
+    // console.log(`File selected for import ${importId}:`, file.name);
     // The ImportCard component handles its own state
     // We just track the overall session status here
   }, []);
 
   // Handle file removal from ImportCard
   const handleRemoveFile = useCallback((importId: string) => {
-    console.log(`File removed for import ${importId}`);
+    // console.log(`File removed for import ${importId}`);
     // The ImportCard component handles its own state
   }, []);
 
@@ -362,7 +362,7 @@ const DataImport: React.FC = () => {
       if (result && result.success && result.data) {
         const sessionId = result.data as number;
         setCurrentImportSessionId(sessionId);
-        console.log(`Import session created: ${sessionId} for period ${selectedPeriod}`);
+        // console.log(`Import session created: ${sessionId} for period ${selectedPeriod}`);
       }
     } catch (error) {
       console.error('Failed to create import session:', error);
@@ -371,8 +371,7 @@ const DataImport: React.FC = () => {
 
   // Handle status change from ImportCard
   const handleStatusChange = useCallback(async (importId: string, status: ImportStatus, additionalData?: { fileName?: string; rowCount?: number; error?: string }) => {
-    console.log(`Status changed for import ${importId}:`, status, additionalData);
-
+    // console.log(`Status changed for import ${importId}:`, status, additionalData);
     setImportFiles(prev =>
       prev.map(file =>
         file.id === importId
@@ -439,7 +438,7 @@ const DataImport: React.FC = () => {
               sessionId: currentImportSessionId,
               status: 'completed',
             });
-            console.log(`Import session ${currentImportSessionId} marked as completed`);
+            // console.log(`Import session ${currentImportSessionId} marked as completed`);
           } catch (error) {
             console.error('Failed to update import session status:', error);
           }
@@ -462,7 +461,7 @@ const DataImport: React.FC = () => {
             sessionId: currentImportSessionId,
             status: 'failed',
           });
-          console.log(`Import session ${currentImportSessionId} marked as failed`);
+          // console.log(`Import session ${currentImportSessionId} marked as failed`);
         } catch (error) {
           console.error('Failed to update import session status:', error);
         }
@@ -476,7 +475,7 @@ const DataImport: React.FC = () => {
     try {
       // @ts-ignore
       await window.ipcApi.sendIpcRequest('db:clear-staging-table');
-      console.log('Staging table cleared successfully');
+      // console.log('Staging table cleared successfully');
     } catch (error) {
       console.error('Failed to clear staging table:', error);
     }
@@ -486,7 +485,7 @@ const DataImport: React.FC = () => {
       try {
         // @ts-ignore
         await window.ipcApi.sendIpcRequest('db:set-import-completed-state', { ou: selectedOU, completed: false });
-        console.log('Import completed state cleared');
+        // console.log('Import completed state cleared');
         setImportCompleted(false);
         setShowLockedMessage(false);
       } catch (error) {
@@ -524,7 +523,7 @@ const DataImport: React.FC = () => {
         try {
           // @ts-ignore
           await window.ipcApi.sendIpcRequest('db:set-import-completed-state', { ou: selectedOU, completed: true });
-          console.log('Import marked as completed');
+          // console.log('Import marked as completed');
           setImportCompleted(true);
           setShowLockedMessage(true);
           // Navigate to validations page

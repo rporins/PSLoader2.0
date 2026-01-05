@@ -55,8 +55,7 @@ export async function parseCSVFile(
   filePath: string,
   options: FileParserOptions = {}
 ): Promise<ParsedFile> {
-  console.log(`[FileParser] Parsing CSV file: ${filePath}`);
-
+  // console.log(`[FileParser] Parsing CSV file: ${filePath}`);
   try {
     // Read file content
     const fileContent = await fs.readFile(filePath, options.encoding || 'utf-8');
@@ -139,8 +138,7 @@ export async function parseCSVFile(
       columns = columns.map(col => options.columnMapping![col] || col);
     }
 
-    console.log(`[FileParser] Parsed ${records.length} rows with ${columns.length} columns`);
-
+    // console.log(`[FileParser] Parsed ${records.length} rows with ${columns.length} columns`);
     return {
       data: records,
       rowCount: records.length,
@@ -167,8 +165,7 @@ export async function parseExcelFile(
   filePath: string,
   options: FileParserOptions = {}
 ): Promise<ParsedFile> {
-  console.log(`[FileParser] Parsing Excel file: ${filePath}`);
-
+  // console.log(`[FileParser] Parsing Excel file: ${filePath}`);
   try {
     // Read file as buffer
     const fileBuffer = await fs.readFile(filePath);
@@ -186,7 +183,7 @@ export async function parseExcelFile(
     if (!sheetName) {
       // Use first sheet if not specified
       sheetName = workbook.SheetNames[0];
-      console.log(`[FileParser] Using first sheet: ${sheetName}`);
+      // console.log(`[FileParser] Using first sheet: ${sheetName}`);
     }
 
     // Validate sheet exists
@@ -244,8 +241,7 @@ export async function parseExcelFile(
       columns = columns.map(col => options.columnMapping![col] || col);
     }
 
-    console.log(`[FileParser] Parsed ${data.length} rows with ${columns.length} columns from sheet '${sheetName}'`);
-
+    // console.log(`[FileParser] Parsed ${data.length} rows with ${columns.length} columns from sheet '${sheetName}'`);
     return {
       data: data,
       rowCount: data.length,
@@ -272,8 +268,7 @@ export async function parseJSONFile(
   filePath: string,
   options: FileParserOptions = {}
 ): Promise<ParsedFile> {
-  console.log(`[FileParser] Parsing JSON file: ${filePath}`);
-
+  // console.log(`[FileParser] Parsing JSON file: ${filePath}`);
   try {
     // Read file content
     const fileContent = await fs.readFile(filePath, options.encoding || 'utf-8');
@@ -292,8 +287,7 @@ export async function parseJSONFile(
     // Get column names from first object
     const columns = data.length > 0 ? Object.keys(data[0]) : [];
 
-    console.log(`[FileParser] Parsed ${data.length} rows with ${columns.length} columns`);
-
+    // console.log(`[FileParser] Parsed ${data.length} rows with ${columns.length} columns`);
     return {
       data: data,
       rowCount: data.length,
@@ -324,8 +318,7 @@ export async function parseFile(
   // Normalize file type
   const ext = fileType.toLowerCase().replace('.', '');
 
-  console.log(`[FileParser] Parsing file with type: ${ext}`);
-
+  // console.log(`[FileParser] Parsing file with type: ${ext}`);
   switch (ext) {
     case 'csv':
     case 'txt':
@@ -444,8 +437,7 @@ export async function streamParseCSV(
   onRow: (row: any, index: number) => Promise<void>,
   options: FileParserOptions = {}
 ): Promise<number> {
-  console.log(`[FileParser] Stream parsing CSV file: ${filePath}`);
-
+  // console.log(`[FileParser] Stream parsing CSV file: ${filePath}`);
   return new Promise((resolve, reject) => {
     const parser = require('csv-parse');
     const stream = fsSync.createReadStream(filePath);
@@ -482,7 +474,7 @@ export async function streamParseCSV(
     });
 
     parserStream.on('end', () => {
-      console.log(`[FileParser] Stream parsing complete: ${rowCount} rows`);
+      // console.log(`[FileParser] Stream parsing complete: ${rowCount} rows`);
       resolve(rowCount);
     });
 

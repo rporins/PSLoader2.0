@@ -22,17 +22,15 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
   const checkingCompleteRef = useRef(false);
 
   useEffect(() => {
-    console.log('[UpdateChecker] Starting update check');
-
+    // console.log('[UpdateChecker] Starting update check');
     if (!window.ipcApi) {
-      console.log('[UpdateChecker] IPC API not available, skipping');
+      // console.log('[UpdateChecker] IPC API not available, skipping');
       checkingCompleteRef.current = true;
       setTimeout(() => onUpdateComplete(), 100);
       return;
     }
 
-    console.log('[UpdateChecker] Registering event listeners');
-
+    // console.log('[UpdateChecker] Registering event listeners');
     // Get current version
     window.ipcApi.sendIpcRequest('app:get-version')
       .then((response: any) => {
@@ -43,7 +41,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
 
     // Listen for update events from main process
     const handleUpdateAvailable = (_event: any, info: UpdateInfo) => {
-      console.log('[UpdateChecker] Update available:', info);
+      // console.log('[UpdateChecker] Update available:', info);
       setUpdateInfo(info);
       setStatus('downloading');
       setMessage(`Downloading version ${info.version}...`);
@@ -51,7 +49,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
     };
 
     const handleUpdateNotAvailable = () => {
-      console.log('[UpdateChecker] No updates available, continuing to app');
+      // console.log('[UpdateChecker] No updates available, continuing to app');
       setStatus('checking');
       setMessage('You have the latest version');
       checkingCompleteRef.current = true;
@@ -61,25 +59,25 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
     };
 
     const handleDownloadProgress = (_event: any, progressInfo: any) => {
-      console.log('[UpdateChecker] Download progress:', progressInfo.percent);
+      // console.log('[UpdateChecker] Download progress:', progressInfo.percent);
       setStatus('downloading');
       setMessage(`Downloading update...`);
       setDownloadProgress(Math.round(progressInfo.percent || 0));
     };
 
     const handleUpdateDownloaded = () => {
-      console.log('[UpdateChecker] Update downloaded, installing now...');
+      // console.log('[UpdateChecker] Update downloaded, installing now...');
       setStatus('installing');
       setMessage('Installing update...');
       setDownloadProgress(100);
 
       // Install immediately - may or may not restart automatically
       setTimeout(() => {
-        console.log('[UpdateChecker] Triggering install');
+        // console.log('[UpdateChecker] Triggering install');
         window.ipcApi!.sendIpcRequest('app:install-update')
           .then(() => {
             // If we reach here, Squirrel didn't auto-restart
-            console.log('[UpdateChecker] Update installed, but app did not auto-restart');
+            // console.log('[UpdateChecker] Update installed, but app did not auto-restart');
             setStatus('restart-required');
             setUpdateInstalled(true);
             const newVersion = updateInfo?.version || 'the latest version';
@@ -115,21 +113,19 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
     window.ipcApi.onUpdateError?.(handleUpdateError);
 
     // Trigger update check
-    console.log('[UpdateChecker] Sending check-for-updates request');
+    // console.log('[UpdateChecker] Sending check-for-updates request');
     window.ipcApi.sendIpcRequest('app:check-for-updates')
       .then((response: any) => {
-        console.log('[UpdateChecker] Raw response:', response);
-
+        // console.log('[UpdateChecker] Raw response:', response);
         // Unwrap the IPC response
         const result = response?.data || response;
-        console.log('[UpdateChecker] Check result:', result);
-
+        // console.log('[UpdateChecker] Check result:', result);
         // In dev mode, just log and continue
         if (result?.devMode) {
-          console.log('[UpdateChecker] DEV MODE ENABLED');
-          console.log('[UpdateChecker] Message:', result.message);
-          console.log('[UpdateChecker] Current version:', result.currentVersion);
-          console.log('[UpdateChecker] Continuing to app...');
+          // console.log('[UpdateChecker] DEV MODE ENABLED');
+          // console.log('[UpdateChecker] Message:', result.message);
+          // console.log('[UpdateChecker] Current version:', result.currentVersion);
+          // console.log('[UpdateChecker] Continuing to app...');
           checkingCompleteRef.current = true;
           onUpdateComplete();
           return;
@@ -139,7 +135,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
         // This handles the case where update check completes but no event is emitted
         setTimeout(() => {
           if (!checkingCompleteRef.current) {
-            console.log('[UpdateChecker] No update events received within timeout, assuming no update');
+            // console.log('[UpdateChecker] No update events received within timeout, assuming no update');
             checkingCompleteRef.current = true;
             setMessage('You have the latest version');
             setTimeout(() => onUpdateComplete(), 1000);
@@ -164,7 +160,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
   }, [onUpdateComplete]);
 
   const handleStartUpdate = () => {
-    console.log('[UpdateChecker] User confirmed update, triggering download');
+    // console.log('[UpdateChecker] User confirmed update, triggering download');
     setStatus('downloading');
     setMessage('Preparing download...');
     window.ipcApi!.sendIpcRequest('app:download-update').catch((err: any) => {
@@ -176,7 +172,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
   };
 
   const handleContinueWithoutUpdate = () => {
-    console.log('[UpdateChecker] Continuing without update (only allowed on error)');
+    // console.log('[UpdateChecker] Continuing without update (only allowed on error)');
     onUpdateComplete();
   };
 

@@ -134,7 +134,7 @@ class MappingConfigService {
           created_at: config.created_at,
           updated_at: config.updated_at
         });
-        console.log('Mapping config stored successfully');
+        // console.log('Mapping config stored successfully');
       } catch (error) {
         console.error('Failed to store mapping config:', error);
         throw error;
@@ -154,7 +154,7 @@ class MappingConfigService {
         // IPC handlers return { success: true, data: ... }
         return stored?.data || null;
       } catch (error) {
-        console.warn('Failed to get stored mapping config:', error);
+        // console.warn('Failed to get stored mapping config:', error);
         return null;
       }
     }
@@ -181,7 +181,7 @@ class MappingConfigService {
 
       // Compare versions
       if (localConfig.version !== remoteConfig.version) {
-        console.log(`Version mismatch for config ${configId}: local=${localConfig.version}, remote=${remoteConfig.version}`);
+        // console.log(`Version mismatch for config ${configId}: local=${localConfig.version}, remote=${remoteConfig.version}`);
         return true;
       }
 
@@ -242,7 +242,7 @@ class MappingConfigService {
           config_id: configId,
           mappings: mappings
         });
-        console.log(`Replaced ${mappings.length} mappings for config ${configId}`);
+        // console.log(`Replaced ${mappings.length} mappings for config ${configId}`);
       } catch (error) {
         console.error('Failed to replace mappings:', error);
         throw error;
@@ -262,7 +262,7 @@ class MappingConfigService {
         // IPC handlers return { success: true, data: ... }
         return stored?.data || [];
       } catch (error) {
-        console.warn('Failed to get stored mappings:', error);
+        // console.warn('Failed to get stored mappings:', error);
         return [];
       }
     }
@@ -296,32 +296,32 @@ class MappingConfigService {
 
       if (!localConfig) {
         // No local config, need to store it and download mappings
-        console.log(`No local config for ${configId}, downloading...`);
+        // console.log(`No local config for ${configId}, downloading...`);
         await this.storeMappingConfig(remoteConfig);
         needsMappingUpdate = true;
       } else if (localConfig.version !== remoteConfig.version) {
         // Version mismatch, update config and mappings
-        console.log(`Version mismatch for config ${configId}: local=${localConfig.version}, remote=${remoteConfig.version}`);
+        // console.log(`Version mismatch for config ${configId}: local=${localConfig.version}, remote=${remoteConfig.version}`);
         await this.storeMappingConfig(remoteConfig);
         needsMappingUpdate = true;
       } else {
         // Config versions match, check if we have mappings
         const hasMappingsStored = await this.hasMappings(configId);
         if (!hasMappingsStored) {
-          console.log(`No mappings found for config ${configId}, downloading...`);
+          // console.log(`No mappings found for config ${configId}, downloading...`);
           needsMappingUpdate = true;
         }
       }
 
       // Download and replace mappings if needed
       if (needsMappingUpdate) {
-        console.log(`Downloading mappings for config ${configId}...`);
+        // console.log(`Downloading mappings for config ${configId}...`);
         const mappings = await this.getMappingsFromAPI(configId);
-        console.log(`Downloaded ${mappings.length} mappings, replacing in database...`);
+        // console.log(`Downloaded ${mappings.length} mappings, replacing in database...`);
         await this.replaceMappings(configId, mappings);
-        console.log(`Successfully synced mappings for config ${configId}`);
+        // console.log(`Successfully synced mappings for config ${configId}`);
       } else {
-        console.log(`Mappings for config ${configId} are up to date`);
+        // console.log(`Mappings for config ${configId} are up to date`);
       }
 
       return remoteConfig;
@@ -349,15 +349,13 @@ class MappingConfigService {
     if (typeof window !== 'undefined' && window.ipcApi) {
       try {
         const response = await window.ipcApi.sendIpcRequest('db:get-all-mapping-configs');
-        console.log('getAllStoredMappingConfigs response:', response);
-
+        // console.log('getAllStoredMappingConfigs response:', response);
         // IPC handlers return { success: true, data: ... }
         const configs = response?.data || [];
-        console.log('Extracted configs:', configs);
-
+        // console.log('Extracted configs:', configs);
         return configs;
       } catch (error) {
-        console.warn('Failed to get all stored mapping configs:', error);
+        // console.warn('Failed to get all stored mapping configs:', error);
         return [];
       }
     }

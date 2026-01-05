@@ -354,11 +354,11 @@ const ImportCard: React.FC<ImportCardProps> = ({
               : importFile.fileName;
             const newRowCount = result.rowCount || 0;
 
-            console.log(`Import successful for ${importProcessorName}:`, {
-              fileName: newFileName,
-              rowCount: newRowCount,
-              rawResult: result
-            });
+            // console.log(`Import successful for ${importProcessorName}:`, {
+            //   fileName: newFileName,
+            //   rowCount: newRowCount,
+            //   rawResult: result
+            // });
 
             setImportFile((prev) => ({
               ...prev,
@@ -400,7 +400,7 @@ const ImportCard: React.FC<ImportCardProps> = ({
           onStatusChange?.(importFile.id, ImportStatus.Failed, { error: errorMessage });
         }
       } else {
-        console.warn('IPC not available - running in development mode without proper IPC setup');
+        // console.warn('IPC not available - running in development mode without proper IPC setup');
         // In development mode without IPC, simulate a successful import
         // This should only happen in development when IPC is not properly configured
         setTimeout(() => {
@@ -413,8 +413,7 @@ const ImportCard: React.FC<ImportCardProps> = ({
           // Generate a simulated filename if not already set
           const simulatedFileName = importFile.fileName || `simulated_${importProcessorName}.csv`;
 
-          console.warn(`SIMULATION MODE: Returning simulated row count of ${simulatedRowCount} for ${importProcessorName}`);
-
+          // console.warn(`SIMULATION MODE: Returning simulated row count of ${simulatedRowCount} for ${importProcessorName}`);
           setImportFile((prev) => ({
             ...prev,
             status: ImportStatus.Complete,

@@ -99,7 +99,7 @@ export const performanceMiddleware = (slowThreshold: number = 1000): IpcMiddlewa
     
     const duration = Date.now() - startTime;
     if (duration > slowThreshold) {
-      console.warn(`Slow IPC operation detected: ${channel} took ${duration}ms`);
+      // console.warn(`Slow IPC operation detected: ${channel} took ${duration}ms`);
     }
     
     return result;

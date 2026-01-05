@@ -27,6 +27,7 @@ import Settings from "./routes/nestedPages/settings";
 import Home from "./routes/nestedPages/home";
 import SignOffUpload from "./routes/nestedPages/signOffUpload";
 import PL from "./routes/nestedPages/pl";
+import CustomPL from "./routes/nestedPages/customPL";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 // define the route
@@ -99,6 +100,11 @@ const router = createHashRouter([
         path: "pl",
         element: <PL />,
         handle: { title: "P&L" },
+      },
+      {
+        path: "custom-pl",
+        element: <CustomPL />,
+        handle: { title: "Custom P&L" },
       },
       {
         path: "coa",

@@ -87,9 +87,9 @@ class ImportGroupsService {
           ou,
           importGroups
         });
-        console.log('Import groups cached successfully');
+        // console.log('Import groups cached successfully');
       } catch (cacheError) {
-        console.warn('Failed to cache import groups:', cacheError);
+        // console.warn('Failed to cache import groups:', cacheError);
       }
     }
   }
@@ -106,7 +106,7 @@ class ImportGroupsService {
         // IPC handlers return { success: true, data: ... }
         return cached?.data || null;
       } catch (error) {
-        console.warn('Failed to get cached import groups:', error);
+        // console.warn('Failed to get cached import groups:', error);
         return null;
       }
     }
@@ -120,18 +120,15 @@ class ImportGroupsService {
    */
   async syncMappingConfigsForOU(ou: string): Promise<void> {
     try {
-      console.log(`Starting sync for OU: ${ou}`);
-
+      // console.log(`Starting sync for OU: ${ou}`);
       // First check if we have import groups cached for this OU
       let importGroups = await this.getCachedImportGroups(ou);
-      console.log(`Cached import groups for ${ou}:`, importGroups?.length || 0);
-
+      // console.log(`Cached import groups for ${ou}:`, importGroups?.length || 0);
       // If no cached groups, we need to fetch from API
       if (!importGroups || importGroups.length === 0) {
-        console.log(`No cached import groups found for ${ou}, fetching from API first...`);
+        // console.log(`No cached import groups found for ${ou}, fetching from API first...`);
         importGroups = await this.getImportGroups(ou);
-        console.log(`Fetched ${importGroups.length} import groups for ${ou}`);
-
+        // console.log(`Fetched ${importGroups.length} import groups for ${ou}`);
         // Extract mapping config IDs directly from fetched groups
         const configIds = new Set<number>();
         for (const group of importGroups) {
@@ -143,8 +140,7 @@ class ImportGroupsService {
         }
 
         if (configIds.size > 0) {
-          console.log(`Syncing ${configIds.size} mapping configs BEFORE caching import groups...`);
-
+          // console.log(`Syncing ${configIds.size} mapping configs BEFORE caching import groups...`);
           // Sync mapping configs FIRST
           const syncPromises = Array.from(configIds).map(configId =>
             mappingConfigService.syncMappingConfig(configId)
@@ -155,24 +151,22 @@ class ImportGroupsService {
           );
 
           await Promise.all(syncPromises);
-          console.log(`Completed syncing mapping configs`);
+          // console.log(`Completed syncing mapping configs`);
         }
 
         // NOW cache the import groups (after mapping configs are stored)
         await this.cacheImportGroups(ou, importGroups);
-        console.log(`Cached ${importGroups.length} import groups for ${ou}`);
+        // console.log(`Cached ${importGroups.length} import groups for ${ou}`);
       } else {
         // Import groups are already cached, just sync any missing mapping configs
         const configIds = await this.getMappingConfigIdsForOU(ou);
-        console.log(`Found mapping config IDs for ${ou}:`, configIds);
-
+        // console.log(`Found mapping config IDs for ${ou}:`, configIds);
         if (configIds.length === 0) {
-          console.log(`No mapping configs to sync for OU ${ou}`);
+          // console.log(`No mapping configs to sync for OU ${ou}`);
           return;
         }
 
-        console.log(`Syncing ${configIds.length} mapping configs for OU ${ou}...`);
-
+        // console.log(`Syncing ${configIds.length} mapping configs for OU ${ou}...`);
         // Sync each mapping config
         const syncPromises = configIds.map(configId =>
           mappingConfigService.syncMappingConfig(configId)
@@ -183,7 +177,7 @@ class ImportGroupsService {
         );
 
         await Promise.all(syncPromises);
-        console.log(`Completed syncing mapping configs for OU ${ou}`);
+        // console.log(`Completed syncing mapping configs for OU ${ou}`);
       }
     } catch (error) {
       console.error('Error syncing mapping configs for OU:', error);
@@ -203,7 +197,7 @@ class ImportGroupsService {
         // IPC handlers return { success: true, data: ... }
         return result?.data || [];
       } catch (error) {
-        console.warn('Failed to get mapping config IDs:', error);
+        // console.warn('Failed to get mapping config IDs:', error);
         return [];
       }
     }
@@ -242,8 +236,7 @@ class ImportGroupsService {
         }
       }
 
-      console.log(`Found ${configIds.size} unique mapping configs to sync for OU ${ou}`);
-
+      // console.log(`Found ${configIds.size} unique mapping configs to sync for OU ${ou}`);
       // Sync each mapping config BEFORE storing import groups
       if (configIds.size > 0) {
         const syncPromises = Array.from(configIds).map(configId =>
@@ -255,7 +248,7 @@ class ImportGroupsService {
         );
 
         await Promise.all(syncPromises);
-        console.log(`Completed syncing ${configIds.size} mapping configs`);
+        // console.log(`Completed syncing ${configIds.size} mapping configs`);
       }
 
       // NOW cache the import groups (after mapping configs are stored)
@@ -285,7 +278,7 @@ class ImportGroupsService {
       // Try to return cached data if available
       const cached = await this.getCachedImportGroups(ou);
       if (cached) {
-        console.log('Returning cached import groups due to error');
+        // console.log('Returning cached import groups due to error');
         return cached;
       }
 

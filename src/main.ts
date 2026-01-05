@@ -80,7 +80,7 @@ const logger = {
   error: (...args: unknown[]) => console.error("[ERROR]", ...args),
   debug: (...args: unknown[]) => {
     if (isDev || LOG_LEVEL === "debug") {
-      console.debug("[DEBUG]", ...args);
+      // console.debug("[DEBUG]", ...args);
     }
   },
 };

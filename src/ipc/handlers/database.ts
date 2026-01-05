@@ -147,11 +147,6 @@ export class DatabaseHandlers {
 
   getAllMappingConfigsHandler: IpcHandler = async (event) => {
     const result = await db.getAllMappingConfigs();
-    console.log('[getAllMappingConfigsHandler] Database returned:', result);
-    console.log('[getAllMappingConfigsHandler] Number of configs:', result?.length || 0);
-    if (result && result.length > 0) {
-      console.log('[getAllMappingConfigsHandler] First config:', result[0]);
-    }
     return {
       success: true,
       data: result,
@@ -441,10 +436,21 @@ export class DatabaseHandlers {
 
   getFinancialReportDataHandler: IpcHandler = async (event, request) => {
     const result = await db.getFinancialReportData(request.startPeriod, request.ou);
-    console.log('[getFinancialReportDataHandler] Request:', request);
-    console.log('[getFinancialReportDataHandler] Result type:', typeof result);
-    console.log('[getFinancialReportDataHandler] Result length:', result?.length);
-    console.log('[getFinancialReportDataHandler] Result preview:', result?.substring(0, 200));
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  getCustomPLDataHandler: IpcHandler = async (event, request) => {
+    const result = await db.getCustomPLData(
+      request.startMonth,
+      request.startYear,
+      request.endMonth,
+      request.endYear,
+      request.ou
+    );
     return {
       success: true,
       data: result,
@@ -454,9 +460,6 @@ export class DatabaseHandlers {
 
   getStagingVsBudgetDataHandler: IpcHandler = async (event, request) => {
     const result = await db.getStagingVsBudgetData(request.ou);
-    console.log('[getStagingVsBudgetDataHandler] Request:', request);
-    console.log('[getStagingVsBudgetDataHandler] Result type:', typeof result);
-    console.log('[getStagingVsBudgetDataHandler] Result length:', result?.length);
     return {
       success: true,
       data: result,
@@ -583,6 +586,7 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_COUNT]: handlers.getFinancialDataCountHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_LAST_IMPORT]: handlers.getFinancialDataLastImportHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_REPORT_DATA]: handlers.getFinancialReportDataHandler,
+    [IPC_CHANNELS.DB_GET_CUSTOM_PL_DATA]: handlers.getCustomPLDataHandler,
     [IPC_CHANNELS.DB_GET_STAGING_VS_BUDGET_DATA]: handlers.getStagingVsBudgetDataHandler,
     [IPC_CHANNELS.DB_UPDATE_CACHE_METADATA]: handlers.updateCacheMetadataHandler,
     [IPC_CHANNELS.DB_GET_CACHE_METADATA]: handlers.getCacheMetadataHandler,

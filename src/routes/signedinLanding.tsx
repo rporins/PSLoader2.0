@@ -88,68 +88,47 @@ function decodeJWT(token: string): any {
 
 // Helper function to get display name from user data
 function getDisplayName(user: any): string {
-  console.log("getDisplayName called with user:", user);
-  
   if (!user) {
-    console.log("No user data, returning 'User'");
     return "User";
   }
-  
+
   // Try to decode the ID token to get user claims
   let decodedClaims = null;
   if (user.id_token) {
-    console.log("Found id_token, attempting to decode...");
     decodedClaims = decodeJWT(user.id_token);
-    console.log("Decoded claims from id_token:", decodedClaims);
   }
-  
+
   // Try different ways to access the claims data
   const claimsFunction = typeof user.claims === 'function' ? user.claims() : null;
   const claimsObject = user.claims;
   const idTokenClaims = user.idTokenClaims;
   const userinfo = user.userinfo;
-  
-  console.log("Claims function result:", claimsFunction);
-  console.log("Claims object:", claimsObject);
-  console.log("ID token claims:", idTokenClaims);
-  console.log("Userinfo:", userinfo);
-  console.log("Direct user properties:", { 
-    given_name: user.given_name,
-    name: user.name,
-    preferred_username: user.preferred_username,
-    email: user.email
-  });
-  
+
   // Try all possible sources, prioritizing decoded claims
   const claims = decodedClaims ?? claimsFunction ?? claimsObject ?? idTokenClaims ?? userinfo ?? user;
-  
+
   // Try to get first name first, then full name, then other fallbacks
   const firstName = claims?.given_name || claims?.first_name;
   const fullName = claims?.name;
   const preferredUsername = claims?.preferred_username;
   const email = claims?.email;
-  
-  console.log("Extracted values:", { firstName, fullName, preferredUsername, email });
-  
+
   // If we have a first name, use that
   if (firstName) {
-    console.log("Returning first name:", firstName);
     return String(firstName);
   }
-  
+
   // If we have a full name, try to extract first name
   if (fullName) {
     const nameParts = String(fullName).split(' ');
-    console.log("Returning first part of full name:", nameParts[0]);
     return nameParts[0]; // Return first part of the name
   }
-  
+
   // Fallback to other options
   const fromClaims = preferredUsername || email;
   const loose = user.preferred_username || user.name || user.email || user.sub;
   const result = String(fromClaims || loose || "User");
-  
-  console.log("Returning fallback:", result);
+
   return result;
 }
 
@@ -384,9 +363,7 @@ const handleSignOut = useCallback(async () => {
 
         if (window.ipcApi) {
           const authState = await window.ipcApi.sendIpcRequest("auth-check");
-          console.log("Auth state from IPC:", authState);
           if (authState?.user) {
-            console.log("Setting user in component:", authState.user);
             setUser(authState.user);
           }
         }
@@ -413,10 +390,8 @@ const handleSignOut = useCallback(async () => {
             if (cachedHotels && cachedHotels.length > 0) {
               // Use cached data
               hotelList = cachedHotels;
-              console.log("Using cached hotels data");
             } else {
               // Cache is empty, fetch from API
-              console.log("Cache empty, fetching hotels from API");
               hotelList = await authService.getHotels();
 
               // Cache the fetched data
@@ -436,14 +411,12 @@ const handleSignOut = useCallback(async () => {
               setCurrentHotelName(currentHotel.hotel_name);
             } else if (hotelList.length > 0) {
               // If saved hotel not found but we have hotels, select the first one
-              console.log('Saved hotel not found, selecting first available hotel');
               const firstHotel = hotelList[0];
               await setSelectedHotelOu(firstHotel.ou);
               setCurrentHotelName(firstHotel.hotel_name);
             }
           } else if (hotelList.length > 0) {
             // No hotel selected yet, auto-select the first one
-            console.log('No hotel selected, auto-selecting first hotel');
             const firstHotel = hotelList[0];
             await setSelectedHotelOu(firstHotel.ou);
             setCurrentHotelName(firstHotel.hotel_name);
@@ -459,14 +432,12 @@ const handleSignOut = useCallback(async () => {
               setCurrentHotelName(currentHotel.hotel_name);
             } else if (hotelList.length > 0) {
               // If saved hotel not found but we have hotels, select the first one
-              console.log('Saved hotel not found (fallback), selecting first available hotel');
               const firstHotel = hotelList[0];
               await setSelectedHotelOu(firstHotel.ou);
               setCurrentHotelName(firstHotel.hotel_name);
             }
           } else if (hotelList.length > 0) {
             // No hotel selected yet, auto-select the first one
-            console.log('No hotel selected (fallback), auto-selecting first hotel');
             const firstHotel = hotelList[0];
             await setSelectedHotelOu(firstHotel.ou);
             setCurrentHotelName(firstHotel.hotel_name);
@@ -491,16 +462,10 @@ const handleSignOut = useCallback(async () => {
   useEffect(() => {
     const syncMappingTablesOnStartup = async () => {
       try {
-        console.log("Checking mapping tables sync status...");
-        const synced = await mappingTablesService.syncMappingTables();
-        if (synced) {
-          console.log("Mapping tables synced successfully on startup");
-        } else {
-          console.log("Mapping tables are up-to-date");
-        }
+        await mappingTablesService.syncMappingTables();
       } catch (error) {
         // Log error but don't block the app
-        console.warn("Failed to sync mapping tables on startup:", error);
+        // console.warn("Failed to sync mapping tables on startup:", error);
         // User can manually sync from settings if needed
       }
     };
@@ -790,7 +755,6 @@ const handleSignOut = useCallback(async () => {
                         // Refresh cache and reload hotels
                         const refreshedHotels = await authService.refreshHotelsCache();
                         setHotels(refreshedHotels);
-                        console.log('Hotels cache refreshed');
                       } catch (error) {
                         console.error('Failed to refresh hotels:', error);
                       }
@@ -932,6 +896,15 @@ const handleSignOut = useCallback(async () => {
                 <DescriptionIcon />
               </ListItemIcon>
               <ListItemText primary="P&L" sx={listItemTextStyle} />
+            </ListItemButton>
+          </ListItem>
+
+          <ListItem key="custom-pl" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/custom-pl")}>
+              <ListItemIcon sx={listItemIconStyle}>
+                <DescriptionIcon />
+              </ListItemIcon>
+              <ListItemText primary="Custom P&L" sx={listItemTextStyle} />
             </ListItemButton>
           </ListItem>
 

@@ -39,7 +39,7 @@ export abstract class BaseImportProcessor implements IImportProcessor {
   protected async initialize(): Promise<void> {
     if (this.initialized) return;
 
-    console.log(`[${this.metadata.id}] Initializing processor: ${this.metadata.name}`);
+    // console.log(`[${this.metadata.id}] Initializing processor: ${this.metadata.name}`);
     this.initialized = true;
   }
 
@@ -51,12 +51,11 @@ export abstract class BaseImportProcessor implements IImportProcessor {
     await this.initialize();
 
     if (options?.skipPreImport) {
-      console.log(`[${this.metadata.id}] Skipping pre-import hooks`);
+      // console.log(`[${this.metadata.id}] Skipping pre-import hooks`);
       return;
     }
 
-    console.log(`[${this.metadata.id}] Running pre-import hooks for: ${filePath}`);
-
+    // console.log(`[${this.metadata.id}] Running pre-import hooks for: ${filePath}`);
     // Check if file exists
     try {
       await fs.access(filePath);
@@ -70,7 +69,7 @@ export abstract class BaseImportProcessor implements IImportProcessor {
       throw new Error('File is empty');
     }
     if (stats.size > 100 * 1024 * 1024) { // 100MB limit by default
-      console.warn(`[${this.metadata.id}] Large file detected (${Math.round(stats.size / 1024 / 1024)}MB)`);
+      // console.warn(`[${this.metadata.id}] Large file detected (${Math.round(stats.size / 1024 / 1024)}MB)`);
     }
   }
 
@@ -79,11 +78,10 @@ export abstract class BaseImportProcessor implements IImportProcessor {
    * Override to add custom validation logic
    */
   async validate(filePath: string, fileType: string, options?: ImportOptions): Promise<ValidationResult> {
-    console.log(`[${this.metadata.id}] Validating file: ${filePath}`);
-
+    // console.log(`[${this.metadata.id}] Validating file: ${filePath}`);
     // Skip validation if requested
     if (options?.skipValidation) {
-      console.log(`[${this.metadata.id}] Skipping validation (skipValidation=true)`);
+      // console.log(`[${this.metadata.id}] Skipping validation (skipValidation=true)`);
       return {
         isValid: true,
         rowCount: 0,
@@ -162,8 +160,7 @@ export abstract class BaseImportProcessor implements IImportProcessor {
    * Override to add custom processing logic
    */
   async process(filePath: string, fileType: string, options?: ImportOptions): Promise<ImportResult> {
-    console.log(`[${this.metadata.id}] Processing file: ${filePath}`);
-
+    // console.log(`[${this.metadata.id}] Processing file: ${filePath}`);
     const startTime = new Date();
 
     try {
@@ -184,7 +181,7 @@ export abstract class BaseImportProcessor implements IImportProcessor {
 
       // Test mode - just return row count
       if (options?.testMode) {
-        console.log(`[${this.metadata.id}] Running in test mode - counting rows only`);
+        // console.log(`[${this.metadata.id}] Running in test mode - counting rows only`);
         const parsed = await this.getParsedFile(filePath, fileType, options);
         return {
           success: true,
@@ -236,8 +233,7 @@ export abstract class BaseImportProcessor implements IImportProcessor {
    * Override this method to implement actual data processing
    */
   protected async processRows(parsed: ParsedFile, options?: ImportOptions): Promise<ImportResult> {
-    console.log(`[${this.metadata.id}] Processing ${parsed.rowCount} rows`);
-
+    // console.log(`[${this.metadata.id}] Processing ${parsed.rowCount} rows`);
     let processedRows = 0;
     let skippedRows = 0;
     let failedRows = 0;
@@ -317,25 +313,24 @@ export abstract class BaseImportProcessor implements IImportProcessor {
    */
   async postImport(result: ImportResult, options?: ImportOptions): Promise<void> {
     if (options?.skipPostImport) {
-      console.log(`[${this.metadata.id}] Skipping post-import hooks`);
+      // console.log(`[${this.metadata.id}] Skipping post-import hooks`);
       return;
     }
 
-    console.log(`[${this.metadata.id}] Running post-import hooks`);
-    console.log(`[${this.metadata.id}] Import completed:`, {
-      success: result.success,
-      processed: result.processedRows,
-      skipped: result.skippedRows,
-      failed: result.failedRows
-    });
+    // console.log(`[${this.metadata.id}] Running post-import hooks`);
+    // console.log(`[${this.metadata.id}] Import completed:`, {
+    //   success: result.success,
+    //   processed: result.processedRows,
+    //   skipped: result.skippedRows,
+    //   failed: result.failedRows
+    // });
   }
 
   /**
    * Preview file contents
    */
   async preview(filePath: string, fileType: string, rows: number = 10): Promise<any[]> {
-    console.log(`[${this.metadata.id}] Generating preview for: ${filePath}`);
-
+    // console.log(`[${this.metadata.id}] Generating preview for: ${filePath}`);
     try {
       const parsed = await this.getParsedFile(filePath, fileType, {
         previewRows: rows
@@ -362,7 +357,7 @@ export abstract class BaseImportProcessor implements IImportProcessor {
    * Clean up resources
    */
   async cleanup(): Promise<void> {
-    console.log(`[${this.metadata.id}] Cleaning up processor`);
+    // console.log(`[${this.metadata.id}] Cleaning up processor`);
     this.clearCache();
     this.initialized = false;
   }
@@ -377,7 +372,7 @@ export abstract class BaseImportProcessor implements IImportProcessor {
   ): Promise<ParsedFile> {
     // Use cache if available and same file
     if (this.cachedParsedFile && this.cachedFilePath === filePath) {
-      console.log(`[${this.metadata.id}] Using cached parsed file`);
+      // console.log(`[${this.metadata.id}] Using cached parsed file`);
       return this.cachedParsedFile;
     }
 
@@ -414,10 +409,10 @@ export abstract class BaseImportProcessor implements IImportProcessor {
         console.error(prefix, message);
         break;
       case 'warn':
-        console.warn(prefix, message);
+        // console.warn(prefix, message);
         break;
       default:
-        console.log(prefix, message);
+        // console.log(prefix, message);
     }
   }
 }

@@ -95,8 +95,7 @@ export class AccpacCompsImportProcessor extends BaseImportProcessor {
    * STEP 2: VALIDATION
    */
   async validate(filePath: string, fileType: string, options?: ImportOptions): Promise<ValidationResult> {
-    console.log(`[${this.metadata.id}] Running validation`);
-
+    // console.log(`[${this.metadata.id}] Running validation`);
     try {
       const parsed = await this.getParsedFile(filePath, fileType, options);
       const errors: string[] = [];
@@ -175,8 +174,7 @@ export class AccpacCompsImportProcessor extends BaseImportProcessor {
    * STEP 3: PROCESS ROWS
    */
   protected async processRows(parsed: ParsedFile, options?: ImportOptions): Promise<ImportResult> {
-    console.log(`[${this.metadata.id}] Processing ${parsed.rowCount} rows`);
-
+    // console.log(`[${this.metadata.id}] Processing ${parsed.rowCount} rows`);
     const startTime = new Date();
     const warnings: string[] = [];
     let processedRows = 0;
@@ -214,8 +212,7 @@ export class AccpacCompsImportProcessor extends BaseImportProcessor {
         }
       }
 
-      console.log(`[${this.metadata.id}] Total Rooms Rented: ${totalRoomsRented} (from ${rowsWithData} non-zero rows)`);
-
+      // console.log(`[${this.metadata.id}] Total Rooms Rented: ${totalRoomsRented} (from ${rowsWithData} non-zero rows)`);
       // Step 4: Create single staging entry (even if total is 0)
       const periodCombo = `${year}-${String(month).padStart(2, '0')}`;
       const comboId = `${this.TARGET_DEPARTMENT}_${this.TARGET_ACCOUNT}`;
@@ -241,7 +238,7 @@ export class AccpacCompsImportProcessor extends BaseImportProcessor {
       };
 
       // Step 5: Insert into staging table (additive - no truncation)
-      console.log(`[${this.metadata.id}] Inserting single aggregated row into staging...`);
+      // console.log(`[${this.metadata.id}] Inserting single aggregated row into staging...`);
       await db.insertBatchStagingData([stagingEntry]);
       processedRows = 1;
 
@@ -251,8 +248,7 @@ export class AccpacCompsImportProcessor extends BaseImportProcessor {
       }
       warnings.push(`Loaded to Account: ${this.TARGET_ACCOUNT}, Department: ${this.TARGET_DEPARTMENT}`);
 
-      console.log(`[${this.metadata.id}] Import completed: ${processedRows} staging row created from ${parsed.rowCount} source rows`);
-
+      // console.log(`[${this.metadata.id}] Import completed: ${processedRows} staging row created from ${parsed.rowCount} source rows`);
       const endTime = new Date();
 
       return {
@@ -317,9 +313,9 @@ export class AccpacCompsImportProcessor extends BaseImportProcessor {
   async preImport(filePath: string, options?: ImportOptions): Promise<void> {
     await super.preImport(filePath, options);
 
-    console.log(`[${this.metadata.id}] Preparing for ACCPAC comps import...`);
-    console.log(`[${this.metadata.id}] Target: Account ${this.TARGET_ACCOUNT}, Department ${this.TARGET_DEPARTMENT}`);
-    console.log(`[${this.metadata.id}] Pre-import setup complete`);
+    // console.log(`[${this.metadata.id}] Preparing for ACCPAC comps import...`);
+    // console.log(`[${this.metadata.id}] Target: Account ${this.TARGET_ACCOUNT}, Department ${this.TARGET_DEPARTMENT}`);
+    // console.log(`[${this.metadata.id}] Pre-import setup complete`);
   }
 
   /**
@@ -328,8 +324,8 @@ export class AccpacCompsImportProcessor extends BaseImportProcessor {
   async postImport(result: ImportResult, options?: ImportOptions): Promise<void> {
     await super.postImport(result, options);
 
-    console.log(`[${this.metadata.id}] Running post-import tasks...`);
-    console.log(`[${this.metadata.id}] Post-import tasks complete`);
+    // console.log(`[${this.metadata.id}] Running post-import tasks...`);
+    // console.log(`[${this.metadata.id}] Post-import tasks complete`);
   }
 
   /**
@@ -346,11 +342,11 @@ export class AccpacCompsImportProcessor extends BaseImportProcessor {
       const hotel = hotels.find((h: any) => h.ou === ou);
 
       if (hotel && hotel.currency) {
-        console.log(`[${this.metadata.id}] Found currency for OU ${ou}: ${hotel.currency}`);
+        // console.log(`[${this.metadata.id}] Found currency for OU ${ou}: ${hotel.currency}`);
         return hotel.currency;
       }
 
-      console.warn(`[${this.metadata.id}] No currency found for OU ${ou}`);
+      // console.warn(`[${this.metadata.id}] No currency found for OU ${ou}`);
       return null;
     } catch (error) {
       console.error(`[${this.metadata.id}] Error getting hotel currency:`, error);

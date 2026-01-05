@@ -35,7 +35,7 @@ export abstract class BaseValidationProcessor implements IValidationProcessor {
   protected async initialize(): Promise<void> {
     if (this.initialized) return;
 
-    console.log(`[${this.metadata.id}] Initializing validation processor: ${this.metadata.name}`);
+    // console.log(`[${this.metadata.id}] Initializing validation processor: ${this.metadata.name}`);
     this.initialized = true;
   }
 
@@ -55,12 +55,11 @@ export abstract class BaseValidationProcessor implements IValidationProcessor {
     await this.initialize();
 
     if (options?.skip) {
-      console.log(`[${this.metadata.id}] Validation skipped`);
+      // console.log(`[${this.metadata.id}] Validation skipped`);
       return;
     }
 
-    console.log(`[${this.metadata.id}] Running pre-validation hooks`);
-
+    // console.log(`[${this.metadata.id}] Running pre-validation hooks`);
     // Check if database is available
     if (!this.db) {
       throw new Error('Database client not available');
@@ -77,13 +76,13 @@ export abstract class BaseValidationProcessor implements IValidationProcessor {
    * Override to add custom post-validation logic
    */
   async postValidation(result: ValidationResult, options?: ValidationOptions): Promise<void> {
-    console.log(`[${this.metadata.id}] Running post-validation hooks`);
-    console.log(`[${this.metadata.id}] Validation completed:`, {
-      success: result.success,
-      errors: result.errors?.length || 0,
-      warnings: result.warnings?.length || 0,
-      recordCount: result.recordCount
-    });
+    // console.log(`[${this.metadata.id}] Running post-validation hooks`);
+    // console.log(`[${this.metadata.id}] Validation completed:`, {
+    //   success: result.success,
+    //   errors: result.errors?.length || 0,
+    //   warnings: result.warnings?.length || 0,
+    //   recordCount: result.recordCount
+    // });
   }
 
   /**
@@ -105,7 +104,7 @@ export abstract class BaseValidationProcessor implements IValidationProcessor {
    * Clean up resources
    */
   async cleanup(): Promise<void> {
-    console.log(`[${this.metadata.id}] Cleaning up validation processor`);
+    // console.log(`[${this.metadata.id}] Cleaning up validation processor`);
     this.initialized = false;
   }
 
@@ -151,10 +150,10 @@ export abstract class BaseValidationProcessor implements IValidationProcessor {
         console.error(prefix, message);
         break;
       case 'warn':
-        console.warn(prefix, message);
+        // console.warn(prefix, message);
         break;
       default:
-        console.log(prefix, message);
+        // console.log(prefix, message);
     }
   }
 

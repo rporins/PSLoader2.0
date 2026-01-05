@@ -32,8 +32,7 @@ export class ValidationHandlers {
    */
   runValidationHandler: IpcHandler = async (event, request) => {
     try {
-      console.log('[ValidationHandlers] Running validation:', request.validationName);
-
+      // console.log('[ValidationHandlers] Running validation:', request.validationName);
       const result = await ValidationRegistry.executeValidation(
         request.validationName,
         {
@@ -91,8 +90,7 @@ export class ValidationHandlers {
    */
   runAllValidationsHandler: IpcHandler = async (event, request) => {
     try {
-      console.log('[ValidationHandlers] Running all validations for OU:', request.ou);
-
+      // console.log('[ValidationHandlers] Running all validations for OU:', request.ou);
       const results = await ValidationRegistry.executeAllForOU(
         request.ou,
         {
