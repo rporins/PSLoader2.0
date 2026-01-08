@@ -7,6 +7,7 @@ import {
   GridToolbarFilterButton,
   GridToolbarColumnsButton,
   GridToolbarDensitySelector,
+  GridToolbarQuickFilter,
   GridAggregationModel,
 } from "@mui/x-data-grid-premium";
 import {
@@ -23,7 +24,8 @@ import {
   Paper,
   Divider,
 } from "@mui/material";
-import { styled } from "@mui/material/styles";
+import { styled, alpha } from "@mui/material/styles";
+import { useSettingsStore } from "../../store/settings";
 
 interface FinancialReportRow {
   id: number;
@@ -69,19 +71,61 @@ const StyledCard = styled(Card)(({ theme }) => ({
 
 const CustomToolbar = () => {
   return (
-    <GridToolbarContainer>
+    <GridToolbarContainer
+      sx={{
+        p: 1.5,
+        gap: 1,
+        borderBottom: '1px solid',
+        borderColor: 'divider',
+        minHeight: 56,
+        backgroundColor: (theme) => theme.palette.mode === 'dark'
+          ? alpha('#ffffff', 0.01)
+          : alpha('#000000', 0.005),
+        '& .MuiButton-root': {
+          fontSize: '0.8125rem',
+          fontWeight: 500,
+          textTransform: 'none',
+          borderRadius: 1.5,
+          px: 1.5,
+          color: 'text.secondary',
+        },
+      }}
+    >
       <GridToolbarColumnsButton />
       <GridToolbarFilterButton />
       <GridToolbarDensitySelector />
       <GridToolbarExport
         csvOptions={{
-          fileName: 'financial-report',
+          fileName: `financial-report-${new Date().toISOString().split('T')[0]}`,
           delimiter: ',',
           utf8WithBom: true,
         }}
         printOptions={{
           hideFooter: true,
           hideToolbar: true,
+        }}
+      />
+      <Box sx={{ flex: 1 }} />
+      <GridToolbarQuickFilter
+        debounceMs={300}
+        sx={{
+          width: { xs: 200, sm: 280 },
+          '& .MuiOutlinedInput-root': {
+            borderRadius: 2,
+            height: 36,
+            fontSize: '0.875rem',
+            backgroundColor: (theme) => alpha(theme.palette.background.default, 0.5),
+            transition: 'background-color 0.2s ease',
+            '&:hover': {
+              backgroundColor: (theme) => alpha(theme.palette.background.default, 0.7),
+            },
+            '&.Mui-focused': {
+              backgroundColor: (theme) => theme.palette.background.default,
+            },
+          },
+          '& .MuiInputBase-input::placeholder': {
+            fontSize: '0.875rem',
+          },
         }}
       />
     </GridToolbarContainer>
@@ -96,6 +140,7 @@ export default function Report() {
   const [startingMonth, setStartingMonth] = useState<number>(1); // 1-based month
   const [loading, setLoading] = useState<boolean>(false);
   const [settingsLoaded, setSettingsLoaded] = useState<boolean>(false);
+  const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
 
   const fetchReportData = async () => {
     setLoading(true);
@@ -104,6 +149,7 @@ export default function Report() {
 
       const response = await window.ipcApi.sendIpcRequest("db:get-financial-report-data", {
         startPeriod,
+        ou: selectedHotelOu,
       });
 
       // console.log('[Report] Response:', response);
@@ -174,12 +220,12 @@ export default function Report() {
     loadSettings();
   }, []);
 
-  // Fetch data when settings are loaded and when year/month changes
+  // Fetch data when settings are loaded and when year/month/OU changes
   useEffect(() => {
-    if (settingsLoaded) {
+    if (settingsLoaded && selectedHotelOu) {
       fetchReportData();
     }
-  }, [selectedYear, startingMonth, settingsLoaded]);
+  }, [selectedYear, startingMonth, settingsLoaded, selectedHotelOu]);
 
   const currencyFormatter = new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -504,6 +550,21 @@ export default function Report() {
           density="compact"
           cellSelection
           sx={{
+            '& .MuiDataGrid-columnHeaders': {
+              backgroundColor: (theme) => theme.palette.mode === 'dark'
+                ? alpha('#ffffff', 0.02)
+                : alpha('#000000', 0.015),
+              borderBottom: '1px solid',
+              borderColor: 'divider',
+              minHeight: '48px !important',
+              maxHeight: '48px !important',
+            },
+            '& .MuiDataGrid-columnHeader': {
+              fontWeight: 600,
+              fontSize: '0.8125rem',
+              letterSpacing: '0.01em',
+              color: 'text.secondary',
+            },
             '& .total-column': {
               fontWeight: 'bold',
               borderLeft: '2px solid',

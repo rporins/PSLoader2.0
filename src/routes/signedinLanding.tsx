@@ -877,7 +877,7 @@ const handleSignOut = useCallback(async () => {
               <ListItemIcon sx={listItemIconStyle}>
                 <GridOnIcon />
               </ListItemIcon>
-              <ListItemText primary="Data Table" sx={listItemTextStyle} />
+              <ListItemText primary="Upload Review" sx={listItemTextStyle} />
             </ListItemButton>
           </ListItem>
 
@@ -890,21 +890,30 @@ const handleSignOut = useCallback(async () => {
             </ListItemButton>
           </ListItem>
 
-          <ListItem key="pl" disablePadding sx={{ display: "block" }}>
-            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/pl")}>
-              <ListItemIcon sx={listItemIconStyle}>
-                <DescriptionIcon />
-              </ListItemIcon>
-              <ListItemText primary="P&L" sx={listItemTextStyle} />
-            </ListItemButton>
-          </ListItem>
-
           <ListItem key="custom-pl" disablePadding sx={{ display: "block" }}>
             <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/custom-pl")}>
               <ListItemIcon sx={listItemIconStyle}>
                 <DescriptionIcon />
               </ListItemIcon>
               <ListItemText primary="Custom P&L" sx={listItemTextStyle} />
+            </ListItemButton>
+          </ListItem>
+
+          <ListItem key="summary-pl" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/summary-pl")}>
+              <ListItemIcon sx={listItemIconStyle}>
+                <AssessmentIcon />
+              </ListItemIcon>
+              <ListItemText primary="Summary P&L" sx={listItemTextStyle} />
+            </ListItemButton>
+          </ListItem>
+
+          <ListItem key="f90-pl" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/f90-pl")}>
+              <ListItemIcon sx={listItemIconStyle}>
+                <DescriptionIcon />
+              </ListItemIcon>
+              <ListItemText primary="F90 P&L" sx={listItemTextStyle} />
             </ListItemButton>
           </ListItem>
 

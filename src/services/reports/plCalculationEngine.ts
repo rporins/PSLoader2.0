@@ -9,6 +9,8 @@ import {
 } from '../../types/plReportTypes';
 import { SUB_MEASURES, MEASURES } from './plMeasureDefinitions';
 import { PL_ROW_CONFIG } from './plRowConfig';
+import { SUMMARY_PL_ROW_CONFIG } from './summaryPLRowConfig';
+import { F90_PL_ROW_CONFIG } from './f90PLRowConfig';
 
 // ============================================================================
 // CALCULATION ENGINE FOR CUSTOM P&L REPORT
@@ -286,6 +288,142 @@ export function calculatePLRows(
     results.push({
       rowId: rowId++,
       type: 'measure',
+      label: rowConfig.label,
+      indentLevel: rowConfig.indentLevel || 0,
+      actuals,
+      budget,
+      vs_bud,
+      vs_bud_pct,
+      ly,
+      vs_ly,
+      vs_ly_pct,
+      formatting: rowConfig.formatting || 'number'
+    });
+  });
+
+  return results;
+}
+
+// ============================================================================
+// CALCULATE SUMMARY P&L ROWS
+// Uses the SUMMARY_PL_ROW_CONFIG instead of PL_ROW_CONFIG
+// ============================================================================
+
+export function calculateSummaryPLRows(
+  actualsData: BaseQueryResult,
+  budgetData: BaseQueryResult,
+  lyData: BaseQueryResult
+): PLCalculationResult[] {
+  const actualsSubMeasures = evaluateSubMeasures(actualsData);
+  const budgetSubMeasures = evaluateSubMeasures(budgetData);
+  const lySubMeasures = evaluateSubMeasures(lyData);
+
+  const results: PLCalculationResult[] = [];
+  let rowId = 1;
+
+  SUMMARY_PL_ROW_CONFIG.forEach(rowConfig => {
+    const measureId = rowConfig.measureId;
+
+    // If no measureId, it's a spacing row - add it with null values
+    if (!measureId) {
+      results.push({
+        rowId: rowId++,
+        type: rowConfig.type,
+        label: rowConfig.label,
+        indentLevel: rowConfig.indentLevel || 0,
+        actuals: null,
+        budget: null,
+        vs_bud: null,
+        vs_bud_pct: null,
+        ly: null,
+        vs_ly: null,
+        vs_ly_pct: null,
+        formatting: rowConfig.formatting || 'number'
+      });
+      return;
+    }
+
+    // Has measureId - calculate values regardless of type (header or measure)
+    const actuals = evaluateMeasure(measureId, actualsSubMeasures, 'ACT');
+    const budget = evaluateMeasure(measureId, budgetSubMeasures, 'BUD');
+    const ly = evaluateMeasure(measureId, lySubMeasures, 'PY1');
+
+    const vs_bud = calculateVariance(actuals, budget);
+    const vs_bud_pct = calculateVariancePercent(actuals, budget);
+    const vs_ly = calculateVariance(actuals, ly);
+    const vs_ly_pct = calculateVariancePercent(actuals, ly);
+
+    results.push({
+      rowId: rowId++,
+      type: rowConfig.type,
+      label: rowConfig.label,
+      indentLevel: rowConfig.indentLevel || 0,
+      actuals,
+      budget,
+      vs_bud,
+      vs_bud_pct,
+      ly,
+      vs_ly,
+      vs_ly_pct,
+      formatting: rowConfig.formatting || 'number'
+    });
+  });
+
+  return results;
+}
+
+// ============================================================================
+// CALCULATE F90 P&L ROWS
+// Uses the F90_PL_ROW_CONFIG instead of PL_ROW_CONFIG
+// ============================================================================
+
+export function calculateF90PLRows(
+  actualsData: BaseQueryResult,
+  budgetData: BaseQueryResult,
+  lyData: BaseQueryResult
+): PLCalculationResult[] {
+  const actualsSubMeasures = evaluateSubMeasures(actualsData);
+  const budgetSubMeasures = evaluateSubMeasures(budgetData);
+  const lySubMeasures = evaluateSubMeasures(lyData);
+
+  const results: PLCalculationResult[] = [];
+  let rowId = 1;
+
+  F90_PL_ROW_CONFIG.forEach(rowConfig => {
+    const measureId = rowConfig.measureId;
+
+    // If no measureId, it's a spacing row - add it with null values
+    if (!measureId) {
+      results.push({
+        rowId: rowId++,
+        type: rowConfig.type,
+        label: rowConfig.label,
+        indentLevel: rowConfig.indentLevel || 0,
+        actuals: null,
+        budget: null,
+        vs_bud: null,
+        vs_bud_pct: null,
+        ly: null,
+        vs_ly: null,
+        vs_ly_pct: null,
+        formatting: rowConfig.formatting || 'number'
+      });
+      return;
+    }
+
+    // Has measureId - calculate values regardless of type (header or measure)
+    const actuals = evaluateMeasure(measureId, actualsSubMeasures, 'ACT');
+    const budget = evaluateMeasure(measureId, budgetSubMeasures, 'BUD');
+    const ly = evaluateMeasure(measureId, lySubMeasures, 'PY1');
+
+    const vs_bud = calculateVariance(actuals, budget);
+    const vs_bud_pct = calculateVariancePercent(actuals, budget);
+    const vs_ly = calculateVariance(actuals, ly);
+    const vs_ly_pct = calculateVariancePercent(actuals, ly);
+
+    results.push({
+      rowId: rowId++,
+      type: rowConfig.type,
       label: rowConfig.label,
       indentLevel: rowConfig.indentLevel || 0,
       actuals,

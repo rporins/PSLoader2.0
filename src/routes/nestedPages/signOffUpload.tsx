@@ -12,12 +12,19 @@ import {
   Paper,
   LinearProgress,
   Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorIcon from "@mui/icons-material/Error";
 import UploadIcon from "@mui/icons-material/Upload";
 import EditIcon from "@mui/icons-material/Edit";
+import LockIcon from "@mui/icons-material/Lock";
+import { useNavigate } from "react-router-dom";
 import { useSettingsStore } from "../../store/settings";
 import submittedDataService, { SubmittedDataEntry } from "../../services/submittedDataService";
 import authService from "../../services/auth";
@@ -43,7 +50,46 @@ export default function SignOffUpload() {
   const [uploadError, setUploadError] = useState<string>("");
   const [unmappedCount, setUnmappedCount] = useState<number>(0);
   const [totalRecords, setTotalRecords] = useState<number>(0);
+  const [validationCompleted, setValidationCompleted] = useState<boolean>(false);
+  const [signOffCompleted, setSignOffCompleted] = useState<boolean>(false);
+  const [showAccessDeniedModal, setShowAccessDeniedModal] = useState<boolean>(false);
+  const [showResetConfirmModal, setShowResetConfirmModal] = useState<boolean>(false);
   const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
+  const navigate = useNavigate();
+
+  // Check validation and sign-off completion states
+  useEffect(() => {
+    const checkCompletionStates = async () => {
+      if (!selectedHotelOu) return;
+
+      try {
+        // Check validation completion
+        // @ts-ignore
+        const validationResult = await window.ipcApi.sendIpcRequest('db:get-validation-completed-state', { ou: selectedHotelOu });
+        if (validationResult?.success) {
+          const isValidationCompleted = validationResult.data as boolean;
+          setValidationCompleted(isValidationCompleted);
+
+          // If validations are not completed, show modal
+          if (!isValidationCompleted) {
+            setShowAccessDeniedModal(true);
+          }
+        }
+
+        // Check sign-off completion
+        // @ts-ignore
+        const signOffResult = await window.ipcApi.sendIpcRequest('db:get-signoff-completed-state', { ou: selectedHotelOu });
+        if (signOffResult?.success) {
+          const isSignOffCompleted = signOffResult.data as boolean;
+          setSignOffCompleted(isSignOffCompleted);
+        }
+      } catch (error) {
+        console.error('Failed to check completion states:', error);
+      }
+    };
+
+    checkCompletionStates();
+  }, [selectedHotelOu]);
 
   // Fetch validation status and check for unmapped records
   useEffect(() => {
@@ -145,12 +191,37 @@ export default function SignOffUpload() {
       // console.log(`Successfully uploaded ${uploadedData.length} records${skippedCount > 0 ? ` (skipped ${skippedCount} unmapped records)` : ''}`);
       setUploadComplete(true);
 
+      // Mark sign-off as completed
+      if (selectedHotelOu) {
+        try {
+          // @ts-ignore
+          await window.ipcApi.sendIpcRequest('db:set-signoff-completed-state', { ou: selectedHotelOu, completed: true });
+          setSignOffCompleted(true);
+        } catch (error) {
+          console.error('Failed to set sign-off completed state:', error);
+        }
+      }
+
     } catch (error) {
       console.error("Error uploading data:", error);
       const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
       setUploadError(errorMessage);
     } finally {
       setUploading(false);
+    }
+  };
+
+  // Handle reset
+  const handleReset = async () => {
+    if (!selectedHotelOu) return;
+
+    try {
+      // @ts-ignore
+      await window.ipcApi.sendIpcRequest('db:reset-all-completion-states', { ou: selectedHotelOu });
+      // Navigate back to imports
+      navigate('/signed-in-landing/data-import');
+    } catch (error) {
+      console.error('Failed to reset completion states:', error);
     }
   };
 
@@ -279,7 +350,7 @@ export default function SignOffUpload() {
                 value={signature}
                 onChange={(e) => setSignature(e.target.value)}
                 placeholder="Type your full name"
-                disabled={!allValidationsPassed}
+                disabled={!allValidationsPassed || !validationCompleted || signOffCompleted}
                 InputProps={{
                   startAdornment: <EditIcon sx={{ mr: 1, color: 'text.secondary' }} />,
                 }}
@@ -288,7 +359,7 @@ export default function SignOffUpload() {
                 variant="contained"
                 color="primary"
                 onClick={handleSignOff}
-                disabled={!allValidationsPassed || signature.trim().length === 0}
+                disabled={!allValidationsPassed || signature.trim().length === 0 || !validationCompleted || signOffCompleted}
                 fullWidth
               >
                 Sign Off
@@ -313,7 +384,7 @@ export default function SignOffUpload() {
       </StyledCard>
 
       {/* Upload Card */}
-      {signedOff && (
+      {signedOff && !signOffCompleted && (
         <StyledCard>
           <CardContent>
             <Typography variant="h6" gutterBottom>
@@ -352,6 +423,120 @@ export default function SignOffUpload() {
           </CardContent>
         </StyledCard>
       )}
+
+      {/* Locked State - Reset Button */}
+      {signOffCompleted && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+          <Button
+            variant="contained"
+            color="warning"
+            startIcon={<LockIcon />}
+            onClick={() => setShowResetConfirmModal(true)}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+            }}
+          >
+            Reset All Stages
+          </Button>
+        </Box>
+      )}
+
+      {/* Access Denied Modal */}
+      <Dialog
+        open={showAccessDeniedModal}
+        onClose={() => {
+          setShowAccessDeniedModal(false);
+          navigate('/signed-in-landing/validations');
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600 }}>
+          Validations Not Completed
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" color="text.secondary" mb={2}>
+            You need to complete all required validations before accessing the sign-off page.
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Please go to the Validations page and mark validations as done first.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            variant="contained"
+            onClick={() => {
+              setShowAccessDeniedModal(false);
+              navigate('/signed-in-landing/validations');
+            }}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Go to Validations
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Reset Confirmation Modal */}
+      <Dialog
+        open={showResetConfirmModal}
+        onClose={() => setShowResetConfirmModal(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600, color: 'warning.main' }}>
+          Reset All Stages?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            <Typography variant="body1" color="text.secondary" mb={2}>
+              Are you sure you want to reset all stages? This will:
+            </Typography>
+            <Typography variant="body2" color="text.secondary" component="ul" sx={{ pl: 2 }}>
+              <li>Clear all imported data from the staging table</li>
+              <li>Reset import, validation, and sign-off completion states</li>
+              <li>Require you to re-import all data and re-run validations</li>
+            </Typography>
+            <Typography variant="body2" color="error.main" mt={2} fontWeight={600}>
+              This action cannot be undone. You will need to start the entire process from the beginning.
+            </Typography>
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button
+            variant="outlined"
+            onClick={() => setShowResetConfirmModal(false)}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={() => {
+              setShowResetConfirmModal(false);
+              handleReset();
+            }}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Yes, Reset All Stages
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

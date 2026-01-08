@@ -27,6 +27,7 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
+  DialogContentText,
   DialogActions,
 } from '@mui/material';
 import { styled, useTheme } from '@mui/material/styles';
@@ -38,6 +39,7 @@ import {
   Refresh as RefreshIcon,
   ExpandMore as ExpandMoreIcon,
   Info as InfoIcon,
+  Lock as LockIcon,
 } from '@mui/icons-material';
 import validationService, { Validation } from '../../services/validationService';
 import { useSettingsStore } from '../../store/settings';
@@ -114,32 +116,43 @@ const Validations: React.FC = () => {
   const [dataFreshness, setDataFreshness] = useState<'cached' | 'fresh' | 'fetching'>('cached');
   const [importCompleted, setImportCompleted] = useState(false);
   const [showAccessDeniedModal, setShowAccessDeniedModal] = useState(false);
+  const [validationCompleted, setValidationCompleted] = useState(false);
+  const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
 
   const selectedOU = useSettingsStore((s) => s.selectedHotelOu);
 
-  // Check if imports are completed for this OU
+  // Check if imports and validations are completed for this OU
   useEffect(() => {
-    const checkImportState = async () => {
+    const checkCompletionStates = async () => {
       if (!selectedOU) return;
 
       try {
+        // Check import completion
         // @ts-ignore
-        const result = await window.ipcApi.sendIpcRequest('db:get-import-completed-state', { ou: selectedOU });
-        if (result?.success) {
-          const isCompleted = result.data as boolean;
-          setImportCompleted(isCompleted);
+        const importResult = await window.ipcApi.sendIpcRequest('db:get-import-completed-state', { ou: selectedOU });
+        if (importResult?.success) {
+          const isImportCompleted = importResult.data as boolean;
+          setImportCompleted(isImportCompleted);
 
           // If imports are not completed, show modal
-          if (!isCompleted) {
+          if (!isImportCompleted) {
             setShowAccessDeniedModal(true);
           }
         }
+
+        // Check validation completion
+        // @ts-ignore
+        const validationResult = await window.ipcApi.sendIpcRequest('db:get-validation-completed-state', { ou: selectedOU });
+        if (validationResult?.success) {
+          const isValidationCompleted = validationResult.data as boolean;
+          setValidationCompleted(isValidationCompleted);
+        }
       } catch (error) {
-        console.error('Failed to check import state:', error);
+        console.error('Failed to check completion states:', error);
       }
     };
 
-    checkImportState();
+    checkCompletionStates();
   }, [selectedOU]);
 
   // Fetch validations when OU is selected or changes
@@ -286,7 +299,39 @@ const Validations: React.FC = () => {
     setValidationResults(new Map());
   }, []);
 
-  // Stats calculation
+  // Handle marking validations as done
+  const handleMarkAsDone = useCallback(async () => {
+    if (!selectedOU) return;
+
+    try {
+      // @ts-ignore
+      await window.ipcApi.sendIpcRequest('db:set-validation-completed-state', { ou: selectedOU, completed: true });
+      setValidationCompleted(true);
+      // Navigate to sign-off page
+      navigate('/signed-in-landing/sign-off-upload');
+    } catch (error) {
+      console.error('Failed to mark validations as done:', error);
+    }
+  }, [selectedOU, navigate]);
+
+  // Handle reset
+  const handleReset = useCallback(async () => {
+    if (!selectedOU) return;
+
+    try {
+      // @ts-ignore
+      await window.ipcApi.sendIpcRequest('db:reset-all-completion-states', { ou: selectedOU });
+      setValidationCompleted(false);
+      setImportCompleted(false);
+      setValidationResults(new Map());
+      // Navigate back to imports
+      navigate('/signed-in-landing/data-import');
+    } catch (error) {
+      console.error('Failed to reset completion states:', error);
+    }
+  }, [selectedOU, navigate]);
+
+  // Stats calculation and validation checks
   const stats = {
     total: validations.length,
     required: validations.filter(v => v.is_required).length,
@@ -294,6 +339,16 @@ const Validations: React.FC = () => {
     failed: Array.from(validationResults.values()).filter(r => r.status === 'error').length,
     warnings: Array.from(validationResults.values()).filter(r => r.status === 'warning').length,
   };
+
+  // Check if all required validations have passed
+  const requiredValidations = validations.filter(v => v.is_required);
+  const allRequiredValidationsPassed = requiredValidations.length > 0 && requiredValidations.every(v => {
+    const result = validationResults.get(v.name);
+    return result?.status === 'success';
+  });
+
+  // Can mark as done if all required validations have passed
+  const canMarkAsDone = allRequiredValidationsPassed && !validationCompleted;
 
   if (loading) {
     return (
@@ -558,7 +613,7 @@ const Validations: React.FC = () => {
       )}
 
       {/* Action Buttons */}
-      {validations.length > 0 && (
+      {validations.length > 0 && !validationCompleted && (
         <Stack
           direction={isMobile ? 'column' : 'row'}
           spacing={2}
@@ -590,10 +645,26 @@ const Validations: React.FC = () => {
           </Button>
 
           <Button
-            variant="contained"
+            variant="outlined"
             startIcon={<PlayArrowIcon />}
             onClick={handleRunAllValidations}
             disabled={isRunningAll}
+            fullWidth={isMobile}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+            }}
+          >
+            {isRunningAll ? 'Running Validations...' : 'Run All Validations'}
+          </Button>
+
+          <Button
+            variant="contained"
+            startIcon={<CheckCircleIcon />}
+            onClick={handleMarkAsDone}
+            disabled={!canMarkAsDone}
             fullWidth={isMobile}
             sx={{
               borderRadius: 2,
@@ -606,7 +677,41 @@ const Validations: React.FC = () => {
               },
             }}
           >
-            {isRunningAll ? 'Running Validations...' : 'Run All Validations'}
+            Mark as Done
+          </Button>
+        </Stack>
+      )}
+
+      {/* Locked State - Reset Button */}
+      {validations.length > 0 && validationCompleted && (
+        <Stack
+          direction={isMobile ? 'column' : 'row'}
+          spacing={2}
+          justifyContent="center"
+          sx={{
+            position: 'sticky',
+            bottom: 16,
+            background: alpha(theme.palette.background.default, 0.8),
+            backdropFilter: 'blur(20px)',
+            p: 2,
+            borderRadius: 3,
+            border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+          }}
+        >
+          <Button
+            variant="contained"
+            color="warning"
+            startIcon={<LockIcon />}
+            onClick={() => setShowResetConfirmModal(true)}
+            fullWidth={isMobile}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+            }}
+          >
+            Reset All Stages
           </Button>
         </Stack>
       )}
@@ -633,6 +738,62 @@ const Validations: React.FC = () => {
           </Typography>
         </Alert>
       </Box>
+
+      {/* Reset Confirmation Modal */}
+      <Dialog
+        open={showResetConfirmModal}
+        onClose={() => setShowResetConfirmModal(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600, color: 'warning.main' }}>
+          Reset All Stages?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            <Typography variant="body1" color="text.secondary" mb={2}>
+              Are you sure you want to reset all stages? This will:
+            </Typography>
+            <Typography variant="body2" color="text.secondary" component="ul" sx={{ pl: 2 }}>
+              <li>Clear all imported data from the staging table</li>
+              <li>Reset import, validation, and sign-off completion states</li>
+              <li>Clear all validation results</li>
+              <li>Require you to re-import all data and re-run validations</li>
+            </Typography>
+            <Typography variant="body2" color="error.main" mt={2} fontWeight={600}>
+              This action cannot be undone. You will need to start the entire process from the beginning.
+            </Typography>
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button
+            variant="outlined"
+            onClick={() => setShowResetConfirmModal(false)}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={() => {
+              setShowResetConfirmModal(false);
+              handleReset();
+            }}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Yes, Reset All Stages
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Access Denied Modal */}
       <Dialog

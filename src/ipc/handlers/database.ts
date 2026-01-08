@@ -458,6 +458,36 @@ export class DatabaseHandlers {
     };
   };
 
+  getSummaryPLDataHandler: IpcHandler = async (event, request) => {
+    const result = await db.getSummaryPLData(
+      request.startMonth,
+      request.startYear,
+      request.endMonth,
+      request.endYear,
+      request.ou
+    );
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  getF90PLDataHandler: IpcHandler = async (event, request) => {
+    const result = await db.getF90PLData(
+      request.startMonth,
+      request.startYear,
+      request.endMonth,
+      request.endYear,
+      request.ou
+    );
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
   getStagingVsBudgetDataHandler: IpcHandler = async (event, request) => {
     const result = await db.getStagingVsBudgetData(request.ou);
     return {
@@ -532,6 +562,54 @@ export class DatabaseHandlers {
       timestamp: Date.now(),
     };
   };
+
+  // Validation completion state handlers
+  getValidationCompletedStateHandler: IpcHandler = async (event, request) => {
+    const result = await db.getValidationCompletedState(request.ou);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  setValidationCompletedStateHandler: IpcHandler = async (event, request) => {
+    await db.setValidationCompletedState(request.ou, request.completed);
+    return {
+      success: true,
+      data: { message: 'Validation completed state updated successfully' },
+      timestamp: Date.now(),
+    };
+  };
+
+  // Sign-off completion state handlers
+  getSignOffCompletedStateHandler: IpcHandler = async (event, request) => {
+    const result = await db.getSignOffCompletedState(request.ou);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  setSignOffCompletedStateHandler: IpcHandler = async (event, request) => {
+    await db.setSignOffCompletedState(request.ou, request.completed);
+    return {
+      success: true,
+      data: { message: 'Sign-off completed state updated successfully' },
+      timestamp: Date.now(),
+    };
+  };
+
+  // Reset all completion states handler
+  resetAllCompletionStatesHandler: IpcHandler = async (event, request) => {
+    await db.resetAllCompletionStates(request.ou);
+    return {
+      success: true,
+      data: { message: 'All completion states and cached data cleared successfully' },
+      timestamp: Date.now(),
+    };
+  };
 }
 
 // Factory function to create and register database handlers
@@ -587,6 +665,8 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_LAST_IMPORT]: handlers.getFinancialDataLastImportHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_REPORT_DATA]: handlers.getFinancialReportDataHandler,
     [IPC_CHANNELS.DB_GET_CUSTOM_PL_DATA]: handlers.getCustomPLDataHandler,
+    [IPC_CHANNELS.DB_GET_SUMMARY_PL_DATA]: handlers.getSummaryPLDataHandler,
+    [IPC_CHANNELS.DB_GET_F90_PL_DATA]: handlers.getF90PLDataHandler,
     [IPC_CHANNELS.DB_GET_STAGING_VS_BUDGET_DATA]: handlers.getStagingVsBudgetDataHandler,
     [IPC_CHANNELS.DB_UPDATE_CACHE_METADATA]: handlers.updateCacheMetadataHandler,
     [IPC_CHANNELS.DB_GET_CACHE_METADATA]: handlers.getCacheMetadataHandler,
@@ -595,5 +675,10 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_VALIDATIONS]: handlers.getValidationsHandler,
     [IPC_CHANNELS.DB_GET_IMPORT_COMPLETED_STATE]: handlers.getImportCompletedStateHandler,
     [IPC_CHANNELS.DB_SET_IMPORT_COMPLETED_STATE]: handlers.setImportCompletedStateHandler,
+    [IPC_CHANNELS.DB_GET_VALIDATION_COMPLETED_STATE]: handlers.getValidationCompletedStateHandler,
+    [IPC_CHANNELS.DB_SET_VALIDATION_COMPLETED_STATE]: handlers.setValidationCompletedStateHandler,
+    [IPC_CHANNELS.DB_GET_SIGNOFF_COMPLETED_STATE]: handlers.getSignOffCompletedStateHandler,
+    [IPC_CHANNELS.DB_SET_SIGNOFF_COMPLETED_STATE]: handlers.setSignOffCompletedStateHandler,
+    [IPC_CHANNELS.DB_RESET_ALL_COMPLETION_STATES]: handlers.resetAllCompletionStatesHandler,
   };
 }

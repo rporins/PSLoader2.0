@@ -10,8 +10,17 @@ import {
   CardContent,
   Button,
 } from "@mui/material";
-import { DataGridPremium, GridColDef, GridToolbar } from "@mui/x-data-grid-premium";
-import { styled } from "@mui/material/styles";
+import {
+  DataGridPremium,
+  GridColDef,
+  GridToolbarContainer,
+  GridToolbarColumnsButton,
+  GridToolbarFilterButton,
+  GridToolbarDensitySelector,
+  GridToolbarExport,
+  GridToolbarQuickFilter,
+} from "@mui/x-data-grid-premium";
+import { styled, alpha } from "@mui/material/styles";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import ApartmentIcon from "@mui/icons-material/Apartment";
@@ -113,6 +122,69 @@ const StyledCard = styled(Card)(({ theme }) => ({
   marginBottom: theme.spacing(3),
   boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
 }));
+
+// Custom Toolbar Component
+function CustomToolbar() {
+  return (
+    <GridToolbarContainer
+      sx={{
+        p: 1.5,
+        gap: 1,
+        borderBottom: '1px solid',
+        borderColor: 'divider',
+        minHeight: 56,
+        backgroundColor: (theme) => theme.palette.mode === 'dark'
+          ? alpha('#ffffff', 0.01)
+          : alpha('#000000', 0.005),
+        '& .MuiButton-root': {
+          fontSize: '0.8125rem',
+          fontWeight: 500,
+          textTransform: 'none',
+          borderRadius: 1.5,
+          px: 1.5,
+          color: 'text.secondary',
+        },
+      }}
+    >
+      <GridToolbarColumnsButton />
+      <GridToolbarFilterButton />
+      <GridToolbarDensitySelector />
+      <GridToolbarExport
+        csvOptions={{
+          fileName: `coa-${new Date().toISOString().split('T')[0]}`,
+          utf8WithBom: true,
+        }}
+        printOptions={{
+          hideFooter: true,
+          hideToolbar: true,
+        }}
+      />
+      <Box sx={{ flex: 1 }} />
+      <GridToolbarQuickFilter
+        debounceMs={300}
+        sx={{
+          width: { xs: 200, sm: 280 },
+          '& .MuiOutlinedInput-root': {
+            borderRadius: 2,
+            height: 36,
+            fontSize: '0.875rem',
+            backgroundColor: (theme) => alpha(theme.palette.background.default, 0.5),
+            transition: 'background-color 0.2s ease',
+            '&:hover': {
+              backgroundColor: (theme) => alpha(theme.palette.background.default, 0.7),
+            },
+            '&.Mui-focused': {
+              backgroundColor: (theme) => theme.palette.background.default,
+            },
+          },
+          '& .MuiInputBase-input::placeholder': {
+            fontSize: '0.875rem',
+          },
+        }}
+      />
+    </GridToolbarContainer>
+  );
+}
 
 const TabPanel = (props: { children?: React.ReactNode; value: number; index: number }) => {
   const { children, value, index, ...other } = props;
@@ -292,7 +364,7 @@ export default function COA() {
       <CardContent>
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
           <Box display="flex" alignItems="center" gap={1}>
-            <AccountBalanceIcon color="primary" />
+            <AccountBalanceIcon sx={{ color: 'text.disabled', opacity: 0.7 }} />
             <Typography variant="h6">
               Account Maps ({accountMaps.length})
             </Typography>
@@ -313,13 +385,7 @@ export default function COA() {
             rows={accountMaps}
             columns={accountColumns}
             getRowId={(row) => row.base_account}
-            slots={{ toolbar: GridToolbar }}
-            slotProps={{
-              toolbar: {
-                showQuickFilter: true,
-                quickFilterProps: { debounceMs: 500 },
-              },
-            }}
+            slots={{ toolbar: CustomToolbar }}
             initialState={{
               pagination: { paginationModel: { pageSize: 25 } },
               columns: {
@@ -338,6 +404,21 @@ export default function COA() {
               '& .MuiDataGrid-cell': {
                 fontFamily: 'monospace',
               },
+              '& .MuiDataGrid-columnHeaders': {
+                backgroundColor: (theme) => theme.palette.mode === 'dark'
+                  ? alpha('#ffffff', 0.02)
+                  : alpha('#000000', 0.015),
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+                minHeight: '48px !important',
+                maxHeight: '48px !important',
+              },
+              '& .MuiDataGrid-columnHeader': {
+                fontWeight: 600,
+                fontSize: '0.8125rem',
+                letterSpacing: '0.01em',
+                color: 'text.secondary',
+              },
             }}
           />
         </Box>
@@ -350,7 +431,7 @@ export default function COA() {
       <CardContent>
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
           <Box display="flex" alignItems="center" gap={1}>
-            <ApartmentIcon color="primary" />
+            <ApartmentIcon sx={{ color: 'text.disabled', opacity: 0.7 }} />
             <Typography variant="h6">
               Department Maps ({departmentMaps.length})
             </Typography>
@@ -371,13 +452,7 @@ export default function COA() {
             rows={departmentMaps}
             columns={departmentColumns}
             getRowId={(row) => row.base_department}
-            slots={{ toolbar: GridToolbar }}
-            slotProps={{
-              toolbar: {
-                showQuickFilter: true,
-                quickFilterProps: { debounceMs: 500 },
-              },
-            }}
+            slots={{ toolbar: CustomToolbar }}
             initialState={{
               pagination: { paginationModel: { pageSize: 25 } },
               columns: {
@@ -396,6 +471,21 @@ export default function COA() {
               '& .MuiDataGrid-cell': {
                 fontFamily: 'monospace',
               },
+              '& .MuiDataGrid-columnHeaders': {
+                backgroundColor: (theme) => theme.palette.mode === 'dark'
+                  ? alpha('#ffffff', 0.02)
+                  : alpha('#000000', 0.015),
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+                minHeight: '48px !important',
+                maxHeight: '48px !important',
+              },
+              '& .MuiDataGrid-columnHeader': {
+                fontWeight: 600,
+                fontSize: '0.8125rem',
+                letterSpacing: '0.01em',
+                color: 'text.secondary',
+              },
             }}
           />
         </Box>
@@ -408,7 +498,7 @@ export default function COA() {
       <CardContent>
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
           <Box display="flex" alignItems="center" gap={1}>
-            <LinkIcon color="primary" />
+            <LinkIcon sx={{ color: 'text.disabled', opacity: 0.7 }} />
             <Typography variant="h6">
               Valid Account-Department Combinations ({combos.length})
             </Typography>
@@ -429,13 +519,7 @@ export default function COA() {
             rows={combos}
             columns={comboColumns}
             getRowId={(row) => row.id}
-            slots={{ toolbar: GridToolbar }}
-            slotProps={{
-              toolbar: {
-                showQuickFilter: true,
-                quickFilterProps: { debounceMs: 500 },
-              },
-            }}
+            slots={{ toolbar: CustomToolbar }}
             initialState={{
               pagination: { paginationModel: { pageSize: 25 } },
             }}
@@ -445,6 +529,21 @@ export default function COA() {
             sx={{
               '& .MuiDataGrid-cell': {
                 fontFamily: 'monospace',
+              },
+              '& .MuiDataGrid-columnHeaders': {
+                backgroundColor: (theme) => theme.palette.mode === 'dark'
+                  ? alpha('#ffffff', 0.02)
+                  : alpha('#000000', 0.015),
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+                minHeight: '48px !important',
+                maxHeight: '48px !important',
+              },
+              '& .MuiDataGrid-columnHeader': {
+                fontWeight: 600,
+                fontSize: '0.8125rem',
+                letterSpacing: '0.01em',
+                color: 'text.secondary',
               },
             }}
           />

@@ -471,25 +471,15 @@ const DataImport: React.FC = () => {
 
   // Handle restart
   const handleRestart = useCallback(async () => {
-    // Clear the staging table in SQLite
-    try {
-      // @ts-ignore
-      await window.ipcApi.sendIpcRequest('db:clear-staging-table');
-      // console.log('Staging table cleared successfully');
-    } catch (error) {
-      console.error('Failed to clear staging table:', error);
-    }
-
-    // Clear the import completed state
+    // Use the unified reset function to clear all completion states and cached data
     if (selectedOU) {
       try {
         // @ts-ignore
-        await window.ipcApi.sendIpcRequest('db:set-import-completed-state', { ou: selectedOU, completed: false });
-        // console.log('Import completed state cleared');
+        await window.ipcApi.sendIpcRequest('db:reset-all-completion-states', { ou: selectedOU });
         setImportCompleted(false);
         setShowLockedMessage(false);
       } catch (error) {
-        console.error('Failed to clear import completed state:', error);
+        console.error('Failed to reset completion states:', error);
       }
     }
 
@@ -1011,7 +1001,7 @@ const DataImport: React.FC = () => {
               fontSize: '0.9rem',
             }}
           >
-            Reset Imports
+            Reset All Stages
           </Button>
         </Stack>
       )}
@@ -1069,21 +1059,21 @@ const DataImport: React.FC = () => {
         fullWidth
       >
         <DialogTitle sx={{ fontWeight: 600, color: 'warning.main' }}>
-          Reset Import Session?
+          Reset All Stages?
         </DialogTitle>
         <DialogContent>
           <DialogContentText>
             <Typography variant="body1" color="text.secondary" mb={2}>
-              Are you sure you want to reset the import session? This will:
+              Are you sure you want to reset all stages? This will:
             </Typography>
             <Typography variant="body2" color="text.secondary" component="ul" sx={{ pl: 2 }}>
               <li>Clear all imported data from the staging table</li>
-              <li>Reset the import completion state</li>
-              <li>Unlock the validation page</li>
-              <li>Allow you to re-import data</li>
+              <li>Reset import, validation, and sign-off completion states</li>
+              <li>Clear all validation results</li>
+              <li>Require you to re-import all data and re-run validations</li>
             </Typography>
             <Typography variant="body2" color="error.main" mt={2} fontWeight={600}>
-              This action cannot be undone. You will need to re-import all data files.
+              This action cannot be undone. You will need to start the entire process from the beginning.
             </Typography>
           </DialogContentText>
         </DialogContent>
@@ -1112,7 +1102,7 @@ const DataImport: React.FC = () => {
               fontWeight: 600,
             }}
           >
-            Yes, Reset Imports
+            Yes, Reset All Stages
           </Button>
         </DialogActions>
       </Dialog>

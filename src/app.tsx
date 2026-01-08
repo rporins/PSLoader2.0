@@ -26,8 +26,9 @@ import Profile from "./routes/nestedPages/profile";
 import Settings from "./routes/nestedPages/settings";
 import Home from "./routes/nestedPages/home";
 import SignOffUpload from "./routes/nestedPages/signOffUpload";
-import PL from "./routes/nestedPages/pl";
 import CustomPL from "./routes/nestedPages/customPL";
+import SummaryPL from "./routes/nestedPages/summaryPL";
+import F90PL from "./routes/nestedPages/f90PL";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 // define the route
@@ -89,7 +90,7 @@ const router = createHashRouter([
       {
         path: "data-table",
         element: <DataTable />,
-        handle: { title: "Data Table" },
+        handle: { title: "Upload Review" },
       },
       {
         path: "staging-review",
@@ -97,14 +98,19 @@ const router = createHashRouter([
         handle: { title: "Staging Data Review" },
       },
       {
-        path: "pl",
-        element: <PL />,
-        handle: { title: "P&L" },
-      },
-      {
         path: "custom-pl",
         element: <CustomPL />,
         handle: { title: "Custom P&L" },
+      },
+      {
+        path: "summary-pl",
+        element: <SummaryPL />,
+        handle: { title: "Summary P&L" },
+      },
+      {
+        path: "f90-pl",
+        element: <F90PL />,
+        handle: { title: "F90 P&L" },
       },
       {
         path: "coa",

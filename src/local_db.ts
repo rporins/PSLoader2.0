@@ -1044,28 +1044,97 @@ export async function getFinancialReportData(
   const periods = generatePeriods(startPeriod, numberOfPeriods);
 
   try {
+    // Get the latest period for staging data join optimization
+    const latestPeriod = periods[periods.length - 1];
+
     const query = `
-      WITH actuals_data AS (
+      WITH combined_actuals AS (
         SELECT
-          fd.dep_acc_combo_id AS combo,
-          fd.department,
-          fd.account,
-          ${periods.map((_, i) => `SUM(CASE WHEN fd.period_combo = ? THEN fd.amount ELSE 0 END) AS act_p${i + 1}`).join(',\n          ')}
+          COALESCE(fds.dep_acc_combo_id, fd.dep_acc_combo_id) AS combo,
+          COALESCE(fds.department, fd.department) AS department,
+          COALESCE(fds.account, fd.account) AS account,
+          COALESCE(fds.amount, fd.amount) AS amount,
+          COALESCE(fds.period_combo, fd.period_combo) AS period_combo
         FROM financial_data fd
+        LEFT JOIN financial_data_staging fds
+          ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
+          AND fds.period_combo = ?
+          AND fds.scenario = 'ACT'
         WHERE fd.scenario = 'ACT'
           AND fd.version = 'MAIN'
+          AND fd.period_combo IN (${periods.map(() => '?').join(', ')})
           ${ou ? 'AND fd.ou = ?' : ''}
-        GROUP BY fd.dep_acc_combo_id, fd.department, fd.account
+
+        UNION ALL
+
+        SELECT
+          fds.dep_acc_combo_id AS combo,
+          fds.department,
+          fds.account,
+          fds.amount,
+          fds.period_combo
+        FROM financial_data_staging fds
+        WHERE fds.scenario = 'ACT'
+          AND fds.period_combo IN (${periods.map(() => '?').join(', ')})
+          ${ou ? 'AND fds.ou = ?' : ''}
+          AND NOT EXISTS (
+            SELECT 1 FROM financial_data fd2
+            WHERE fd2.dep_acc_combo_id = fds.dep_acc_combo_id
+              AND fd2.period_combo = fds.period_combo
+              AND fd2.scenario = 'ACT'
+          )
+      ),
+      combined_budget AS (
+        SELECT
+          COALESCE(fds.dep_acc_combo_id, fd.dep_acc_combo_id) AS combo,
+          COALESCE(fds.department, fd.department) AS department,
+          COALESCE(fds.account, fd.account) AS account,
+          COALESCE(fds.amount, fd.amount) AS amount,
+          COALESCE(fds.period_combo, fd.period_combo) AS period_combo
+        FROM financial_data fd
+        LEFT JOIN financial_data_staging fds
+          ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
+          AND fds.period_combo = ?
+          AND fds.scenario = 'BUD'
+        WHERE fd.scenario = 'BUD'
+          AND fd.version = 'MAIN'
+          AND fd.period_combo IN (${periods.map(() => '?').join(', ')})
+          ${ou ? 'AND fd.ou = ?' : ''}
+
+        UNION ALL
+
+        SELECT
+          fds.dep_acc_combo_id AS combo,
+          fds.department,
+          fds.account,
+          fds.amount,
+          fds.period_combo
+        FROM financial_data_staging fds
+        WHERE fds.scenario = 'BUD'
+          AND fds.period_combo IN (${periods.map(() => '?').join(', ')})
+          ${ou ? 'AND fds.ou = ?' : ''}
+          AND NOT EXISTS (
+            SELECT 1 FROM financial_data fd2
+            WHERE fd2.dep_acc_combo_id = fds.dep_acc_combo_id
+              AND fd2.period_combo = fds.period_combo
+              AND fd2.scenario = 'BUD'
+          )
+      ),
+      actuals_data AS (
+        SELECT
+          combo,
+          department,
+          account,
+          ${periods.map((_, i) => `SUM(CASE WHEN period_combo = ? THEN amount ELSE 0 END) AS act_p${i + 1}`).join(',\n          ')}
+        FROM combined_actuals
+        GROUP BY combo, department, account
       ),
       budget_data AS (
         SELECT
-          fd.dep_acc_combo_id AS combo,
-          ${periods.map((_, i) => `SUM(CASE WHEN fd.period_combo = ? THEN fd.amount ELSE 0 END) AS bud_p${i + 1}`).join(',\n          ')}
-        FROM financial_data fd
-        WHERE fd.scenario = 'BUD'
-          AND fd.version = 'MAIN'
-          ${ou ? 'AND fd.ou = ?' : ''}
-        GROUP BY fd.dep_acc_combo_id
+          combo,
+          ${periods.map((_, i) => `SUM(CASE WHEN period_combo = ? THEN amount ELSE 0 END) AS bud_p${i + 1}`).join(',\n          ')}
+        FROM combined_budget
+        GROUP BY combo
       )
       SELECT
         a.combo,
@@ -1089,9 +1158,28 @@ export async function getFinancialReportData(
     `;
 
     // Build params array
-    const actualsParams = ou ? [...periods, ou] : periods;
-    const budgetParams = ou ? [...periods, ou] : periods;
-    const params = [...actualsParams, ...budgetParams];
+    // Order: latestPeriod, periods for ACT WHERE, ou?, periods for ACT UNION, ou?,
+    //        latestPeriod, periods for BUD WHERE, ou?, periods for BUD UNION, ou?,
+    //        periods for actuals CASE, periods for budget CASE
+    const params: any[] = [];
+
+    // combined_actuals CTE params
+    params.push(latestPeriod);           // LEFT JOIN condition
+    params.push(...periods);              // WHERE clause
+    if (ou) params.push(ou);
+    params.push(...periods);              // UNION ALL WHERE clause
+    if (ou) params.push(ou);
+
+    // combined_budget CTE params
+    params.push(latestPeriod);           // LEFT JOIN condition
+    params.push(...periods);              // WHERE clause
+    if (ou) params.push(ou);
+    params.push(...periods);              // UNION ALL WHERE clause
+    if (ou) params.push(ou);
+
+    // actuals_data and budget_data CASE WHEN params
+    params.push(...periods);              // actuals CASE WHEN
+    params.push(...periods);              // budget CASE WHEN
 
     const resultSet = await client.execute({ sql: query, args: params });
     const rows = resultSet.rows as unknown as any[];
@@ -1278,7 +1366,7 @@ export async function getCustomPLData(
     // console.log('  sold_rooms_test:', testData.sold_rooms_test, '| total_rooms_test:', testData.total_rooms_test);
     const actualsQuery = buildScenarioQuery('ACT', periods, ou);
     const budgetQuery = buildScenarioQuery('BUD', periods, ou);
-    const lyQuery = buildScenarioQuery('PY1', lyPeriods, ou);
+    const lyQuery = buildScenarioQuery('ACT', lyPeriods, ou);
 
     const [actualsResult, budgetResult, lyResult] = await Promise.all([
       client.execute({ sql: actualsQuery.sql, args: actualsQuery.params }),
@@ -1298,6 +1386,94 @@ export async function getCustomPLData(
     return JSON.stringify(plRows);
   } catch (error) {
     console.error("Error generating custom P&L data:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- GET SUMMARY P&L DATA -----------------------------------------------------------------------------------------
+export async function getSummaryPLData(
+  startMonth: number,
+  startYear: number,
+  endMonth: number,
+  endYear: number,
+  ou?: string
+): Promise<string> {
+  try {
+    const {
+      generatePeriods,
+      generateLYPeriods,
+      buildScenarioQuery,
+      calculateSummaryPLRows
+    } = await import('./services/reports/plCalculationEngine');
+
+    const periodRange = { startMonth, startYear, endMonth, endYear };
+    const periods = generatePeriods(periodRange);
+    const lyPeriods = generateLYPeriods(periods);
+
+    const actualsQuery = buildScenarioQuery('ACT', periods, ou);
+    const budgetQuery = buildScenarioQuery('BUD', periods, ou);
+    const lyQuery = buildScenarioQuery('ACT', lyPeriods, ou);
+
+    const [actualsResult, budgetResult, lyResult] = await Promise.all([
+      client.execute({ sql: actualsQuery.sql, args: actualsQuery.params }),
+      client.execute({ sql: budgetQuery.sql, args: budgetQuery.params }),
+      client.execute({ sql: lyQuery.sql, args: lyQuery.params })
+    ]);
+
+    const actualsData = actualsResult.rows[0] as any || {};
+    const budgetData = budgetResult.rows[0] as any || {};
+    const lyData = lyResult.rows[0] as any || {};
+
+    const plRows = calculateSummaryPLRows(actualsData, budgetData, lyData);
+
+    return JSON.stringify(plRows);
+  } catch (error) {
+    console.error("Error generating summary P&L data:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- GET F90 P&L DATA -----------------------------------------------------------------------------------------
+export async function getF90PLData(
+  startMonth: number,
+  startYear: number,
+  endMonth: number,
+  endYear: number,
+  ou?: string
+): Promise<string> {
+  try {
+    const {
+      generatePeriods,
+      generateLYPeriods,
+      buildScenarioQuery,
+      calculateF90PLRows
+    } = await import('./services/reports/plCalculationEngine');
+
+    const periodRange = { startMonth, startYear, endMonth, endYear };
+    const periods = generatePeriods(periodRange);
+    const lyPeriods = generateLYPeriods(periods);
+
+    const actualsQuery = buildScenarioQuery('ACT', periods, ou);
+    const budgetQuery = buildScenarioQuery('BUD', periods, ou);
+    const lyQuery = buildScenarioQuery('ACT', lyPeriods, ou);
+
+    const [actualsResult, budgetResult, lyResult] = await Promise.all([
+      client.execute({ sql: actualsQuery.sql, args: actualsQuery.params }),
+      client.execute({ sql: budgetQuery.sql, args: budgetQuery.params }),
+      client.execute({ sql: lyQuery.sql, args: lyQuery.params })
+    ]);
+
+    const actualsData = actualsResult.rows[0] as any || {};
+    const budgetData = budgetResult.rows[0] as any || {};
+    const lyData = lyResult.rows[0] as any || {};
+
+    const plRows = calculateF90PLRows(actualsData, budgetData, lyData);
+
+    return JSON.stringify(plRows);
+  } catch (error) {
+    console.error("Error generating F90 P&L data:", error);
     throw error;
   }
 }
@@ -2032,6 +2208,113 @@ export async function setImportCompletedState(ou: string, completed: boolean): P
     // console.log(`Import completed state set to ${completed} for OU: ${ou}`);
   } catch (error) {
     console.error("Error setting import completed state:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- VALIDATION COMPLETION STATE FUNCTIONS -----------------------------------------------------------------------
+// Get validation completion state for a specific OU
+export async function getValidationCompletedState(ou: string): Promise<boolean> {
+  try {
+    const key = `validation_completed_${ou}`;
+    const result = await client.execute({
+      sql: "SELECT value FROM user_settings WHERE key = ?",
+      args: [key]
+    });
+
+    if (result.rows.length > 0) {
+      return result.rows[0].value === 'true';
+    }
+    return false; // Default to false if not set
+  } catch (error) {
+    console.error("Error getting validation completed state:", error);
+    return false;
+  }
+}
+
+// Set validation completion state for a specific OU
+export async function setValidationCompletedState(ou: string, completed: boolean): Promise<void> {
+  try {
+    const key = `validation_completed_${ou}`;
+    await client.execute({
+      sql: `
+        INSERT INTO user_settings (key, value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = CURRENT_TIMESTAMP
+      `,
+      args: [key, completed.toString()]
+    });
+    // console.log(`Validation completed state set to ${completed} for OU: ${ou}`);
+  } catch (error) {
+    console.error("Error setting validation completed state:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- SIGN-OFF COMPLETION STATE FUNCTIONS -------------------------------------------------------------------------
+// Get sign-off completion state for a specific OU
+export async function getSignOffCompletedState(ou: string): Promise<boolean> {
+  try {
+    const key = `signoff_completed_${ou}`;
+    const result = await client.execute({
+      sql: "SELECT value FROM user_settings WHERE key = ?",
+      args: [key]
+    });
+
+    if (result.rows.length > 0) {
+      return result.rows[0].value === 'true';
+    }
+    return false; // Default to false if not set
+  } catch (error) {
+    console.error("Error getting sign-off completed state:", error);
+    return false;
+  }
+}
+
+// Set sign-off completion state for a specific OU
+export async function setSignOffCompletedState(ou: string, completed: boolean): Promise<void> {
+  try {
+    const key = `signoff_completed_${ou}`;
+    await client.execute({
+      sql: `
+        INSERT INTO user_settings (key, value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = CURRENT_TIMESTAMP
+      `,
+      args: [key, completed.toString()]
+    });
+    // console.log(`Sign-off completed state set to ${completed} for OU: ${ou}`);
+  } catch (error) {
+    console.error("Error setting sign-off completed state:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- RESET ALL COMPLETION STATES ---------------------------------------------------------------------------------
+// Reset all completion states and clear cached data for a specific OU
+export async function resetAllCompletionStates(ou: string): Promise<void> {
+  try {
+    // Clear all completion state flags
+    await setImportCompletedState(ou, false);
+    await setValidationCompletedState(ou, false);
+    await setSignOffCompletedState(ou, false);
+
+    // Clear cached import data (staging table)
+    await client.execute({
+      sql: "DELETE FROM staging WHERE ou = ?",
+      args: [ou]
+    });
+
+    // console.log(`All completion states and cached data cleared for OU: ${ou}`);
+  } catch (error) {
+    console.error("Error resetting completion states:", error);
     throw error;
   }
 }

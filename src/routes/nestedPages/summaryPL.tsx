@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import {
   DataGridPremium,
   GridColDef,
@@ -27,7 +27,7 @@ import { styled, alpha } from "@mui/material/styles";
 import { PLCalculationResult } from "../../types/plReportTypes";
 import { useSettingsStore } from "../../store/settings";
 
-interface CustomPLRow extends PLCalculationResult {
+interface SummaryPLRow extends PLCalculationResult {
   id: number;
 }
 
@@ -63,7 +63,7 @@ const CustomToolbar = () => {
       <GridToolbarDensitySelector />
       <GridToolbarExport
         csvOptions={{
-          fileName: `custom-pl-${new Date().toISOString().split('T')[0]}`,
+          fileName: `summary-pl-${new Date().toISOString().split('T')[0]}`,
           delimiter: ',',
           utf8WithBom: true,
         }}
@@ -101,8 +101,8 @@ const CustomToolbar = () => {
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-export default function CustomPL() {
-  const [rows, setRows] = useState<CustomPLRow[]>([]);
+export default function SummaryPL() {
+  const [rows, setRows] = useState<SummaryPLRow[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [settingsLoaded, setSettingsLoaded] = useState<boolean>(false);
   const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
@@ -118,7 +118,7 @@ export default function CustomPL() {
   const fetchPLData = async () => {
     setLoading(true);
     try {
-      const response = await window.ipcApi.sendIpcRequest("db:get-custom-pl-data", {
+      const response = await window.ipcApi.sendIpcRequest("db:get-summary-pl-data", {
         startMonth,
         startYear,
         endMonth,
@@ -134,11 +134,11 @@ export default function CustomPL() {
         }));
         setRows(rowsWithId);
       } else {
-        console.error("Failed to fetch custom P&L data");
+        console.error("Failed to fetch summary P&L data");
         setRows([]);
       }
     } catch (error) {
-      console.error("Error fetching custom P&L data:", error);
+      console.error("Error fetching summary P&L data:", error);
       setRows([]);
     } finally {
       setLoading(false);
@@ -149,7 +149,7 @@ export default function CustomPL() {
     setStartMonth(month);
     try {
       if (window.ipcApi) {
-        await window.ipcApi.sendIpcRequest("settings-set-single", { key: "customPLStartMonth", value: month });
+        await window.ipcApi.sendIpcRequest("settings-set-single", { key: "summaryPLStartMonth", value: month });
       }
     } catch (error) {
       console.error("Error saving start month:", error);
@@ -160,7 +160,7 @@ export default function CustomPL() {
     setStartYear(year);
     try {
       if (window.ipcApi) {
-        await window.ipcApi.sendIpcRequest("settings-set-single", { key: "customPLStartYear", value: year });
+        await window.ipcApi.sendIpcRequest("settings-set-single", { key: "summaryPLStartYear", value: year });
       }
     } catch (error) {
       console.error("Error saving start year:", error);
@@ -171,7 +171,7 @@ export default function CustomPL() {
     setEndMonth(month);
     try {
       if (window.ipcApi) {
-        await window.ipcApi.sendIpcRequest("settings-set-single", { key: "customPLEndMonth", value: month });
+        await window.ipcApi.sendIpcRequest("settings-set-single", { key: "summaryPLEndMonth", value: month });
       }
     } catch (error) {
       console.error("Error saving end month:", error);
@@ -182,7 +182,7 @@ export default function CustomPL() {
     setEndYear(year);
     try {
       if (window.ipcApi) {
-        await window.ipcApi.sendIpcRequest("settings-set-single", { key: "customPLEndYear", value: year });
+        await window.ipcApi.sendIpcRequest("settings-set-single", { key: "summaryPLEndYear", value: year });
       }
     } catch (error) {
       console.error("Error saving end year:", error);
@@ -194,10 +194,10 @@ export default function CustomPL() {
       try {
         if (window.ipcApi) {
           const [startMonthResp, startYearResp, endMonthResp, endYearResp] = await Promise.all([
-            window.ipcApi.sendIpcRequest("settings-get-single", { key: "customPLStartMonth" }),
-            window.ipcApi.sendIpcRequest("settings-get-single", { key: "customPLStartYear" }),
-            window.ipcApi.sendIpcRequest("settings-get-single", { key: "customPLEndMonth" }),
-            window.ipcApi.sendIpcRequest("settings-get-single", { key: "customPLEndYear" }),
+            window.ipcApi.sendIpcRequest("settings-get-single", { key: "summaryPLStartMonth" }),
+            window.ipcApi.sendIpcRequest("settings-get-single", { key: "summaryPLStartYear" }),
+            window.ipcApi.sendIpcRequest("settings-get-single", { key: "summaryPLEndMonth" }),
+            window.ipcApi.sendIpcRequest("settings-get-single", { key: "summaryPLEndYear" }),
           ]);
 
           if (startMonthResp.success && startMonthResp.data !== undefined && startMonthResp.data !== null) {
@@ -214,7 +214,7 @@ export default function CustomPL() {
           }
         }
       } catch (error) {
-        console.error("Error loading custom P&L settings:", error);
+        console.error("Error loading summary P&L settings:", error);
       } finally {
         setSettingsLoaded(true);
       }
@@ -256,7 +256,8 @@ export default function CustomPL() {
     return '';
   };
 
-  const columns: GridColDef<CustomPLRow>[] = [
+
+  const columns: GridColDef<SummaryPLRow>[] = [
     {
       field: 'label',
       headerName: 'P&L Line',
@@ -286,7 +287,7 @@ export default function CustomPL() {
       type: 'number',
       width: 120,
       valueFormatter: (value, row) => {
-        if (row.type === 'header') return '';
+        if (!row.label) return ''; // Empty spacing rows
         return formatValue(value, row.formatting);
       },
     },
@@ -296,7 +297,7 @@ export default function CustomPL() {
       type: 'number',
       width: 120,
       valueFormatter: (value, row) => {
-        if (row.type === 'header') return '';
+        if (!row.label) return ''; // Empty spacing rows
         return formatValue(value, row.formatting);
       },
     },
@@ -306,7 +307,7 @@ export default function CustomPL() {
       type: 'number',
       width: 120,
       valueFormatter: (value, row) => {
-        if (row.type === 'header') return '';
+        if (!row.label) return ''; // Empty spacing rows
         // For percentage-formatted rows, show variance in points (not percentage)
         if (row.formatting === 'percentage') {
           if (value === null) return '';
@@ -315,7 +316,7 @@ export default function CustomPL() {
         return formatValue(value, row.formatting);
       },
       cellClassName: (params) => {
-        if (params.row.type === 'header') return '';
+        if (!params.row.label) return ''; // Empty spacing rows
         return getVarianceClass(params.value);
       },
     },
@@ -325,14 +326,14 @@ export default function CustomPL() {
       type: 'number',
       width: 120,
       valueFormatter: (value, row) => {
-        if (row.type === 'header') return '';
+        if (!row.label) return ''; // Empty spacing rows
         // For percentage-formatted rows, don't show vs % (variance is already shown in points)
         if (row.formatting === 'percentage') return '';
         if (value === null) return '';
         return `${percentFormatter.format(value)}%`;
       },
       cellClassName: (params) => {
-        if (params.row.type === 'header') return '';
+        if (!params.row.label) return ''; // Empty spacing rows
         return getVarianceClass(params.value);
       },
     },
@@ -342,7 +343,7 @@ export default function CustomPL() {
       type: 'number',
       width: 120,
       valueFormatter: (value, row) => {
-        if (row.type === 'header') return '';
+        if (!row.label) return ''; // Empty spacing rows
         return formatValue(value, row.formatting);
       },
     },
@@ -352,7 +353,7 @@ export default function CustomPL() {
       type: 'number',
       width: 120,
       valueFormatter: (value, row) => {
-        if (row.type === 'header') return '';
+        if (!row.label) return ''; // Empty spacing rows
         // For percentage-formatted rows, show variance in points (not percentage)
         if (row.formatting === 'percentage') {
           if (value === null) return '';
@@ -361,7 +362,7 @@ export default function CustomPL() {
         return formatValue(value, row.formatting);
       },
       cellClassName: (params) => {
-        if (params.row.type === 'header') return '';
+        if (!params.row.label) return ''; // Empty spacing rows
         return getVarianceClass(params.value);
       },
     },
@@ -371,14 +372,14 @@ export default function CustomPL() {
       type: 'number',
       width: 120,
       valueFormatter: (value, row) => {
-        if (row.type === 'header') return '';
+        if (!row.label) return ''; // Empty spacing rows
         // For percentage-formatted rows, don't show vs % (variance is already shown in points)
         if (row.formatting === 'percentage') return '';
         if (value === null) return '';
         return `${percentFormatter.format(value)}%`;
       },
       cellClassName: (params) => {
-        if (params.row.type === 'header') return '';
+        if (!params.row.label) return ''; // Empty spacing rows
         return getVarianceClass(params.value);
       },
     },
@@ -389,7 +390,7 @@ export default function CustomPL() {
   return (
     <Box sx={{ p: 3, display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Typography variant="h4" gutterBottom sx={{ fontWeight: 700, mb: 3 }}>
-        Custom P&L Report
+        Summary P&L Report
       </Typography>
 
       <StyledCard>

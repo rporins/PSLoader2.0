@@ -7,6 +7,7 @@ import {
   GridToolbarFilterButton,
   GridToolbarColumnsButton,
   GridToolbarDensitySelector,
+  GridToolbarQuickFilter,
   GridAggregationModel,
 } from "@mui/x-data-grid-premium";
 import {
@@ -19,7 +20,8 @@ import {
   Paper,
   Divider,
 } from "@mui/material";
-import { styled } from "@mui/material/styles";
+import { styled, alpha } from "@mui/material/styles";
+import { useSettingsStore } from "../../store/settings";
 
 interface StagingVsBudgetRow {
   id: number;
@@ -44,19 +46,61 @@ const StyledCard = styled(Card)(({ theme }) => ({
 
 const CustomToolbar = () => {
   return (
-    <GridToolbarContainer>
+    <GridToolbarContainer
+      sx={{
+        p: 1.5,
+        gap: 1,
+        borderBottom: '1px solid',
+        borderColor: 'divider',
+        minHeight: 56,
+        backgroundColor: (theme) => theme.palette.mode === 'dark'
+          ? alpha('#ffffff', 0.01)
+          : alpha('#000000', 0.005),
+        '& .MuiButton-root': {
+          fontSize: '0.8125rem',
+          fontWeight: 500,
+          textTransform: 'none',
+          borderRadius: 1.5,
+          px: 1.5,
+          color: 'text.secondary',
+        },
+      }}
+    >
       <GridToolbarColumnsButton />
       <GridToolbarFilterButton />
       <GridToolbarDensitySelector />
       <GridToolbarExport
         csvOptions={{
-          fileName: 'staging-vs-budget',
+          fileName: `upload-review-${new Date().toISOString().split('T')[0]}`,
           delimiter: ',',
           utf8WithBom: true,
         }}
         printOptions={{
           hideFooter: true,
           hideToolbar: true,
+        }}
+      />
+      <Box sx={{ flex: 1 }} />
+      <GridToolbarQuickFilter
+        debounceMs={300}
+        sx={{
+          width: { xs: 200, sm: 280 },
+          '& .MuiOutlinedInput-root': {
+            borderRadius: 2,
+            height: 36,
+            fontSize: '0.875rem',
+            backgroundColor: (theme) => alpha(theme.palette.background.default, 0.5),
+            transition: 'background-color 0.2s ease',
+            '&:hover': {
+              backgroundColor: (theme) => alpha(theme.palette.background.default, 0.7),
+            },
+            '&.Mui-focused': {
+              backgroundColor: (theme) => theme.palette.background.default,
+            },
+          },
+          '& .MuiInputBase-input::placeholder': {
+            fontSize: '0.875rem',
+          },
         }}
       />
     </GridToolbarContainer>
@@ -67,11 +111,14 @@ export default function DataTable() {
   const [rows, setRows] = useState<StagingVsBudgetRow[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [period, setPeriod] = useState<string>('');
+  const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
 
   const fetchStagingData = async () => {
     setLoading(true);
     try {
-      const response = await window.ipcApi.sendIpcRequest("db:get-staging-vs-budget-data", {});
+      const response = await window.ipcApi.sendIpcRequest("db:get-staging-vs-budget-data", {
+        ou: selectedHotelOu,
+      });
 
       // console.log('[DataTable] Response:', response);
       // console.log('[DataTable] Response.data type:', typeof response.data);
@@ -97,10 +144,12 @@ export default function DataTable() {
     }
   };
 
-  // Fetch data when component mounts
+  // Fetch data when component mounts or OU changes
   useEffect(() => {
-    fetchStagingData();
-  }, []);
+    if (selectedHotelOu) {
+      fetchStagingData();
+    }
+  }, [selectedHotelOu]);
 
   const currencyFormatter = new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -211,7 +260,7 @@ export default function DataTable() {
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom sx={{ mb: 3 }}>
-        Financial Data Table - Staging vs Budget
+        Upload Review
       </Typography>
 
       <StyledCard>
@@ -302,6 +351,21 @@ export default function DataTable() {
           density="compact"
           cellSelection
           sx={{
+            '& .MuiDataGrid-columnHeaders': {
+              backgroundColor: (theme) => theme.palette.mode === 'dark'
+                ? alpha('#ffffff', 0.02)
+                : alpha('#000000', 0.015),
+              borderBottom: '1px solid',
+              borderColor: 'divider',
+              minHeight: '48px !important',
+              maxHeight: '48px !important',
+            },
+            '& .MuiDataGrid-columnHeader': {
+              fontWeight: 600,
+              fontSize: '0.8125rem',
+              letterSpacing: '0.01em',
+              color: 'text.secondary',
+            },
             '& .staging-column': {
               fontWeight: 'bold',
             },

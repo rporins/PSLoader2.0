@@ -147,6 +147,8 @@ export const IPC_CHANNELS = {
   DB_GET_FINANCIAL_DATA_LAST_IMPORT: 'db:get-financial-data-last-import',
   DB_GET_FINANCIAL_REPORT_DATA: 'db:get-financial-report-data',
   DB_GET_CUSTOM_PL_DATA: 'db:get-custom-pl-data',
+  DB_GET_SUMMARY_PL_DATA: 'db:get-summary-pl-data',
+  DB_GET_F90_PL_DATA: 'db:get-f90-pl-data',
   DB_GET_STAGING_VS_BUDGET_DATA: 'db:get-staging-vs-budget-data',
 
   // Cache metadata channels
@@ -162,6 +164,17 @@ export const IPC_CHANNELS = {
   // Import completion state channels
   DB_GET_IMPORT_COMPLETED_STATE: 'db:get-import-completed-state',
   DB_SET_IMPORT_COMPLETED_STATE: 'db:set-import-completed-state',
+
+  // Validation completion state channels
+  DB_GET_VALIDATION_COMPLETED_STATE: 'db:get-validation-completed-state',
+  DB_SET_VALIDATION_COMPLETED_STATE: 'db:set-validation-completed-state',
+
+  // Sign-off completion state channels
+  DB_GET_SIGNOFF_COMPLETED_STATE: 'db:get-signoff-completed-state',
+  DB_SET_SIGNOFF_COMPLETED_STATE: 'db:set-signoff-completed-state',
+
+  // Reset all completion states
+  DB_RESET_ALL_COMPLETION_STATES: 'db:reset-all-completion-states',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];
