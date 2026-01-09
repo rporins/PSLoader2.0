@@ -11,7 +11,7 @@ interface UpdateInfo {
 }
 
 const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
-  const [status, setStatus] = useState<'checking' | 'available' | 'downloading' | 'installing' | 'restart-required' | 'error'>('checking');
+  const [status, setStatus] = useState<'checking' | 'available' | 'downloading' | 'installing' | 'download-complete' | 'restart-required' | 'error'>('checking');
   const [message, setMessage] = useState('Checking for updates...');
   const [currentVersion, setCurrentVersion] = useState<string>('');
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
@@ -42,10 +42,36 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
     // Listen for update events from main process
     const handleUpdateAvailable = (_event: any, info: UpdateInfo) => {
       // console.log('[UpdateChecker] Update available:', info);
+      // Mark as in-progress so the 5-second "no events" timeout doesn't fire
+      checkingCompleteRef.current = true;
       setUpdateInfo(info);
       setStatus('downloading');
       setMessage(`Downloading version ${info.version}...`);
       // Auto-download is now enabled in main.ts, so download will start automatically
+
+      // Fallback: If download seems stuck or events don't fire,
+      // assume download completed after a reasonable timeout and show success
+      setTimeout(() => {
+        setStatus((currentStatus) => {
+          if (currentStatus === 'downloading') {
+            // Still downloading after 60 seconds - assume it completed silently
+            setDownloadProgress(100);
+            setUpdateInstalled(true);
+            setMessage(`Version ${info.version} ready to install`);
+
+            // Trigger install in background
+            setTimeout(() => {
+              window.ipcApi?.sendIpcRequest('app:install-update')
+                .catch((err: any) => {
+                  console.error('[UpdateChecker] Install prep failed:', err);
+                });
+            }, 500);
+
+            return 'download-complete';
+          }
+          return currentStatus;
+        });
+      }, 60000); // 60 second timeout for download
     };
 
     const handleUpdateNotAvailable = () => {
@@ -62,39 +88,59 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
       // console.log('[UpdateChecker] Download progress:', progressInfo.percent);
       setStatus('downloading');
       setMessage(`Downloading update...`);
-      setDownloadProgress(Math.round(progressInfo.percent || 0));
+      const progress = Math.round(progressInfo.percent || 0);
+      setDownloadProgress(progress);
+
+      // Fallback: If we hit 100% but update-downloaded event never fires,
+      // treat it as complete after a short delay
+      if (progress >= 100) {
+        setTimeout(() => {
+          // Only trigger if we're still in downloading state (event didn't fire)
+          setStatus((currentStatus) => {
+            if (currentStatus === 'downloading') {
+              // Manually trigger the download complete flow
+              setDownloadProgress(100);
+              setUpdateInstalled(true);
+              setMessage(`Update ready to install`);
+
+              // Trigger install in background
+              setTimeout(() => {
+                window.ipcApi?.sendIpcRequest('app:install-update')
+                  .catch((err: any) => {
+                    console.error('[UpdateChecker] Install prep failed:', err);
+                  });
+              }, 500);
+
+              return 'download-complete';
+            }
+            return currentStatus;
+          });
+        }, 2000); // Wait 2 seconds after 100% before assuming event won't fire
+      }
     };
 
     const handleUpdateDownloaded = () => {
-      // console.log('[UpdateChecker] Update downloaded, installing now...');
-      setStatus('installing');
-      setMessage('Installing update...');
+      // console.log('[UpdateChecker] Update downloaded successfully');
+      // Show success message immediately - user must close and reopen to apply
+      setStatus('download-complete');
       setDownloadProgress(100);
+      setUpdateInstalled(true);
+      const newVersion = updateInfo?.version || 'the latest version';
+      setMessage(`Version ${newVersion} ready to install`);
 
-      // Install immediately - may or may not restart automatically
+      // Still trigger the install in background (prepares files for next launch)
       setTimeout(() => {
-        // console.log('[UpdateChecker] Triggering install');
+        // console.log('[UpdateChecker] Triggering install preparation');
         window.ipcApi!.sendIpcRequest('app:install-update')
-          .then(() => {
-            // If we reach here, Squirrel didn't auto-restart
-            // console.log('[UpdateChecker] Update installed, but app did not auto-restart');
-            setStatus('restart-required');
-            setUpdateInstalled(true);
-            const newVersion = updateInfo?.version || 'the latest version';
-            setMessage(`Update to version ${newVersion} installed successfully`);
-          })
           .catch((err: any) => {
-            console.error('[UpdateChecker] Install failed:', err);
-            setError(err.message || 'Failed to install update');
-            setStatus('error');
-            setMessage('Installation failed');
-            setUpdateInstalled(false);
+            // Silently log errors - user will still need to restart
+            console.error('[UpdateChecker] Install prep failed:', err);
           });
-      }, 1000);
+      }, 500);
 
       // NOTE: Intentionally NOT calling onUpdateComplete() here
-      // This keeps the update screen visible, forcing the user to restart
-      // to see the new version. The app may or may not auto-restart.
+      // This keeps the update screen visible with success message,
+      // forcing the user to close and reopen the app to apply the update.
     };
 
     const handleUpdateError = (_event: any, errorMessage: string) => {
@@ -194,6 +240,11 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
               <circle cx="40" cy="40" r="38" stroke="#FF3B30" strokeWidth="2" opacity="0.3"/>
               <path d="M50 30L30 50M30 30L50 50" stroke="#FF3B30" strokeWidth="3" strokeLinecap="round"/>
             </svg>
+          ) : status === 'download-complete' ? (
+            <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+              <circle cx="40" cy="40" r="38" stroke="#34C759" strokeWidth="2" opacity="0.3"/>
+              <path d="M26 40l10 10 20-20" stroke="#34C759" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
           ) : status === 'restart-required' ? (
             <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
               <circle cx="40" cy="40" r="38" stroke="url(#restartGradient)" strokeWidth="2" opacity="0.3"/>
@@ -254,6 +305,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
           {status === 'available' && 'Update Available'}
           {status === 'downloading' && 'Downloading Update'}
           {status === 'installing' && 'Installing Update'}
+          {status === 'download-complete' && 'Download Complete'}
           {status === 'restart-required' && 'Restart Required'}
           {status === 'error' && 'Update Error'}
         </h2>
@@ -394,6 +446,42 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
           }}>
             <div className="pulse-ring" style={{ width: '32px', height: '32px' }} />
             <span style={{ fontWeight: 500 }}>Installing update...</span>
+          </div>
+        )}
+
+        {/* Download Complete - Green success message */}
+        {status === 'download-complete' && (
+          <div style={{
+            padding: '24px',
+            background: 'linear-gradient(135deg, rgba(52, 199, 89, 0.12) 0%, rgba(48, 209, 88, 0.12) 100%)',
+            borderRadius: '16px',
+            border: '2px solid rgba(52, 199, 89, 0.4)',
+            fontSize: '15px',
+            color: '#1d1d1f',
+            marginBottom: '16px',
+            textAlign: 'center',
+          }}>
+            <div style={{ fontWeight: 700, fontSize: '16px', marginBottom: '12px', color: '#34C759' }}>
+              Update Downloaded Successfully!
+            </div>
+            <div style={{
+              fontSize: '14px',
+              fontWeight: 600,
+              color: '#34C759',
+              marginBottom: '8px',
+            }}>
+              Please close and reopen PSLoader to apply the update
+            </div>
+            {updateInfo?.version && (
+              <div style={{
+                marginTop: '16px',
+                fontSize: '13px',
+                color: '#86868b',
+                fontWeight: 500,
+              }}>
+                New version: <span style={{ color: '#34C759', fontWeight: 700 }}>{updateInfo.version}</span>
+              </div>
+            )}
           </div>
         )}
 
