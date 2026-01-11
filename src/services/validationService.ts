@@ -3,12 +3,12 @@
  * ==================
  *
  * Frontend service for interacting with the validation system.
- * This service provides a simple interface to the validation registry
- * and handles fetching validation metadata from the API.
+ * Fetches validation metadata from the API and executes validations via IPC.
  *
- * NOTE: This service now primarily uses the validation processor registry.
- * For local validations, use getAvailableValidations() which gets them from the registry.
- * For API-based validation configs, use getValidations() which fetches from the backend.
+ * Flow:
+ * 1. API returns validation metadata (name, display_name, is_required, etc.)
+ * 2. The 'name' field is used to look up the validation function locally
+ * 3. Validation functions are defined in validationDefinitions.ts
  */
 
 import { API_BASE_URL } from '../config';
@@ -27,22 +27,39 @@ export interface Validation {
 
 class ValidationService {
   /**
-   * Get available validations from the validation registry (local)
-   * These are the validations actually implemented in the app
-   * @param ou The organizational unit (optional filter)
-   * @returns Promise with validation processors metadata
+   * Get list of locally registered validation names
+   * Useful for debugging/verifying which validations are available
+   * @returns Promise with array of validation names
    */
-  async getAvailableValidations(ou?: string): Promise<any[]> {
+  async getRegisteredValidationNames(): Promise<string[]> {
     if (typeof window !== 'undefined' && window.ipcApi) {
       try {
-        const result = await window.ipcApi.sendIpcRequest('validation:get-all', { ou });
+        const result = await window.ipcApi.sendIpcRequest('validation:get-all', {});
         return result?.data || [];
       } catch (error) {
-        console.error('Failed to get available validations:', error);
+        console.error('Failed to get registered validations:', error);
         return [];
       }
     }
     return [];
+  }
+
+  /**
+   * Check if a validation is registered locally
+   * @param validationName The name of the validation to check
+   * @returns Promise with boolean indicating if validation exists
+   */
+  async isValidationRegistered(validationName: string): Promise<boolean> {
+    if (typeof window !== 'undefined' && window.ipcApi) {
+      try {
+        const result = await window.ipcApi.sendIpcRequest('validation:check-exists', { validationName });
+        return result?.data?.exists || false;
+      } catch (error) {
+        console.error('Failed to check validation:', error);
+        return false;
+      }
+    }
+    return false;
   }
 
   /**
@@ -234,24 +251,30 @@ class ValidationService {
   }
 
   /**
-   * Run all validations for an OU via IPC
+   * Run multiple validations by name
+   * @param validationNames Array of validation names to run
    * @param ou The organizational unit
    * @param period Optional period for validation
+   * @param stopOnFirstError Stop execution on first error
    * @returns Array of validation results
    */
-  async runAllValidations(
+  async runMultipleValidations(
+    validationNames: string[],
     ou: string,
-    period?: { year?: number; month?: number }
+    period?: { year?: number; month?: number },
+    stopOnFirstError: boolean = false
   ): Promise<any[]> {
     if (typeof window !== 'undefined' && window.ipcApi) {
       try {
         const result = await window.ipcApi.sendIpcRequest('validation:run-all', {
+          validationNames,
           ou,
-          period
+          period,
+          stopOnFirstError
         });
         return result?.data || [];
       } catch (error) {
-        console.error('Failed to run all validations:', error);
+        console.error('Failed to run validations:', error);
         throw error;
       }
     }

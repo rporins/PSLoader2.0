@@ -1,0 +1,912 @@
+/**
+ * Validation Definitions
+ * ======================
+ *
+ * All validation functions defined in one place.
+ *
+ * To add a new validation:
+ * 1. Add the validation name to PostgreSQL via the API (for the relevant OU)
+ * 2. Add the corresponding function here with the same name as the key
+ *
+ * The key in this object MUST match the 'name' field in the PostgreSQL validations table.
+ *
+ * COMBO ID FORMAT:
+ * - dep_acc_combo_id = "D{department}_A{account}" e.g., "D0480_A701110"
+ * - department column = "D0480" (with D prefix)
+ * - account column = "A701110" (with A prefix)
+ */
+
+import { ValidationResult, ValidationOptions, ValidationFn } from './ValidationEngine';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS - COMBO BASED (uses dep_acc_combo_id for performance)
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface ComboCheckConfig {
+  /** Department code (without D prefix), e.g., "0480" - use "_" for single char wildcard */
+  department: string;
+  /** Account code (without A prefix), e.g., "701110" - use "_" for single char wildcard */
+  account: string;
+  /** Error message to display when validation fails */
+  errorMessage: string;
+}
+
+/**
+ * Build a LIKE pattern for dep_acc_combo_id
+ * Input: department="0480", account="701110"
+ * Output: "D0480_A701110"
+ */
+function buildComboPattern(department: string, account: string): string {
+  return `D${department}_A${account}`;
+}
+
+/**
+ * Check that a combo exists AND has a non-zero value
+ */
+async function comboMustHaveValue(
+  db: any,
+  options: ValidationOptions,
+  config: ComboCheckConfig
+): Promise<ValidationResult> {
+  const comboPattern = buildComboPattern(config.department, config.account);
+
+  const result = await db.execute({
+    sql: `
+      SELECT dep_acc_combo_id, department, account, SUM(amount) as total_amount
+      FROM financial_data_staging
+      WHERE ou = ?
+        AND dep_acc_combo_id LIKE ?
+      GROUP BY dep_acc_combo_id, department, account
+    `,
+    args: [options.ou, comboPattern]
+  });
+
+  const rows = result.rows || [];
+  const errors: string[] = [];
+
+  if (rows.length === 0) {
+    errors.push(config.errorMessage);
+  } else {
+    for (const row of rows) {
+      if (row.total_amount === 0 || row.total_amount === null) {
+        errors.push(`${config.errorMessage} (Combo: ${row.dep_acc_combo_id})`);
+      }
+    }
+  }
+
+  return {
+    success: errors.length === 0,
+    recordCount: rows.length,
+    errors: errors.length > 0 ? errors : undefined,
+    stats: {
+      recordsChecked: rows.length,
+      issuesFound: errors.length
+    }
+  };
+}
+
+/**
+ * Check that a combo has zero value (or doesn't exist)
+ */
+async function comboMustBeZero(
+  db: any,
+  options: ValidationOptions,
+  config: ComboCheckConfig
+): Promise<ValidationResult> {
+  const comboPattern = buildComboPattern(config.department, config.account);
+
+  const result = await db.execute({
+    sql: `
+      SELECT dep_acc_combo_id, department, account, SUM(amount) as total_amount
+      FROM financial_data_staging
+      WHERE ou = ?
+        AND dep_acc_combo_id LIKE ?
+        AND amount != 0
+      GROUP BY dep_acc_combo_id, department, account
+    `,
+    args: [options.ou, comboPattern]
+  });
+
+  const rows = result.rows || [];
+  const errors: string[] = [];
+
+  for (const row of rows) {
+    errors.push(`${config.errorMessage} (Combo: ${row.dep_acc_combo_id}, Amount: ${row.total_amount})`);
+  }
+
+  return {
+    success: errors.length === 0,
+    recordCount: rows.length,
+    errors: errors.length > 0 ? errors : undefined,
+    stats: {
+      recordsChecked: rows.length,
+      issuesFound: errors.length
+    }
+  };
+}
+
+/**
+ * Check that a combo only has values in January (month = 1)
+ */
+async function comboJanuaryOnly(
+  db: any,
+  options: ValidationOptions,
+  config: ComboCheckConfig
+): Promise<ValidationResult> {
+  const comboPattern = buildComboPattern(config.department, config.account);
+
+  const result = await db.execute({
+    sql: `
+      SELECT dep_acc_combo_id, department, account, month, SUM(amount) as total_amount
+      FROM financial_data_staging
+      WHERE ou = ?
+        AND dep_acc_combo_id LIKE ?
+        AND month != 1
+        AND amount != 0
+      GROUP BY dep_acc_combo_id, department, account, month
+    `,
+    args: [options.ou, comboPattern]
+  });
+
+  const rows = result.rows || [];
+  const errors: string[] = [];
+
+  for (const row of rows) {
+    errors.push(`${config.errorMessage} (Combo: ${row.dep_acc_combo_id}, Month: ${row.month})`);
+  }
+
+  return {
+    success: errors.length === 0,
+    recordCount: rows.length,
+    errors: errors.length > 0 ? errors : undefined,
+    stats: {
+      recordsChecked: rows.length,
+      issuesFound: errors.length
+    }
+  };
+}
+
+/**
+ * Check that a combo line exists (even if value is zero)
+ */
+async function comboMustExist(
+  db: any,
+  options: ValidationOptions,
+  config: ComboCheckConfig
+): Promise<ValidationResult> {
+  const comboPattern = buildComboPattern(config.department, config.account);
+
+  const result = await db.execute({
+    sql: `
+      SELECT COUNT(*) as count
+      FROM financial_data_staging
+      WHERE ou = ?
+        AND dep_acc_combo_id LIKE ?
+    `,
+    args: [options.ou, comboPattern]
+  });
+
+  const count = result.rows?.[0]?.count || 0;
+  const errors: string[] = [];
+
+  if (count === 0) {
+    errors.push(config.errorMessage);
+  }
+
+  return {
+    success: errors.length === 0,
+    recordCount: count,
+    errors: errors.length > 0 ? errors : undefined,
+    stats: {
+      recordsChecked: 1,
+      issuesFound: errors.length
+    }
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS - ACCOUNT ONLY (ignores department)
+// Use these when the validation applies to an account regardless of department
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface AccountCheckConfig {
+  /** Account code (without A prefix), e.g., "701110" - use "_" for single char wildcard */
+  account: string;
+  /** Error message to display when validation fails */
+  errorMessage: string;
+}
+
+/**
+ * Check that an account exists AND has a non-zero value (any department)
+ */
+async function accountMustHaveValue(
+  db: any,
+  options: ValidationOptions,
+  config: AccountCheckConfig
+): Promise<ValidationResult> {
+  const accountPattern = `A${config.account}`;
+
+  const result = await db.execute({
+    sql: `
+      SELECT account, department, SUM(amount) as total_amount
+      FROM financial_data_staging
+      WHERE ou = ?
+        AND account LIKE ?
+      GROUP BY account, department
+    `,
+    args: [options.ou, accountPattern]
+  });
+
+  const rows = result.rows || [];
+  const errors: string[] = [];
+
+  if (rows.length === 0) {
+    errors.push(config.errorMessage);
+  } else {
+    for (const row of rows) {
+      if (row.total_amount === 0 || row.total_amount === null) {
+        errors.push(`${config.errorMessage} (Account: ${row.account}, Dept: ${row.department})`);
+      }
+    }
+  }
+
+  return {
+    success: errors.length === 0,
+    recordCount: rows.length,
+    errors: errors.length > 0 ? errors : undefined,
+    stats: {
+      recordsChecked: rows.length,
+      issuesFound: errors.length
+    }
+  };
+}
+
+/**
+ * Check that an account has zero value (any department)
+ */
+async function accountMustBeZero(
+  db: any,
+  options: ValidationOptions,
+  config: AccountCheckConfig
+): Promise<ValidationResult> {
+  const accountPattern = `A${config.account}`;
+
+  const result = await db.execute({
+    sql: `
+      SELECT account, department, SUM(amount) as total_amount
+      FROM financial_data_staging
+      WHERE ou = ?
+        AND account LIKE ?
+        AND amount != 0
+      GROUP BY account, department
+    `,
+    args: [options.ou, accountPattern]
+  });
+
+  const rows = result.rows || [];
+  const errors: string[] = [];
+
+  for (const row of rows) {
+    errors.push(`${config.errorMessage} (Account: ${row.account}, Dept: ${row.department}, Amount: ${row.total_amount})`);
+  }
+
+  return {
+    success: errors.length === 0,
+    recordCount: rows.length,
+    errors: errors.length > 0 ? errors : undefined,
+    stats: {
+      recordsChecked: rows.length,
+      issuesFound: errors.length
+    }
+  };
+}
+
+/**
+ * Check that an account line exists (any department, even if value is zero)
+ */
+async function accountMustExist(
+  db: any,
+  options: ValidationOptions,
+  config: AccountCheckConfig
+): Promise<ValidationResult> {
+  const accountPattern = `A${config.account}`;
+
+  const result = await db.execute({
+    sql: `
+      SELECT COUNT(*) as count
+      FROM financial_data_staging
+      WHERE ou = ?
+        AND account LIKE ?
+    `,
+    args: [options.ou, accountPattern]
+  });
+
+  const count = result.rows?.[0]?.count || 0;
+  const errors: string[] = [];
+
+  if (count === 0) {
+    errors.push(config.errorMessage);
+  }
+
+  return {
+    success: errors.length === 0,
+    recordCount: count,
+    errors: errors.length > 0 ? errors : undefined,
+    stats: {
+      recordsChecked: 1,
+      issuesFound: errors.length
+    }
+  };
+}
+
+/**
+ * Check that an account only has values in January (any department)
+ */
+async function accountJanuaryOnly(
+  db: any,
+  options: ValidationOptions,
+  config: AccountCheckConfig
+): Promise<ValidationResult> {
+  const accountPattern = `A${config.account}`;
+
+  const result = await db.execute({
+    sql: `
+      SELECT account, department, month, SUM(amount) as total_amount
+      FROM financial_data_staging
+      WHERE ou = ?
+        AND account LIKE ?
+        AND month != 1
+        AND amount != 0
+      GROUP BY account, department, month
+    `,
+    args: [options.ou, accountPattern]
+  });
+
+  const rows = result.rows || [];
+  const errors: string[] = [];
+
+  for (const row of rows) {
+    errors.push(`${config.errorMessage} (Account: ${row.account}, Dept: ${row.department}, Month: ${row.month})`);
+  }
+
+  return {
+    success: errors.length === 0,
+    recordCount: rows.length,
+    errors: errors.length > 0 ? errors : undefined,
+    stats: {
+      recordsChecked: rows.length,
+      issuesFound: errors.length
+    }
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VALIDATION DEFINITIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const validationDefinitions: Record<string, ValidationFn> = {
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // COMBO MUST HAVE NON-ZERO VALUE
+  // Format: department (4 chars), account (6 chars)
+  // Use "_" for single character wildcard, "%" for multi-character wildcard
+  // ─────────────────────────────────────────────────────────────────────────
+
+  royalty_fee_expense: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0480',
+      account: '706001',
+      errorMessage: 'No amount found for Royalty Fees'
+    });
+  },
+
+  incentive_fee_expense: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0490',
+      account: '701125',
+      errorMessage: 'No amount found for incentive fee expense'
+    });
+  },
+
+  ff_e_escrow_expense: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0480',
+      account: '701110',
+      errorMessage: 'No FF&E amount found please ensure this is added'
+    });
+  },
+
+  threshold_priority_agor: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0490',
+      account: '948004',
+      errorMessage: 'No AGOR amount found please ensure this is added'
+    });
+  },
+
+  property_tax: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0480',
+      account: '720601',
+      errorMessage: 'No property tax amount found please ensure this is added'
+    });
+  },
+
+  building_insurance: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0480',
+      account: '730002',
+      errorMessage: 'No amount found for building insurance expense'
+    });
+  },
+
+  liability_insurance: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0480',
+      account: '730108',
+      errorMessage: 'No liability insurance amount found please ensure this is added'
+    });
+  },
+
+  marketing_ecommerce: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0470',
+      account: '600212',
+      errorMessage: 'No marketing ecommerce amount found please ensure this is added'
+    });
+  },
+
+  base_management_fee: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0480',
+      account: '701120',
+      errorMessage: 'The base management fee line should have a value please recheck data'
+    });
+  },
+
+  fixed_rent_expense: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0480',
+      account: '701728',
+      errorMessage: 'The fixed rent expense line should have a value please recheck data'
+    });
+  },
+
+  real_estate_tax: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0480',
+      account: '720701',
+      errorMessage: 'No real estate tax amount found please ensure this is added'
+    });
+  },
+
+  owner_priority_threshold: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0490',
+      account: '948001',
+      errorMessage: 'No owners priority/threshold amount found please ensure this is added'
+    });
+  },
+
+  owner_priority_threshold_2nd: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0490',
+      account: '948017',
+      errorMessage: 'Missing second owners priority/threshold amount please ensure this is added'
+    });
+  },
+
+  other_tax: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0480',
+      account: '720901',
+      errorMessage: 'Missing Municipality Fees and Duties amount please ensure this is added'
+    });
+  },
+
+  owner_priority_threshold_2nd_alt: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0490',
+      account: '948022',
+      errorMessage: 'Missing second owners priority/threshold amount please ensure this is added'
+    });
+  },
+
+  incentive_fee_other: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0490',
+      account: '701126',
+      errorMessage: 'No amount found for other incentive fee expense lines please populate this'
+    });
+  },
+
+  other_owner_expense: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0490',
+      account: '700341',
+      errorMessage: 'There should be an amount populated for this line'
+    });
+  },
+
+  rent_expense: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0490',
+      account: '700306',
+      errorMessage: 'This expense line should be populated'
+    });
+  },
+
+  insurance_expense: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0490',
+      account: '730175',
+      errorMessage: 'This expense line should be populated'
+    });
+  },
+
+  ff_e_transfer: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0480',
+      account: '759372',
+      errorMessage: 'This line has forecast populated and requires actuals'
+    });
+  },
+
+  ff_e_owner_funded: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0490',
+      account: '700320',
+      errorMessage: 'This line has historical data populated and requires actuals'
+    });
+  },
+
+  consulting_fees: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0490',
+      account: '760656',
+      errorMessage: 'This line should be populated please recheck data'
+    });
+  },
+
+  marketing_fee: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0470',
+      account: '760405',
+      errorMessage: 'No Amount Found for Marketing Fee'
+    });
+  },
+
+  loyalty_program_cost: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0470',
+      account: '602101',
+      errorMessage: 'No Amount Found for Loyalty Program'
+    });
+  },
+
+  sold_rooms: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0010',
+      account: '960103',
+      errorMessage: 'No sold rooms amount found please ensure this is populated'
+    });
+  },
+
+  total_rooms: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0010',
+      account: '960101',
+      errorMessage: 'No Total Rooms amount found for hotel, this needs to be populated'
+    });
+  },
+
+  // PSF Accounts - uses pattern matching ("_" = single char wildcard in SQL LIKE)
+  // This matches any department with account 77011X
+  psf_accounts: async (db, options) => {
+    return comboMustHaveValue(db, options, {
+      department: '0410',
+      account: '77011_',
+      errorMessage: 'No amounts in PSF accounts please add these'
+    });
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // COMBO MUST BE ZERO
+  // ─────────────────────────────────────────────────────────────────────────
+
+  no_other_tax: async (db, options) => {
+    return comboMustBeZero(db, options, {
+      department: '0480',
+      account: '720901',
+      errorMessage: 'The other tax fee line should be 0'
+    });
+  },
+
+  no_base_management_fee: async (db, options) => {
+    return comboMustBeZero(db, options, {
+      department: '0480',
+      account: '701120',
+      errorMessage: 'The base management fee line should be 0'
+    });
+  },
+
+  no_building_insurance: async (db, options) => {
+    return comboMustBeZero(db, options, {
+      department: '0480',
+      account: '730002',
+      errorMessage: 'No amount should be populated for building insurance line'
+    });
+  },
+
+  no_other_owner_expense: async (db, options) => {
+    return comboMustBeZero(db, options, {
+      department: '0490',
+      account: '700341',
+      errorMessage: 'No amount should be populated for this line'
+    });
+  },
+
+  no_real_estate_tax: async (db, options) => {
+    return comboMustBeZero(db, options, {
+      department: '0480',
+      account: '720701',
+      errorMessage: 'No amount should be populated for this line'
+    });
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // COMBO JANUARY ONLY
+  // ─────────────────────────────────────────────────────────────────────────
+
+  threshold_priority_january: async (db, options) => {
+    return comboJanuaryOnly(db, options, {
+      department: '0490',
+      account: '948004',
+      errorMessage: 'This amount should only be populated in January'
+    });
+  },
+
+  // Square meters - any department, specific account (use % for any dept)
+  square_meters_january: async (db, options) => {
+    return comboJanuaryOnly(db, options, {
+      department: '____', // any 4-char department
+      account: '957317',
+      errorMessage: 'Square meters should only be populated in January'
+    });
+  },
+
+  seat_counts_january: async (db, options) => {
+    return comboJanuaryOnly(db, options, {
+      department: '____', // any 4-char department
+      account: '914020',
+      errorMessage: 'Seat counts should only be populated in January'
+    });
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // COMBO MUST EXIST (even if zero)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  ff_e_escrow_line_exists: async (db, options) => {
+    return comboMustExist(db, options, {
+      department: '0480',
+      account: '701110',
+      errorMessage: 'No FF&E Line found, this must be submitted even if the value is 0'
+    });
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // CUSTOM / COMPLEX VALIDATIONS
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * All customer stats for banquets should go to 0231, not 0230
+   */
+  no_0230_customer_stats: async (db, options) => {
+    const result = await db.execute({
+      sql: `
+        SELECT dep_acc_combo_id, department, account, SUM(amount) as total
+        FROM financial_data_staging
+        WHERE ou = ?
+          AND department = 'D0230'
+          AND account LIKE 'A9140__'
+        GROUP BY dep_acc_combo_id, department, account
+      `,
+      args: [options.ou]
+    });
+
+    const rows = result.rows || [];
+
+    if (rows.length > 0) {
+      return {
+        success: false,
+        recordCount: rows.length,
+        errors: ['All customer stats for banquets should go to 0231, this has caused an error ytd'],
+        errorDetails: [{
+          type: 'INVALID_DEPARTMENT',
+          message: 'Customer stats found in D0230 instead of D0231',
+          count: rows.length,
+          sampleRecords: rows.slice(0, 5)
+        }]
+      };
+    }
+
+    return { success: true, recordCount: 0 };
+  },
+
+  /**
+   * Food cost lines must be coded to a Kitchen department (D0190-D0199)
+   */
+  food_cost_to_kitchen: async (db, options) => {
+    const result = await db.execute({
+      sql: `
+        SELECT dep_acc_combo_id, department, account, SUM(amount) as total
+        FROM financial_data_staging
+        WHERE ou = ?
+          AND account LIKE 'A414001'
+          AND (department < 'D0190' OR department > 'D0199')
+        GROUP BY dep_acc_combo_id, department, account
+      `,
+      args: [options.ou]
+    });
+
+    const rows = result.rows || [];
+
+    if (rows.length > 0) {
+      return {
+        success: false,
+        recordCount: rows.length,
+        errors: ['Please ensure that all food cost lines are coded to a Kitchen (D0190-D0199)'],
+        errorDetails: [{
+          type: 'WRONG_DEPARTMENT',
+          message: 'Food cost not coded to Kitchen department',
+          count: rows.length,
+          sampleRecords: rows.slice(0, 5)
+        }]
+      };
+    }
+
+    return { success: true, recordCount: 0 };
+  },
+
+  /**
+   * Segment Total v Stats
+   * Checks that D0010 A960103 (total rooms) matches sum of segment stats
+   */
+  segment_total_v_stats: async (db, options) => {
+    // Get total rooms from D0010_A960103
+    const totalRoomsResult = await db.execute({
+      sql: `
+        SELECT SUM(amount) as total_rooms
+        FROM financial_data_staging
+        WHERE ou = ?
+          AND dep_acc_combo_id = 'D0010_A960103'
+      `,
+      args: [options.ou]
+    });
+
+    const totalRooms = totalRoomsResult.rows?.[0]?.total_rooms || 0;
+
+    // Get segment stats - sum of all segment room counts (excluding D0010)
+    const segmentStatsResult = await db.execute({
+      sql: `
+        SELECT SUM(amount) as segment_total
+        FROM financial_data_staging
+        WHERE ou = ?
+          AND account = 'A960103'
+          AND department != 'D0010'
+      `,
+      args: [options.ou]
+    });
+
+    const segmentTotal = segmentStatsResult.rows?.[0]?.segment_total || 0;
+
+    if (totalRooms !== segmentTotal) {
+      return {
+        success: false,
+        recordCount: 1,
+        errors: [`Total rooms (${totalRooms}) does not match segment count (${segmentTotal})`]
+      };
+    }
+
+    return { success: true, recordCount: 1 };
+  },
+
+  /**
+   * Rooms revenue accounts must have corresponding stat values
+   * Checks revenue (A36____) against stats (A96____)
+   */
+  rooms_rev_stats_match: async (db, options) => {
+    // Find revenue combos without stats
+    const revenueWithoutStats = await db.execute({
+      sql: `
+        SELECT r.dep_acc_combo_id, r.department, r.account, SUM(r.amount) as revenue_amount
+        FROM financial_data_staging r
+        WHERE r.ou = ?
+          AND r.account LIKE 'A36____'
+          AND r.amount != 0
+          AND NOT EXISTS (
+            SELECT 1 FROM financial_data_staging s
+            WHERE s.ou = r.ou
+              AND s.department = r.department
+              AND s.account = 'A96' || SUBSTR(r.account, 4)
+              AND s.amount != 0
+          )
+        GROUP BY r.dep_acc_combo_id, r.department, r.account
+      `,
+      args: [options.ou]
+    });
+
+    // Find stats without revenue
+    const statsWithoutRevenue = await db.execute({
+      sql: `
+        SELECT s.dep_acc_combo_id, s.department, s.account, SUM(s.amount) as stat_amount
+        FROM financial_data_staging s
+        WHERE s.ou = ?
+          AND s.account LIKE 'A96____'
+          AND s.amount != 0
+          AND NOT EXISTS (
+            SELECT 1 FROM financial_data_staging r
+            WHERE r.ou = s.ou
+              AND r.department = s.department
+              AND r.account = 'A36' || SUBSTR(s.account, 4)
+              AND r.amount != 0
+          )
+        GROUP BY s.dep_acc_combo_id, s.department, s.account
+      `,
+      args: [options.ou]
+    });
+
+    const revRows = revenueWithoutStats.rows || [];
+    const statRows = statsWithoutRevenue.rows || [];
+    const errors: string[] = [];
+
+    if (revRows.length > 0) {
+      errors.push(`Found ${revRows.length} revenue combo(s) without corresponding stats`);
+    }
+
+    if (statRows.length > 0) {
+      errors.push(`Found ${statRows.length} stat combo(s) without corresponding revenue`);
+    }
+
+    return {
+      success: errors.length === 0,
+      recordCount: revRows.length + statRows.length,
+      errors: errors.length > 0 ? errors : undefined,
+      errorDetails: errors.length > 0 ? [
+        ...(revRows.length > 0 ? [{
+          type: 'REVENUE_WITHOUT_STATS',
+          message: 'Revenue combos missing stats',
+          count: revRows.length,
+          sampleRecords: revRows.slice(0, 5)
+        }] : []),
+        ...(statRows.length > 0 ? [{
+          type: 'STATS_WITHOUT_REVENUE',
+          message: 'Stat combos missing revenue',
+          count: statRows.length,
+          sampleRecords: statRows.slice(0, 5)
+        }] : [])
+      ] : undefined
+    };
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TEST VALIDATION (for development/testing)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  test_validation: async (db, options) => {
+    const result = await db.execute({
+      sql: `SELECT COUNT(*) as count FROM financial_data_staging WHERE ou = ?`,
+      args: [options.ou]
+    });
+
+    const count = result.rows?.[0]?.count || 0;
+
+    return {
+      success: true,
+      recordCount: count,
+      info: [`Found ${count} records in staging table for OU: ${options.ou}`]
+    };
+  },
+
+};

@@ -3,28 +3,18 @@
  * ==================
  *
  * Central export point for the validation system.
- * Import this module to access the validation registry and execute validations.
  *
  * Usage:
  * ```typescript
- * import { ValidationRegistry } from './services/validations';
+ * import { ValidationEngine, validationDefinitions } from './services/validations';
  *
- * // Execute a validation
- * const result = await ValidationRegistry.executeValidation('duplicate_records', { ou: 'hotel123' });
+ * const engine = new ValidationEngine(db);
+ * engine.registerAll(validationDefinitions);
  *
- * // Get all validations
- * const allValidations = ValidationRegistry.getAllMetadata();
+ * const result = await engine.execute('royalty_fee_expense', { ou: 'hotel123' });
  * ```
  */
 
-// Export core interfaces
-export * from './core/interfaces';
-
-// Export base processor for creating new validations
-export { BaseValidationProcessor } from './core/baseProcessor';
-
-// Export registry
-export { ValidationRegistry } from './core/registry';
-
-// Re-export as default for convenience
-export { ValidationRegistry as default } from './core/registry';
+// Export engine and definitions
+export { ValidationEngine, ValidationResult, ValidationOptions, ValidationFn } from './engine/ValidationEngine';
+export { validationDefinitions } from './engine/validationDefinitions';

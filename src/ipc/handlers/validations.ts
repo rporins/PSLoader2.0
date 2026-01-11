@@ -3,47 +3,60 @@
  * =======================
  *
  * Handles all validation-related IPC requests from the renderer process.
+ * Uses the new ValidationEngine for executing named validations.
  */
 
 import { IpcHandler } from "../types";
 import { IPC_CHANNELS } from "../types";
-import { ValidationRegistry } from "../../services/validations";
+import { ValidationEngine, validationDefinitions } from "../../services/validations/engine";
 import * as db from "../../local_db";
 
-// Initialize the validation registry with database access
-// This will be called when the handlers are created
-function initializeRegistry() {
-  // Pass a wrapper around the database client that the validations can use
-  ValidationRegistry.setDatabase({
-    execute: (query: { sql: string; args: any[] }) => db.executeQuery(query),
-  });
-  ValidationRegistry.initialize();
+// Singleton validation engine instance
+let validationEngine: ValidationEngine | null = null;
+
+/**
+ * Get or create the validation engine instance
+ */
+function getValidationEngine(): ValidationEngine {
+  if (!validationEngine) {
+    // Create engine with database wrapper
+    const dbWrapper = {
+      execute: (query: { sql: string; args: any[] }) => db.executeQuery(query),
+    };
+
+    validationEngine = new ValidationEngine(dbWrapper);
+
+    // Register all validation definitions
+    validationEngine.registerAll(validationDefinitions);
+
+    console.log(`[ValidationEngine] Initialized with ${validationEngine.count} validations`);
+  }
+
+  return validationEngine;
 }
 
 export class ValidationHandlers {
   constructor() {
-    // Initialize registry when handlers are created
-    initializeRegistry();
+    // Initialize engine when handlers are created
+    getValidationEngine();
   }
 
   /**
-   * Run a validation
-   * Request: { validationName: string, ou?: string, period?: { year, month } }
+   * Run a validation by name
+   * Request: { validationName: string, ou: string, period?: { year, month } }
    */
   runValidationHandler: IpcHandler = async (event, request) => {
     try {
-      // console.log('[ValidationHandlers] Running validation:', request.validationName);
-      const result = await ValidationRegistry.executeValidation(
-        request.validationName,
-        {
-          ou: request.ou,
-          period: request.period,
-        }
-      );
+      const engine = getValidationEngine();
+
+      const result = await engine.execute(request.validationName, {
+        ou: request.ou,
+        period: request.period,
+      });
 
       return {
-        success: result.success,
-        data: result.result,
+        success: true,
+        data: result,
         timestamp: Date.now(),
       };
     } catch (error) {
@@ -57,21 +70,21 @@ export class ValidationHandlers {
   };
 
   /**
-   * Get all available validations
+   * Get all registered validation names
    * Request: { ou?: string }
+   *
+   * Note: This returns the locally registered validations.
+   * The UI typically uses the API-fetched validations for display,
+   * and this endpoint can be used for debugging/verification.
    */
   getAllValidationsHandler: IpcHandler = async (event, request) => {
     try {
-      let validations = ValidationRegistry.getAllMetadata();
-
-      // Filter by OU if provided
-      if (request?.ou) {
-        validations = validations.filter(v => !v.ou || v.ou === request.ou);
-      }
+      const engine = getValidationEngine();
+      const names = engine.getRegisteredNames();
 
       return {
         success: true,
-        data: validations,
+        data: names,
         timestamp: Date.now(),
       };
     } catch (error) {
@@ -85,22 +98,31 @@ export class ValidationHandlers {
   };
 
   /**
-   * Run all validations for an OU
-   * Request: { ou: string, period?: { year, month } }
+   * Run multiple validations by name
+   * Request: { validationNames: string[], ou: string, period?: { year, month }, stopOnFirstError?: boolean }
    */
   runAllValidationsHandler: IpcHandler = async (event, request) => {
     try {
-      // console.log('[ValidationHandlers] Running all validations for OU:', request.ou);
-      const results = await ValidationRegistry.executeAllForOU(
-        request.ou,
+      const engine = getValidationEngine();
+
+      const results = await engine.executeAll(
+        request.validationNames || [],
         {
+          ou: request.ou,
           period: request.period,
-        }
+        },
+        request.stopOnFirstError || false
       );
+
+      // Convert Map to array of results for IPC transport
+      const resultsArray = Array.from(results.entries()).map(([name, result]) => ({
+        validationName: name,
+        ...result,
+      }));
 
       return {
         success: true,
-        data: results,
+        data: resultsArray,
         timestamp: Date.now(),
       };
     } catch (error) {
@@ -114,25 +136,21 @@ export class ValidationHandlers {
   };
 
   /**
-   * Preview a validation (get info without running)
-   * Request: { validationName: string, ou?: string }
+   * Check if a validation is registered
+   * Request: { validationName: string }
    */
-  previewValidationHandler: IpcHandler = async (event, request) => {
+  checkValidationExistsHandler: IpcHandler = async (event, request) => {
     try {
-      const preview = await ValidationRegistry.previewValidation(
-        request.validationName,
-        {
-          ou: request.ou,
-        }
-      );
+      const engine = getValidationEngine();
+      const exists = engine.has(request.validationName);
 
       return {
         success: true,
-        data: preview,
+        data: { exists, validationName: request.validationName },
         timestamp: Date.now(),
       };
     } catch (error) {
-      console.error('[ValidationHandlers] Error previewing validation:', error);
+      console.error('[ValidationHandlers] Error checking validation:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -142,15 +160,18 @@ export class ValidationHandlers {
   };
 
   /**
-   * Get validation statistics
+   * Get validation engine statistics
    */
   getValidationStatsHandler: IpcHandler = async (event) => {
     try {
-      const stats = ValidationRegistry.getStatistics();
+      const engine = getValidationEngine();
 
       return {
         success: true,
-        data: stats,
+        data: {
+          totalValidations: engine.count,
+          registeredNames: engine.getRegisteredNames(),
+        },
         timestamp: Date.now(),
       };
     } catch (error) {
@@ -170,10 +191,9 @@ export function createValidationHandlers() {
 
   return {
     [IPC_CHANNELS.VALIDATION_RUN]: handlers.runValidationHandler,
-    // Add more channels if needed
     'validation:get-all': handlers.getAllValidationsHandler,
     'validation:run-all': handlers.runAllValidationsHandler,
-    'validation:preview': handlers.previewValidationHandler,
+    'validation:check-exists': handlers.checkValidationExistsHandler,
     'validation:stats': handlers.getValidationStatsHandler,
   };
 }

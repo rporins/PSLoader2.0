@@ -9,8 +9,7 @@ import {
   loggingMiddleware,
   errorHandlingMiddleware,
   performanceMiddleware,
-  securityMiddleware,
-  rateLimitMiddleware
+  securityMiddleware
 } from "./middleware";
 
 export * from "./types";
@@ -31,7 +30,6 @@ export function initializeIpc(
   ipcRegistry.use(errorHandlingMiddleware(logger));
   ipcRegistry.use(loggingMiddleware(logger));
   ipcRegistry.use(performanceMiddleware(1000)); // 1 second slow threshold
-  ipcRegistry.use(rateLimitMiddleware(20, 1000)); // 20 requests per second per channel
 
   // Register auth handlers
   const authHandlers = createAuthHandlers(authService, sendToRenderer);

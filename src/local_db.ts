@@ -299,6 +299,102 @@ interface AccountDepartmentCombo {
 
 //------------------------------------------------------------------------------------------------------------------
 //--- MIGRATE DATABASE FOR NEW COLUMNS ---------------------------------------------------------------------------
+
+async function migrateFinancialDataPrimaryKey() {
+  try {
+    // Check if migration is needed by looking at table structure
+    // We need to check if 'ou' is part of the primary key
+    const indexInfo = await client.execute({
+      sql: "SELECT sql FROM sqlite_master WHERE type='table' AND name='financial_data'",
+      args: []
+    });
+
+    if (indexInfo.rows.length === 0) {
+      // Table doesn't exist yet, will be created with correct schema
+      return;
+    }
+
+    const createSql = indexInfo.rows[0].sql as string;
+
+    // Check if the primary key already includes 'ou'
+    if (createSql.includes('PRIMARY KEY (dep_acc_combo_id, period_combo, scenario, ou)')) {
+      // Already migrated
+      return;
+    }
+
+    console.log("Migrating financial_data table to add 'ou' to primary key...");
+
+    // SQLite doesn't support ALTER TABLE to change primary key, so we need to:
+    // 1. Create a new table with the correct schema
+    // 2. Copy data from old table
+    // 3. Drop old table
+    // 4. Rename new table
+
+    await client.execute("PRAGMA foreign_keys = OFF");
+
+    // Create new table with updated primary key
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS financial_data_new (
+        dep_acc_combo_id TEXT NOT NULL,
+        month INTEGER NOT NULL,
+        year INTEGER NOT NULL,
+        period_combo TEXT NOT NULL,
+        scenario TEXT NOT NULL,
+        amount REAL NOT NULL,
+        count REAL,
+        currency TEXT NOT NULL,
+        ou TEXT NOT NULL DEFAULT '',
+        department TEXT,
+        account TEXT,
+        version TEXT,
+        last_modified TEXT DEFAULT CURRENT_TIMESTAMP,
+        item_version INTEGER DEFAULT 1,
+        FOREIGN KEY(dep_acc_combo_id) REFERENCES department_accounts(dep_acc_combo_id),
+        PRIMARY KEY (dep_acc_combo_id, period_combo, scenario, ou)
+      )
+    `);
+
+    // Copy data from old table, handling potential NULL ou values
+    await client.execute(`
+      INSERT OR IGNORE INTO financial_data_new
+      SELECT
+        dep_acc_combo_id,
+        month,
+        year,
+        period_combo,
+        scenario,
+        amount,
+        count,
+        currency,
+        COALESCE(ou, '') as ou,
+        department,
+        account,
+        version,
+        last_modified,
+        item_version
+      FROM financial_data
+    `);
+
+    // Drop old table
+    await client.execute("DROP TABLE financial_data");
+
+    // Rename new table
+    await client.execute("ALTER TABLE financial_data_new RENAME TO financial_data");
+
+    await client.execute("PRAGMA foreign_keys = ON");
+
+    console.log("Successfully migrated financial_data table primary key to include 'ou'");
+  } catch (error) {
+    console.error("Error during financial_data primary key migration:", error);
+    // Try to re-enable foreign keys
+    try {
+      await client.execute("PRAGMA foreign_keys = ON");
+    } catch (e) {
+      // Ignore
+    }
+  }
+}
+
 async function migrateFinancialDataTable() {
   try {
     // Check if the new columns already exist
@@ -578,14 +674,14 @@ export async function initializeDatabase() {
             amount REAL NOT NULL,
             count REAL,
             currency TEXT NOT NULL,
-            ou TEXT,
+            ou TEXT NOT NULL,
             department TEXT,
             account TEXT,
             version TEXT,
             last_modified TEXT DEFAULT CURRENT_TIMESTAMP,
             item_version INTEGER DEFAULT 1,
             FOREIGN KEY(dep_acc_combo_id) REFERENCES department_accounts(dep_acc_combo_id),
-            PRIMARY KEY (dep_acc_combo_id, period_combo, scenario)
+            PRIMARY KEY (dep_acc_combo_id, period_combo, scenario, ou)
         )
         `,
       `
@@ -833,6 +929,7 @@ export async function initializeDatabase() {
     // console.log("All necessary tables have been created or already exist.");
     // Run migration to add new columns to existing databases
     await migrateFinancialDataTable();
+    await migrateFinancialDataPrimaryKey(); // Must run after migrateFinancialDataTable to ensure columns exist
     await migrateHotelsCacheTable();
     await migrateFinancialDataStagingTable();
     await migrateAccountMapsTable();
@@ -974,9 +1071,8 @@ export async function update12Periods(...args: unknown[]): Promise<string> {
         dep_acc_combo_id, month, year, period_combo, scenario, amount, count, currency,
         ou, department, account, version, last_modified, item_version
       ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'USD', ?, ?, ?, ?, CURRENT_TIMESTAMP, 1)
-      ON CONFLICT (dep_acc_combo_id, period_combo, scenario) DO UPDATE SET
+      ON CONFLICT (dep_acc_combo_id, period_combo, scenario, ou) DO UPDATE SET
         amount = excluded.amount,
-        ou = excluded.ou,
         department = excluded.department,
         account = excluded.account,
         version = excluded.version,
@@ -4228,12 +4324,21 @@ export async function storeFinancialData(ou: string, records: any[]) {
       // Create a combo ID from department and account
       const dep_acc_combo_id = `${record.department}_${record.account}`;
 
-      // Insert query - since we deleted all data for this OU, no conflicts
+      // Insert query with ON CONFLICT to handle duplicate records in the incoming data
       const insertQuery = `
         INSERT INTO financial_data (
           dep_acc_combo_id, month, year, period_combo, scenario,
           amount, currency, ou, department, account, version, last_modified
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT (dep_acc_combo_id, period_combo, scenario, ou) DO UPDATE SET
+          amount = excluded.amount,
+          currency = excluded.currency,
+          month = excluded.month,
+          year = excluded.year,
+          department = excluded.department,
+          account = excluded.account,
+          version = excluded.version,
+          last_modified = CURRENT_TIMESTAMP
       `;
 
       batchQueries.push({
