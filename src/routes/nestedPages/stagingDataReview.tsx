@@ -117,6 +117,36 @@ export default function StagingDataReview() {
   const [loading, setLoading] = useState<boolean>(false);
   const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
 
+  // State for responsive design - force grid remount when window shrinks
+  const [gridKey, setGridKey] = useState(0);
+
+  // Force DataGrid remount when window shrinks to recalculate dimensions
+  useEffect(() => {
+    let previousWidth = window.innerWidth;
+    let resizeTimeout: NodeJS.Timeout;
+
+    const handleResize = () => {
+      clearTimeout(resizeTimeout);
+
+      resizeTimeout = setTimeout(() => {
+        const currentWidth = window.innerWidth;
+
+        // Force DataGrid to remount when window shrinks significantly
+        if (currentWidth < previousWidth - 10) {
+          setGridKey(prev => prev + 1);
+        }
+
+        previousWidth = currentWidth;
+      }, 300); // Debounce resize events
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(resizeTimeout);
+    };
+  }, []);
+
   const fetchStagingData = async () => {
     setLoading(true);
     try {
@@ -366,6 +396,7 @@ export default function StagingDataReview() {
 
       <Paper sx={{ height: 700, width: '100%' }}>
         <DataGridPremium
+          key={gridKey}
           rows={rows}
           columns={columns}
           slots={{

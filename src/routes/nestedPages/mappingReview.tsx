@@ -44,8 +44,12 @@ import {
   Cancel as CancelIcon,
   Refresh as RefreshIcon,
   TrendingFlat as TrendingFlatIcon,
+  HourglassEmpty as PendingIcon,
+  ThumbUp as ApproveIcon,
+  ThumbDown as RejectIcon,
+  Block as BlockIcon,
 } from '@mui/icons-material';
-import mappingConfigService, { MappingConfigResponse, MappingEntry } from '../../services/mappingConfigService';
+import mappingConfigService, { MappingConfigResponse, MappingEntry, ApprovalStatus } from '../../services/mappingConfigService';
 import importConfigService from '../../services/importConfigService';
 import authService from '../../services/auth';
 
@@ -330,12 +334,14 @@ const MappingReview: React.FC = () => {
   // State
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [approvingId, setApprovingId] = useState<number | null>(null);
   const [mappingConfigs, setMappingConfigs] = useState<MappingConfigResponse[]>([]);
   const [selectedConfigId, setSelectedConfigId] = useState<string>('');
   const [selectedConfig, setSelectedConfig] = useState<MappingConfigResponse | null>(null);
   const [mappings, setMappings] = useState<MappingEntry[]>([]);
   const [error, setError] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string>('');
+  const [approvalFilter, setApprovalFilter] = useState<ApprovalStatus | 'ALL'>('ALL');
 
   // Fetch mapping configs
   const fetchMappingConfigs = useCallback(async () => {
@@ -444,6 +450,70 @@ const MappingReview: React.FC = () => {
       setTimeout(() => setSuccessMessage(''), 5000);
     }
   }, [fetchMappingConfigs]);
+
+  // Handle approve mapping
+  const handleApproveMapping = useCallback(async (mappingId: number) => {
+    setApprovingId(mappingId);
+    setError('');
+
+    try {
+      const result = await mappingConfigService.approveMapping(mappingId, { approval_status: 'APPROVED' });
+
+      // Update local database
+      await mappingConfigService.updateLocalMappingApprovalStatus(
+        mappingId,
+        'APPROVED',
+        result.approved_by
+      );
+
+      // Update local state
+      setMappings(prev => prev.map(m =>
+        m.id === mappingId
+          ? { ...m, approval_status: 'APPROVED', approved_by: result.approved_by, approved_at: result.approved_at }
+          : m
+      ));
+
+      setSuccessMessage('Mapping approved successfully');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      console.error('Error approving mapping:', err);
+      setError('Failed to approve mapping: ' + (err as Error).message);
+    } finally {
+      setApprovingId(null);
+    }
+  }, []);
+
+  // Handle reject mapping
+  const handleRejectMapping = useCallback(async (mappingId: number) => {
+    setApprovingId(mappingId);
+    setError('');
+
+    try {
+      const result = await mappingConfigService.approveMapping(mappingId, { approval_status: 'REJECTED' });
+
+      // Update local database
+      await mappingConfigService.updateLocalMappingApprovalStatus(
+        mappingId,
+        'REJECTED',
+        result.approved_by
+      );
+
+      // Update local state
+      setMappings(prev => prev.map(m =>
+        m.id === mappingId
+          ? { ...m, approval_status: 'REJECTED', approved_by: result.approved_by, approved_at: result.approved_at }
+          : m
+      ));
+
+      setSuccessMessage('Mapping rejected successfully');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      console.error('Error rejecting mapping:', err);
+      setError('Failed to reject mapping: ' + (err as Error).message);
+    } finally {
+      setApprovingId(null);
+    }
+  }, []);
 
   // Define columns with responsive widths
   const columns: GridColDef[] = [
@@ -585,13 +655,13 @@ const MappingReview: React.FC = () => {
     },
     {
       field: 'is_active',
-      headerName: 'Status',
-      width: 95,
+      headerName: 'Active',
+      width: 85,
       type: 'boolean',
       renderCell: (params) => (
         <Chip
           icon={params.value ? <CheckCircleIcon /> : <CancelIcon />}
-          label={params.value ? 'Active' : 'Inactive'}
+          label={params.value ? 'Yes' : 'No'}
           size="small"
           sx={{
             fontWeight: 700,
@@ -613,11 +683,154 @@ const MappingReview: React.FC = () => {
         />
       ),
     },
+    {
+      field: 'approval_status',
+      headerName: 'Approval',
+      width: 130,
+      renderCell: (params) => {
+        const status = params.value as ApprovalStatus;
+        const getStatusConfig = () => {
+          switch (status) {
+            case 'APPROVED':
+              return {
+                icon: <CheckCircleIcon />,
+                label: 'Approved',
+                bgColor: alpha(theme.palette.success.main, 0.12),
+                color: theme.palette.success.main,
+              };
+            case 'REJECTED':
+              return {
+                icon: <BlockIcon />,
+                label: 'Rejected',
+                bgColor: alpha(theme.palette.error.main, 0.12),
+                color: theme.palette.error.main,
+              };
+            case 'PENDING_APPROVAL':
+              return {
+                icon: <PendingIcon />,
+                label: 'Pending',
+                bgColor: alpha(theme.palette.warning.main, 0.12),
+                color: theme.palette.warning.main,
+              };
+            case 'DRAFT':
+              return {
+                icon: <PendingIcon />,
+                label: 'Draft',
+                bgColor: alpha(theme.palette.grey[500], 0.12),
+                color: theme.palette.grey[600],
+              };
+            default:
+              return {
+                icon: <PendingIcon />,
+                label: status || 'Unknown',
+                bgColor: alpha(theme.palette.grey[500], 0.12),
+                color: theme.palette.grey[600],
+              };
+          }
+        };
+
+        const config = getStatusConfig();
+        return (
+          <Chip
+            icon={config.icon}
+            label={config.label}
+            size="small"
+            sx={{
+              fontWeight: 700,
+              fontSize: '0.6875rem',
+              height: 22,
+              borderRadius: 1.5,
+              backgroundColor: config.bgColor,
+              color: config.color,
+              border: 'none',
+              '& .MuiChip-icon': {
+                fontSize: 14,
+                marginLeft: '4px',
+                color: config.color,
+              },
+            }}
+          />
+        );
+      },
+    },
+    {
+      field: 'actions',
+      headerName: 'Actions',
+      width: 100,
+      sortable: false,
+      filterable: false,
+      disableColumnMenu: true,
+      disableExport: true,
+      renderCell: (params) => {
+        const status = params.row.approval_status as ApprovalStatus;
+        const mappingId = params.row.id as number;
+        const isProcessing = approvingId === mappingId;
+
+        if (status === 'APPROVED' || status === 'REJECTED') {
+          return null;
+        }
+
+        return (
+          <Stack direction="row" spacing={0.5}>
+            <Tooltip title="Approve" arrow placement="top">
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={() => handleApproveMapping(mappingId)}
+                  disabled={isProcessing || syncing}
+                  sx={{
+                    width: 28,
+                    height: 28,
+                    color: theme.palette.success.main,
+                    '&:hover': {
+                      backgroundColor: alpha(theme.palette.success.main, 0.12),
+                    },
+                  }}
+                >
+                  {isProcessing ? (
+                    <CircularProgress size={14} thickness={4} />
+                  ) : (
+                    <ApproveIcon sx={{ fontSize: 16 }} />
+                  )}
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="Reject" arrow placement="top">
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={() => handleRejectMapping(mappingId)}
+                  disabled={isProcessing || syncing}
+                  sx={{
+                    width: 28,
+                    height: 28,
+                    color: theme.palette.error.main,
+                    '&:hover': {
+                      backgroundColor: alpha(theme.palette.error.main, 0.12),
+                    },
+                  }}
+                >
+                  <RejectIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Stack>
+        );
+      },
+    },
   ];
 
   // Stats
   const activeCount = mappings.filter(m => m.is_active).length;
   const inactiveCount = mappings.length - activeCount;
+  const pendingCount = mappings.filter(m => m.approval_status === 'PENDING_APPROVAL').length;
+  const approvedCount = mappings.filter(m => m.approval_status === 'APPROVED').length;
+  const rejectedCount = mappings.filter(m => m.approval_status === 'REJECTED').length;
+
+  // Filter mappings based on approval filter
+  const filteredMappings = approvalFilter === 'ALL'
+    ? mappings
+    : mappings.filter(m => m.approval_status === approvalFilter);
 
   if (loading && mappingConfigs.length === 0) {
     return (
@@ -664,21 +877,33 @@ const MappingReview: React.FC = () => {
                 }}
               />
               <StatsChip
-                label={`${activeCount} Active`}
+                label={`${approvedCount} Approved`}
                 sx={{
                   backgroundColor: alpha(theme.palette.success.main, 0.12),
                   color: theme.palette.success.main,
                   border: 'none',
                 }}
               />
-              <StatsChip
-                label={`${inactiveCount} Inactive`}
-                sx={{
-                  backgroundColor: alpha(theme.palette.text.secondary, 0.08),
-                  color: theme.palette.text.secondary,
-                  border: 'none',
-                }}
-              />
+              {pendingCount > 0 && (
+                <StatsChip
+                  label={`${pendingCount} Pending`}
+                  sx={{
+                    backgroundColor: alpha(theme.palette.warning.main, 0.12),
+                    color: theme.palette.warning.main,
+                    border: 'none',
+                  }}
+                />
+              )}
+              {rejectedCount > 0 && (
+                <StatsChip
+                  label={`${rejectedCount} Rejected`}
+                  sx={{
+                    backgroundColor: alpha(theme.palette.error.main, 0.12),
+                    color: theme.palette.error.main,
+                    border: 'none',
+                  }}
+                />
+              )}
             </Stack>
           )}
         </Stack>
@@ -712,6 +937,30 @@ const MappingReview: React.FC = () => {
               })}
             </Select>
           </FormControl>
+
+          {!isMobile && (
+            <FormControl sx={{ minWidth: 140 }} size="small">
+              <InputLabel sx={{ fontSize: '0.875rem' }}>Approval Status</InputLabel>
+              <Select
+                value={approvalFilter}
+                label="Approval Status"
+                onChange={(e) => setApprovalFilter(e.target.value as ApprovalStatus | 'ALL')}
+                disabled={loading || syncing}
+                sx={{
+                  fontSize: '0.875rem',
+                  '& .MuiSelect-select': {
+                    py: 1,
+                  },
+                }}
+              >
+                <MenuItem value="ALL" sx={{ fontSize: '0.875rem' }}>All</MenuItem>
+                <MenuItem value="APPROVED" sx={{ fontSize: '0.875rem' }}>Approved</MenuItem>
+                <MenuItem value="PENDING_APPROVAL" sx={{ fontSize: '0.875rem' }}>Pending</MenuItem>
+                <MenuItem value="REJECTED" sx={{ fontSize: '0.875rem' }}>Rejected</MenuItem>
+                <MenuItem value="DRAFT" sx={{ fontSize: '0.875rem' }}>Draft</MenuItem>
+              </Select>
+            </FormControl>
+          )}
 
           {selectedConfig && (
             <>
@@ -837,7 +1086,7 @@ const MappingReview: React.FC = () => {
           <DataGridWrapper>
             <StyledDataGrid
               key={gridKey} // Force remount when window shrinks
-              rows={mappings}
+              rows={filteredMappings}
               columns={columns}
               pagination
               autoPageSize={false}

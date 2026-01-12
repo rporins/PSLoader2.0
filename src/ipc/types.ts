@@ -110,6 +110,8 @@ export const IPC_CHANNELS = {
   DB_GET_MAPPINGS: 'db:get-mappings',
   DB_GET_MAPPING_COUNT: 'db:get-mapping-count',
   DB_FIND_MAPPING: 'db:find-mapping',
+  DB_GET_MAPPINGS_BY_APPROVAL_STATUS: 'db:get-mappings-by-approval-status',
+  DB_UPDATE_MAPPING_APPROVAL_STATUS: 'db:update-mapping-approval-status',
 
   // Import group channels
   DB_STORE_IMPORT_GROUPS: 'db:store-import-groups',
@@ -143,8 +145,10 @@ export const IPC_CHANNELS = {
 
   // Financial data import channels
   DB_STORE_FINANCIAL_DATA: 'db:store-financial-data',
+  DB_STORE_FINANCIAL_DATA_FOR_PERIODS: 'db:store-financial-data-for-periods',
   DB_GET_FINANCIAL_DATA_COUNT: 'db:get-financial-data-count',
   DB_GET_FINANCIAL_DATA_LAST_IMPORT: 'db:get-financial-data-last-import',
+  DB_GET_FINANCIAL_DATA_LOCAL_VERSIONS: 'db:get-financial-data-local-versions',
   DB_GET_FINANCIAL_REPORT_DATA: 'db:get-financial-report-data',
   DB_GET_CUSTOM_PL_DATA: 'db:get-custom-pl-data',
   DB_GET_SUMMARY_PL_DATA: 'db:get-summary-pl-data',

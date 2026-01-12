@@ -92,6 +92,9 @@ interface MappingConfig {
   last_synced?: string;
 }
 
+// Approval status type
+type ApprovalStatus = 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'DRAFT';
+
 // Mapping interface
 interface Mapping {
   id: number;
@@ -104,6 +107,9 @@ interface Mapping {
   target_account_department: string | null;
   priority: number;
   is_active: boolean;
+  approval_status: ApprovalStatus;
+  approved_by: string | null;
+  approved_at: string | null;
 }
 
 // Import Group interface
@@ -515,6 +521,47 @@ async function migrateAccountMapsTable() {
   }
 }
 
+async function migrateMappingsTable() {
+  try {
+    // Check if the approval_status column exists
+    const tableInfo = await client.execute({
+      sql: "PRAGMA table_info(mappings)",
+      args: []
+    });
+
+    const columnNames = tableInfo.rows.map(row => row.name as string);
+
+    if (!columnNames.includes('approval_status')) {
+      // console.log("Migrating mappings table to add approval workflow columns");
+
+      // Add approval_status column with default 'APPROVED' for existing records
+      await client.execute({
+        sql: `ALTER TABLE mappings ADD COLUMN approval_status TEXT NOT NULL DEFAULT 'APPROVED'`,
+        args: []
+      });
+
+      // Add approved_by column
+      await client.execute({
+        sql: `ALTER TABLE mappings ADD COLUMN approved_by TEXT`,
+        args: []
+      });
+
+      // Add approved_at column
+      await client.execute({
+        sql: `ALTER TABLE mappings ADD COLUMN approved_at TEXT`,
+        args: []
+      });
+
+      // console.log("Successfully added approval workflow columns to mappings table");
+    } else {
+      // console.log("Mappings table already has approval workflow columns");
+    }
+  } catch (error) {
+    console.error("Error during mappings migration:", error);
+    // If table doesn't exist, it will be created with the new schema
+  }
+}
+
 async function migrateDepartmentMapsTable() {
   try {
     // Check if the department_description_detail_level_max column exists
@@ -731,6 +778,9 @@ export async function initializeDatabase() {
             target_account_department TEXT,
             priority INTEGER DEFAULT 0,
             is_active BOOLEAN NOT NULL DEFAULT 1,
+            approval_status TEXT NOT NULL DEFAULT 'APPROVED',
+            approved_by TEXT,
+            approved_at TEXT,
             FOREIGN KEY(mapping_config_id) REFERENCES mapping_configs(config_id) ON DELETE CASCADE
         )
         `,
@@ -934,6 +984,7 @@ export async function initializeDatabase() {
     await migrateFinancialDataStagingTable();
     await migrateAccountMapsTable();
     await migrateDepartmentMapsTable();
+    await migrateMappingsTable(); // Add approval workflow columns to existing mappings table
   } catch (error) {
     console.error("Error during database initialization:", error);
   }
@@ -3119,6 +3170,9 @@ export async function replaceMappings(configId: number, mappings: Array<{
   target_account_department: string | null;
   priority: number;
   is_active: boolean;
+  approval_status?: ApprovalStatus;
+  approved_by?: string | null;
+  approved_at?: string | null;
 }>): Promise<void> {
   try {
     // Start a transaction to ensure atomicity
@@ -3138,8 +3192,9 @@ export async function replaceMappings(configId: number, mappings: Array<{
             INSERT INTO mappings (
               id, mapping_config_id, source_account, source_department,
               source_account_department, target_account, target_department,
-              target_account_department, priority, is_active
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              target_account_department, priority, is_active,
+              approval_status, approved_by, approved_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `,
           args: [
             mapping.id,
@@ -3152,6 +3207,9 @@ export async function replaceMappings(configId: number, mappings: Array<{
             mapping.target_account_department,
             mapping.priority,
             mapping.is_active ? 1 : 0,
+            mapping.approval_status || 'APPROVED',
+            mapping.approved_by || null,
+            mapping.approved_at || null,
           ],
         });
       }
@@ -3177,7 +3235,8 @@ export async function getMappings(configId: number): Promise<Mapping[]> {
       sql: `
         SELECT id, mapping_config_id, source_account, source_department,
                source_account_department, target_account, target_department,
-               target_account_department, priority, is_active
+               target_account_department, priority, is_active,
+               approval_status, approved_by, approved_at
         FROM mappings
         WHERE mapping_config_id = ?
         ORDER BY priority DESC, id
@@ -3196,6 +3255,9 @@ export async function getMappings(configId: number): Promise<Mapping[]> {
       target_account_department: row.target_account_department as string | null,
       priority: row.priority as number,
       is_active: Boolean(row.is_active),
+      approval_status: (row.approval_status as ApprovalStatus) || 'APPROVED',
+      approved_by: row.approved_by as string | null,
+      approved_at: row.approved_at as string | null,
     }));
   } catch (error) {
     console.error("Error retrieving mappings:", error);
@@ -3226,19 +3288,25 @@ export async function getMappingCount(configId: number): Promise<number> {
 export async function findMapping(
   configId: number,
   sourceAccount: string | null,
-  sourceDepartment: string | null
+  sourceDepartment: string | null,
+  includeUnapproved: boolean = false
 ): Promise<Mapping | null> {
   try {
+    // Build the approval status filter - by default only return APPROVED mappings
+    const approvalFilter = includeUnapproved ? '' : "AND approval_status = 'APPROVED'";
+
     const result = await client.execute({
       sql: `
         SELECT id, mapping_config_id, source_account, source_department,
                source_account_department, target_account, target_department,
-               target_account_department, priority, is_active
+               target_account_department, priority, is_active,
+               approval_status, approved_by, approved_at
         FROM mappings
         WHERE mapping_config_id = ?
           AND (source_account = ? OR (source_account IS NULL AND ? IS NULL))
           AND (source_department = ? OR (source_department IS NULL AND ? IS NULL))
           AND is_active = 1
+          ${approvalFilter}
         ORDER BY priority DESC, id
         LIMIT 1
       `,
@@ -3258,11 +3326,85 @@ export async function findMapping(
         target_account_department: row.target_account_department as string | null,
         priority: row.priority as number,
         is_active: Boolean(row.is_active),
+        approval_status: (row.approval_status as ApprovalStatus) || 'APPROVED',
+        approved_by: row.approved_by as string | null,
+        approved_at: row.approved_at as string | null,
       };
     }
     return null;
   } catch (error) {
     console.error("Error finding mapping:", error);
+    throw error;
+  }
+}
+
+// Get mappings by approval status
+export async function getMappingsByApprovalStatus(
+  configId: number | null,
+  approvalStatus: ApprovalStatus
+): Promise<Mapping[]> {
+  try {
+    let sql = `
+      SELECT id, mapping_config_id, source_account, source_department,
+             source_account_department, target_account, target_department,
+             target_account_department, priority, is_active,
+             approval_status, approved_by, approved_at
+      FROM mappings
+      WHERE approval_status = ?
+    `;
+    const args: (number | string)[] = [approvalStatus];
+
+    if (configId !== null) {
+      sql += ' AND mapping_config_id = ?';
+      args.push(configId);
+    }
+
+    sql += ' ORDER BY mapping_config_id, priority DESC, id';
+
+    const result = await client.execute({ sql, args });
+
+    return result.rows.map((row) => ({
+      id: row.id as number,
+      mapping_config_id: row.mapping_config_id as number,
+      source_account: row.source_account as string | null,
+      source_department: row.source_department as string | null,
+      source_account_department: row.source_account_department as string | null,
+      target_account: row.target_account as string | null,
+      target_department: row.target_department as string | null,
+      target_account_department: row.target_account_department as string | null,
+      priority: row.priority as number,
+      is_active: Boolean(row.is_active),
+      approval_status: (row.approval_status as ApprovalStatus) || 'APPROVED',
+      approved_by: row.approved_by as string | null,
+      approved_at: row.approved_at as string | null,
+    }));
+  } catch (error) {
+    console.error("Error retrieving mappings by approval status:", error);
+    throw error;
+  }
+}
+
+// Update mapping approval status
+export async function updateMappingApprovalStatus(
+  mappingId: number,
+  approvalStatus: ApprovalStatus,
+  approvedBy: string | null
+): Promise<void> {
+  try {
+    const approvedAt = approvalStatus === 'APPROVED' || approvalStatus === 'REJECTED'
+      ? new Date().toISOString()
+      : null;
+
+    await client.execute({
+      sql: `
+        UPDATE mappings
+        SET approval_status = ?, approved_by = ?, approved_at = ?
+        WHERE id = ?
+      `,
+      args: [approvalStatus, approvedBy, approvedAt, mappingId],
+    });
+  } catch (error) {
+    console.error("Error updating mapping approval status:", error);
     throw error;
   }
 }
@@ -4409,6 +4551,124 @@ export async function getFinancialDataLastImport(ou: string): Promise<string | n
   } catch (error) {
     console.error("Error getting last import timestamp:", error);
     return null;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//----------------- FINANCIAL DATA VERSION TRACKING FOR INCREMENTAL SYNC ----------------------------------------
+
+export interface LocalPeriodVersion {
+  period: string;
+  last_modified: string;
+}
+
+/**
+ * Get local version info (last_modified) for each period for an OU
+ * Used to compare with server versions for incremental sync
+ */
+export async function getFinancialDataLocalVersions(ou: string): Promise<LocalPeriodVersion[]> {
+  try {
+    const result = await client.execute({
+      sql: `
+        SELECT period_combo as period, MAX(last_modified) as last_modified
+        FROM financial_data
+        WHERE ou = ?
+        GROUP BY period_combo
+        ORDER BY period_combo
+      `,
+      args: [ou]
+    });
+
+    return result.rows.map(row => ({
+      period: row.period as string,
+      last_modified: row.last_modified as string
+    }));
+  } catch (error) {
+    console.error("Error getting local financial data versions:", error);
+    return [];
+  }
+}
+
+/**
+ * Store financial data for specific periods only (incremental update)
+ * Deletes existing data only for the specified periods, then inserts new records
+ */
+export async function storeFinancialDataForPeriods(
+  ou: string,
+  records: any[],
+  periods: string[]
+): Promise<void> {
+  if (!Array.isArray(records) || records.length === 0) {
+    return;
+  }
+
+  if (!Array.isArray(periods) || periods.length === 0) {
+    return;
+  }
+
+  try {
+    await client.execute("PRAGMA foreign_keys = OFF");
+
+    // Delete existing data only for the specified periods
+    const placeholders = periods.map(() => '?').join(', ');
+    await client.execute({
+      sql: `DELETE FROM financial_data WHERE ou = ? AND period_combo IN (${placeholders})`,
+      args: [ou, ...periods]
+    });
+
+    const batchQueries: { sql: string; args: any[] }[] = [];
+
+    for (const record of records) {
+      const [yearStr, monthStr] = record.period.split("-");
+      const year = parseInt(yearStr);
+      const month = parseInt(monthStr);
+      const dep_acc_combo_id = `${record.department}_${record.account}`;
+
+      const insertQuery = `
+        INSERT INTO financial_data (
+          dep_acc_combo_id, month, year, period_combo, scenario,
+          amount, currency, ou, department, account, version, last_modified
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT (dep_acc_combo_id, period_combo, scenario, ou) DO UPDATE SET
+          amount = excluded.amount,
+          currency = excluded.currency,
+          month = excluded.month,
+          year = excluded.year,
+          department = excluded.department,
+          account = excluded.account,
+          version = excluded.version,
+          last_modified = CURRENT_TIMESTAMP
+      `;
+
+      batchQueries.push({
+        sql: insertQuery,
+        args: [
+          dep_acc_combo_id,
+          month,
+          year,
+          record.period,
+          record.scenario,
+          record.amount / 100,
+          record.currency,
+          ou,
+          record.department,
+          record.account,
+          record.version
+        ]
+      });
+    }
+
+    await client.batch(batchQueries);
+    await client.execute("PRAGMA foreign_keys = ON");
+
+  } catch (error) {
+    try {
+      await client.execute("PRAGMA foreign_keys = ON");
+    } catch (pragmaError) {
+      console.error("Error re-enabling foreign keys:", pragmaError);
+    }
+    console.error("Error storing financial data for periods:", error);
+    throw error;
   }
 }
 

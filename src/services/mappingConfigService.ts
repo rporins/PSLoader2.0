@@ -25,6 +25,9 @@ export interface MappingConfigUpdateRequest {
   updated_at: string;
 }
 
+// Approval status type
+export type ApprovalStatus = 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'DRAFT';
+
 // Interface for Mapping entry
 export interface MappingEntry {
   source_account: string | null;
@@ -37,6 +40,15 @@ export interface MappingEntry {
   is_active: boolean;
   id: number;
   mapping_config_id: number;
+  approval_status: ApprovalStatus;
+  approved_by: string | null;
+  approved_at: string | null;
+}
+
+// Interface for mapping approval request
+export interface MappingApprovalRequest {
+  approval_status: 'APPROVED' | 'REJECTED';
+  rejection_reason?: string;
 }
 
 class MappingConfigService {
@@ -360,6 +372,137 @@ class MappingConfigService {
       }
     }
     return [];
+  }
+
+  /**
+   * Get pending mappings from API
+   * @param configId Optional configuration ID to filter by
+   * @returns Promise<MappingEntry[]> Array of pending mappings
+   */
+  async getPendingMappingsFromAPI(configId?: number): Promise<MappingEntry[]> {
+    const accessToken = authService.getAccessToken();
+
+    if (!accessToken) {
+      throw new Error('No access token available');
+    }
+
+    try {
+      let url = `${API_BASE_URL}/mappings/mappings/pending`;
+      if (configId !== undefined) {
+        url += `?config_id=${configId}`;
+      }
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        if (response.status === 422) {
+          const error = await response.json();
+          throw new Error(error.detail?.[0]?.msg || 'Validation error');
+        }
+        const error = await response.json();
+        throw new Error(error.detail || `Failed to fetch pending mappings: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching pending mappings:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Approve or reject a mapping via API
+   * @param mappingId The mapping ID to approve/reject
+   * @param approvalRequest The approval request data
+   * @returns Promise<MappingEntry> The updated mapping
+   */
+  async approveMapping(mappingId: number, approvalRequest: MappingApprovalRequest): Promise<MappingEntry> {
+    const accessToken = authService.getAccessToken();
+
+    if (!accessToken) {
+      throw new Error('No access token available');
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/mappings/mappings/${mappingId}/approve`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(approvalRequest)
+      });
+
+      if (!response.ok) {
+        if (response.status === 422) {
+          const error = await response.json();
+          throw new Error(error.detail?.[0]?.msg || 'Validation error');
+        }
+        const error = await response.json();
+        throw new Error(error.detail || `Failed to approve mapping: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error approving mapping:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get mappings by approval status from local database
+   * @param configId Optional configuration ID to filter by
+   * @param approvalStatus The approval status to filter by
+   * @returns Promise<MappingEntry[]> Array of mappings with the specified status
+   */
+  async getStoredMappingsByApprovalStatus(
+    configId: number | null,
+    approvalStatus: ApprovalStatus
+  ): Promise<MappingEntry[]> {
+    if (typeof window !== 'undefined' && window.ipcApi) {
+      try {
+        const stored = await window.ipcApi.sendIpcRequest('db:get-mappings-by-approval-status', {
+          config_id: configId,
+          approval_status: approvalStatus
+        });
+        return stored?.data || [];
+      } catch (error) {
+        console.error('Failed to get stored mappings by approval status:', error);
+        return [];
+      }
+    }
+    return [];
+  }
+
+  /**
+   * Update mapping approval status in local database
+   * @param mappingId The mapping ID
+   * @param approvalStatus The new approval status
+   * @param approvedBy The user who approved/rejected
+   */
+  async updateLocalMappingApprovalStatus(
+    mappingId: number,
+    approvalStatus: ApprovalStatus,
+    approvedBy: string | null
+  ): Promise<void> {
+    if (typeof window !== 'undefined' && window.ipcApi) {
+      try {
+        await window.ipcApi.sendIpcRequest('db:update-mapping-approval-status', {
+          mapping_id: mappingId,
+          approval_status: approvalStatus,
+          approved_by: approvedBy
+        });
+      } catch (error) {
+        console.error('Failed to update local mapping approval status:', error);
+        throw error;
+      }
+    }
   }
 }
 

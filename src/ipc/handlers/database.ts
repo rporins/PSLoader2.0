@@ -195,11 +195,37 @@ export class DatabaseHandlers {
     const result = await db.findMapping(
       request.config_id,
       request.source_account,
-      request.source_department
+      request.source_department,
+      request.include_unapproved || false
     );
     return {
       success: true,
       data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  getMappingsByApprovalStatusHandler: IpcHandler = async (event, request) => {
+    const result = await db.getMappingsByApprovalStatus(
+      request.config_id || null,
+      request.approval_status
+    );
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  updateMappingApprovalStatusHandler: IpcHandler = async (event, request) => {
+    await db.updateMappingApprovalStatus(
+      request.mapping_id,
+      request.approval_status,
+      request.approved_by || null
+    );
+    return {
+      success: true,
+      data: { message: 'Mapping approval status updated successfully' },
       timestamp: Date.now(),
     };
   };
@@ -416,6 +442,15 @@ export class DatabaseHandlers {
     };
   };
 
+  storeFinancialDataForPeriodsHandler: IpcHandler = async (event, request) => {
+    await db.storeFinancialDataForPeriods(request.ou, request.records, request.periods);
+    return {
+      success: true,
+      data: { message: `Stored ${request.records.length} financial records for ${request.periods.length} periods` },
+      timestamp: Date.now(),
+    };
+  };
+
   getFinancialDataCountHandler: IpcHandler = async (event, request) => {
     const result = await db.getFinancialDataCount(request.ou);
     return {
@@ -427,6 +462,15 @@ export class DatabaseHandlers {
 
   getFinancialDataLastImportHandler: IpcHandler = async (event, request) => {
     const result = await db.getFinancialDataLastImport(request.ou);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  getFinancialDataLocalVersionsHandler: IpcHandler = async (event, request) => {
+    const result = await db.getFinancialDataLocalVersions(request.ou);
     return {
       success: true,
       data: result,
@@ -638,6 +682,8 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_MAPPINGS]: handlers.getMappingsHandler,
     [IPC_CHANNELS.DB_GET_MAPPING_COUNT]: handlers.getMappingCountHandler,
     [IPC_CHANNELS.DB_FIND_MAPPING]: handlers.findMappingHandler,
+    [IPC_CHANNELS.DB_GET_MAPPINGS_BY_APPROVAL_STATUS]: handlers.getMappingsByApprovalStatusHandler,
+    [IPC_CHANNELS.DB_UPDATE_MAPPING_APPROVAL_STATUS]: handlers.updateMappingApprovalStatusHandler,
     [IPC_CHANNELS.DB_STORE_IMPORT_GROUPS]: handlers.storeImportGroupsHandler,
     [IPC_CHANNELS.DB_GET_IMPORT_GROUPS]: handlers.getImportGroupsHandler,
     [IPC_CHANNELS.DB_GET_MAPPING_CONFIG_IDS_FOR_OU]: handlers.getMappingConfigIdsForOUHandler,
@@ -661,8 +707,10 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_ACCOUNT_MAP]: handlers.getAccountMapHandler,
     [IPC_CHANNELS.DB_GET_DEPARTMENT_MAP]: handlers.getDepartmentMapHandler,
     [IPC_CHANNELS.DB_STORE_FINANCIAL_DATA]: handlers.storeFinancialDataHandler,
+    [IPC_CHANNELS.DB_STORE_FINANCIAL_DATA_FOR_PERIODS]: handlers.storeFinancialDataForPeriodsHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_COUNT]: handlers.getFinancialDataCountHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_LAST_IMPORT]: handlers.getFinancialDataLastImportHandler,
+    [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_LOCAL_VERSIONS]: handlers.getFinancialDataLocalVersionsHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_REPORT_DATA]: handlers.getFinancialReportDataHandler,
     [IPC_CHANNELS.DB_GET_CUSTOM_PL_DATA]: handlers.getCustomPLDataHandler,
     [IPC_CHANNELS.DB_GET_SUMMARY_PL_DATA]: handlers.getSummaryPLDataHandler,

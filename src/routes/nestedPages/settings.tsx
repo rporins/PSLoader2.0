@@ -304,7 +304,8 @@ export default function Settings() {
     setFinancialDataImportMessage(null);
 
     try {
-      const result = await financialDataService.importFinancialData(selectedHotelOu);
+      // Try incremental sync first (only fetches changed periods)
+      const result = await financialDataService.importFinancialDataIncremental(selectedHotelOu);
 
       setFinancialDataImportMessage({
         type: 'success',
@@ -317,11 +318,26 @@ export default function Settings() {
       // Clear message after 5 seconds
       setTimeout(() => setFinancialDataImportMessage(null), 5000);
     } catch (err: any) {
-      console.error('Failed to import financial data:', err);
-      setFinancialDataImportMessage({
-        type: 'error',
-        message: err.message || 'Failed to import financial data'
-      });
+      console.error('Incremental sync failed, falling back to full import:', err);
+
+      // Fallback to full import if incremental sync fails
+      try {
+        const result = await financialDataService.importFinancialData(selectedHotelOu);
+
+        setFinancialDataImportMessage({
+          type: 'success',
+          message: result.message
+        });
+
+        await loadFinancialDataInfo();
+        setTimeout(() => setFinancialDataImportMessage(null), 5000);
+      } catch (fallbackErr: any) {
+        console.error('Failed to import financial data:', fallbackErr);
+        setFinancialDataImportMessage({
+          type: 'error',
+          message: fallbackErr.message || 'Failed to import financial data'
+        });
+      }
     } finally {
       setImportingFinancialData(false);
     }
