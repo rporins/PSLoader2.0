@@ -3433,6 +3433,12 @@ export async function storeImportGroups(ou: string, importGroups: Array<{
     await client.execute("BEGIN TRANSACTION");
 
     try {
+      // Delete existing imports for this OU's import groups first (cascade may not be enabled)
+      await client.execute({
+        sql: "DELETE FROM imports WHERE import_group_id IN (SELECT id FROM import_groups WHERE ou = ?)",
+        args: [ou],
+      });
+
       // Delete existing import groups for this OU
       await client.execute({
         sql: "DELETE FROM import_groups WHERE ou = ?",
