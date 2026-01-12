@@ -45,7 +45,7 @@ export interface MappingTablesSyncResult {
 export async function initializeMappingTables(silent = false): Promise<MappingTablesSyncResult> {
   try {
     if (!silent) {
-      // console.log('🔄 Checking mapping tables sync status...');
+      // console.log('Checking mapping tables sync status...');
     }
 
     // Check if sync is needed
@@ -53,7 +53,7 @@ export async function initializeMappingTables(silent = false): Promise<MappingTa
 
     if (!needsSync && !needsComboSync) {
       if (!silent) {
-        // console.log('✅ Mapping tables are up-to-date');
+        // console.log('Mapping tables are up-to-date');
       }
       return {
         success: true,
@@ -65,10 +65,10 @@ export async function initializeMappingTables(silent = false): Promise<MappingTa
     // Perform sync
     if (!silent) {
       if (needsSync) {
-        // console.log('📥 Downloading account and department maps...');
+        // console.log('Downloading account and department maps...');
       }
       if (needsComboSync) {
-        // console.log('📥 Downloading account-department combos...');
+        // console.log('Downloading account-department combos...');
       }
     }
 
@@ -76,7 +76,7 @@ export async function initializeMappingTables(silent = false): Promise<MappingTa
 
     if (synced) {
       if (!silent) {
-        // console.log('✅ Mapping tables synced successfully');
+        // console.log('Mapping tables synced successfully');
       }
       return {
         success: true,
@@ -85,7 +85,7 @@ export async function initializeMappingTables(silent = false): Promise<MappingTa
       };
     } else {
       if (!silent) {
-        // console.log('✅ Mapping tables are up-to-date');
+        // console.log('Mapping tables are up-to-date');
       }
       return {
         success: true,
@@ -96,7 +96,7 @@ export async function initializeMappingTables(silent = false): Promise<MappingTa
   } catch (error: any) {
     const errorMessage = error?.message || 'Unknown error occurred';
     if (!silent) {
-      console.error('❌ Failed to sync mapping tables:', errorMessage);
+      console.error('Failed to sync mapping tables:', errorMessage);
     }
     return {
       success: false,
@@ -129,7 +129,7 @@ export async function getMappingTablesVersion(): Promise<{ version: string; comb
  */
 export async function forceMappingTablesSync(): Promise<MappingTablesSyncResult> {
   try {
-    // console.log('🔄 Forcing mapping tables sync...');
+    // console.log('Forcing mapping tables sync...');
     // Download and sync everything
     const data = await mappingTablesService.getData();
     await mappingTablesService.storeMappingTablesData(data);
@@ -143,7 +143,7 @@ export async function forceMappingTablesSync(): Promise<MappingTablesSyncResult>
       combosData.combo_version || data.version
     );
 
-    // console.log('✅ Forced sync completed successfully');
+    // console.log('Forced sync completed successfully');
     return {
       success: true,
       synced: true,
@@ -151,7 +151,7 @@ export async function forceMappingTablesSync(): Promise<MappingTablesSyncResult>
     };
   } catch (error: any) {
     const errorMessage = error?.message || 'Unknown error occurred';
-    console.error('❌ Failed to force sync mapping tables:', errorMessage);
+    console.error('Failed to force sync mapping tables:', errorMessage);
     return {
       success: false,
       synced: false,

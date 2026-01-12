@@ -15,7 +15,7 @@ export const createAppTheme = (mode: ThemeMode = "light") => {
         main: isLight ? "#9c27b0" : "#ce93d8" 
       },
       background: {
-        default: isLight ? "#FAFAFA" : "#121212", // Much whiter background
+        default: isLight ? "#FAFAFA" : "#121212", 
         paper: isLight ? "#ffffff" : "#1e1e1e",
       },
       text: {
@@ -27,7 +27,7 @@ export const createAppTheme = (mode: ThemeMode = "light") => {
       MuiCssBaseline: {
         styleOverrides: {
           body: {
-            backgroundColor: isLight ? "#FAFAFA" : "#121212", // Much whiter for body
+            backgroundColor: isLight ? "#FAFAFA" : "#121212", 
           },
         },
       },

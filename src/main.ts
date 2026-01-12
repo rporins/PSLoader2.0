@@ -21,9 +21,9 @@ dotenv.config();
 
 // ────────────────────────────────────────────────────────────
 // Configure electron-log for auto-updater debugging
-// Logs are saved to: C:\Users\ricis\Documents\PSLoader\updater.log
+// Logs are saved dynamically to the user's documents directory
 // ────────────────────────────────────────────────────────────
-log.transports.file.resolvePathFn = () => path.join('C:\\Users\\ricis\\Documents\\PSLoader', 'updater.log');
+log.transports.file.resolvePathFn = () => path.join(app.getPath('documents'), 'PSLoader', 'updater.log');
 log.transports.file.level = "info";
 
 /**

@@ -9,7 +9,7 @@
 export interface PageHeaderConfig {
   title: string;
   subtitle?: string;
-  icon: string; // Icon name or emoji
+  icon: string; 
   gradient: {
     from: string;
     to: string;
@@ -26,7 +26,7 @@ export interface ImportCardConfig {
   id: string;
   displayName: string;
   description: string;
-  icon?: string; // Emoji or icon name
+  icon?: string; 
   category: string;
   fileTypes: string[]; // e.g., ['xlsx', 'csv', 'xls']
   required: boolean;

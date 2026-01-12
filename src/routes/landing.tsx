@@ -30,7 +30,7 @@ import * as THREE from "three";
 // ────────────────────────────────────────────────────────────
 
 const REDIRECT_AFTER_LOGIN = "/signed-in-landing";
-const SUPPORT_EMAIL = "support@psloader.com";
+const SUPPORT_EMAIL = "EMEAReportingSupport@marriott.com";
 
 // ────────────────────────────────────────────────────────────
 /** 1) IPC TYPES + GLOBAL AUGMENTATION */
