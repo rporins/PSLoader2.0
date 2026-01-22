@@ -104,6 +104,7 @@ const DataImport: React.FC = () => {
   const [importCompleted, setImportCompleted] = useState(false);
   const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
   const [showLockedMessage, setShowLockedMessage] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0); // Used to force re-initialization after reset
 
   // Import Groups state
   const [importGroups, setImportGroups] = useState<ImportGroup[]>([]);
@@ -129,6 +130,7 @@ const DataImport: React.FC = () => {
   const [dataFreshness, setDataFreshness] = useState<'cached' | 'fresh' | 'fetching'>('cached');
 
   // Check if imports are already completed for this OU
+  // refreshKey is included to re-run this effect after a reset
   useEffect(() => {
     const checkImportState = async () => {
       if (!selectedOU) return;
@@ -141,6 +143,8 @@ const DataImport: React.FC = () => {
           setImportCompleted(isCompleted);
           if (isCompleted) {
             setShowLockedMessage(true);
+          } else {
+            setShowLockedMessage(false);
           }
         }
       } catch (error) {
@@ -149,7 +153,7 @@ const DataImport: React.FC = () => {
     };
 
     checkImportState();
-  }, [selectedOU]);
+  }, [selectedOU, refreshKey]);
 
   // Fetch upload periods when OU is selected or changes
   useEffect(() => {
@@ -500,6 +504,9 @@ const DataImport: React.FC = () => {
     setCurrentActiveIndex(0);
     setCompletedImports(new Set());
     setCurrentImportSessionId(null); // Clear the import session ID for a fresh start
+
+    // Increment refreshKey to force re-initialization of useEffects
+    setRefreshKey(prev => prev + 1);
   }, [selectedOU]);
 
   // Handle start import session or validate import

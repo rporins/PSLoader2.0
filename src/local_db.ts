@@ -2455,7 +2455,7 @@ export async function resetAllCompletionStates(ou: string): Promise<void> {
 
     // Clear cached import data (staging table)
     await client.execute({
-      sql: "DELETE FROM staging WHERE ou = ?",
+      sql: "DELETE FROM financial_data_staging WHERE ou = ?",
       args: [ou]
     });
 
@@ -3458,11 +3458,11 @@ export async function storeImportGroups(ou: string, importGroups: Array<{
 
         const groupId = groupResult.lastInsertRowid;
 
-        // Insert imports for this group
+        // Insert imports for this group (use INSERT OR REPLACE to handle same import IDs across OUs)
         for (const imp of group.imports) {
           await client.execute({
             sql: `
-              INSERT INTO imports (
+              INSERT OR REPLACE INTO imports (
                 id, import_group_id, name, display_name, description,
                 order_index, mapping_config_id, required,
                 file_types, required_columns, optional_columns, validation_rules

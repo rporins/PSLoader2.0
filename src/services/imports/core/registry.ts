@@ -20,9 +20,10 @@ import { getFileType, validateFile } from '../utils/fileParser';
 // Import processors
 import { TestImportProcessor } from '../processors/testImport';
 import { AccpacLineItemsProcessor } from '../processors/accpac_line_items';
-import { AccpacRoomRevImportProcessor } from '../processors/accpacRoomRev';
 import { AccpacWorksheetImportProcessor } from '../processors/accpacWorksheetImport';
 import { AccpacCompsImportProcessor } from '../processors/accpacCompsImport';
+import { OperaRoomSegImportProcessor } from '../processors/operaRoomSegImport';
+import { ManualImportFileProcessor } from '../processors/manualImportFile';
 
 /**
  * Import execution request
@@ -97,9 +98,10 @@ export class ImportRegistry {
 
     // Production processors
     this.register(new AccpacLineItemsProcessor());
-    this.register(new AccpacRoomRevImportProcessor());
     this.register(new AccpacWorksheetImportProcessor());
     this.register(new AccpacCompsImportProcessor());
+    this.register(new OperaRoomSegImportProcessor());
+    this.register(new ManualImportFileProcessor());
 
     // TODO: Register additional processors here
     // this.register(new CustomerDataImportProcessor());
