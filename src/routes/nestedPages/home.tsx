@@ -1,75 +1,342 @@
-import { Box, Typography, Card, CardContent, Stack, Divider, Paper } from "@mui/material";
-import { styled } from "@mui/material/styles";
-import InfoIcon from "@mui/icons-material/Info";
+import { useState, useEffect } from "react";
+import { Box, Typography, Card, CardContent, Stack, Grid, Button, LinearProgress, Chip } from "@mui/material";
+import { styled, alpha } from "@mui/material/styles";
+import { useNavigate } from "react-router-dom";
+import FileUploadIcon from "@mui/icons-material/FileUpload";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import AssessmentIcon from "@mui/icons-material/Assessment";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import { useSettingsStore } from "../../store/settings";
 
 const StyledCard = styled(Card)(({ theme }) => ({
-  marginBottom: theme.spacing(3),
-  boxShadow: theme.shadows[3],
+  height: "100%",
+  borderRadius: 16,
+  transition: "all 0.3s ease",
+  border: `1px solid ${theme.palette.divider}`,
+  "&:hover": {
+    boxShadow: theme.shadows[4],
+    transform: "translateY(-2px)",
+  },
+}));
+
+const WorkflowCard = styled(Card)<{ active?: boolean; completed?: boolean }>(({ theme, active, completed }) => ({
+  borderRadius: 12,
+  border: `2px solid ${
+    completed
+      ? theme.palette.success.main
+      : active
+      ? theme.palette.primary.main
+      : theme.palette.divider
+  }`,
+  backgroundColor: completed
+    ? alpha(theme.palette.success.main, 0.05)
+    : active
+    ? alpha(theme.palette.primary.main, 0.05)
+    : theme.palette.background.paper,
+  transition: "all 0.3s ease",
+  cursor: "pointer",
+  "&:hover": {
+    boxShadow: theme.shadows[3],
+    transform: "translateY(-2px)",
+  },
+}));
+
+const StepNumber = styled(Box)<{ active?: boolean; completed?: boolean }>(({ theme, active, completed }) => ({
+  width: 48,
+  height: 48,
+  borderRadius: "50%",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  backgroundColor: completed
+    ? theme.palette.success.main
+    : active
+    ? theme.palette.primary.main
+    : theme.palette.divider,
+  color: completed || active ? theme.palette.common.white : theme.palette.text.secondary,
+  fontWeight: 700,
+  fontSize: "1.25rem",
 }));
 
 export default function Home() {
+  const navigate = useNavigate();
+  const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
+  const [workflowProgress, setWorkflowProgress] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  // Workflow completion states
+  const [stats, setStats] = useState({
+    importCompleted: false,
+    validationCompleted: false,
+    signOffCompleted: false,
+  });
+
+  const workflowSteps = [
+    {
+      id: 1,
+      title: "Import Data",
+      description: "Upload your financial data files",
+      icon: FileUploadIcon,
+      route: "/signed-in-landing/data-import",
+      completed: stats.importCompleted,
+      active: !stats.importCompleted,
+    },
+    {
+      id: 2,
+      title: "Run Validations",
+      description: "Ensure data meets requirements",
+      icon: CheckCircleIcon,
+      route: "/signed-in-landing/validations",
+      completed: stats.validationCompleted,
+      active: stats.importCompleted && !stats.validationCompleted,
+    },
+    {
+      id: 3,
+      title: "Sign-Off & Upload",
+      description: "Review reports and submit your data",
+      icon: CloudUploadIcon,
+      route: "/signed-in-landing/sign-off-upload",
+      completed: stats.signOffCompleted,
+      active: stats.validationCompleted && !stats.signOffCompleted,
+    },
+  ];
+
+  // Fetch completion states from database
+  useEffect(() => {
+    const fetchCompletionStates = async () => {
+      if (!selectedHotelOu) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+
+        // Fetch all completion states
+        // @ts-ignore
+        const importResult = await window.ipcApi.sendIpcRequest('db:get-import-completed-state', { ou: selectedHotelOu });
+        // @ts-ignore
+        const validationResult = await window.ipcApi.sendIpcRequest('db:get-validation-completed-state', { ou: selectedHotelOu });
+        // @ts-ignore
+        const signOffResult = await window.ipcApi.sendIpcRequest('db:get-signoff-completed-state', { ou: selectedHotelOu });
+
+        setStats({
+          importCompleted: importResult?.success ? (importResult.data as boolean) : false,
+          validationCompleted: validationResult?.success ? (validationResult.data as boolean) : false,
+          signOffCompleted: signOffResult?.success ? (signOffResult.data as boolean) : false,
+        });
+      } catch (error) {
+        console.error('Failed to fetch completion states:', error);
+        setStats({
+          importCompleted: false,
+          validationCompleted: false,
+          signOffCompleted: false,
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCompletionStates();
+  }, [selectedHotelOu]);
+
+  useEffect(() => {
+    // Calculate workflow progress
+    const completedSteps = workflowSteps.filter((step) => step.completed).length;
+    const progress = (completedSteps / workflowSteps.length) * 100;
+    setWorkflowProgress(progress);
+  }, [stats]);
+
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom sx={{ mb: 3 }}>
-        Welcome to PSLoader
-      </Typography>
+    <Box sx={{ p: 3, maxWidth: 1400, mx: "auto" }}>
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h4" fontWeight={700} gutterBottom>
+          Welcome to PSLoader
+        </Typography>
+        <Typography variant="body1" color="text.secondary">
+          Track your data submission workflow and monitor progress
+        </Typography>
+      </Box>
 
-      <StyledCard>
-        <CardContent>
-          <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
-            <InfoIcon color="primary" />
-            <Typography variant="h6">About This Tool</Typography>
+      {/* Workflow Progress */}
+      <Card sx={{ mb: 4, borderRadius: 3, border: 1, borderColor: "divider" }}>
+        <CardContent sx={{ p: 3 }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+            <Typography variant="h6" fontWeight={600}>
+              Workflow Progress
+            </Typography>
+            <Chip
+              label={`${Math.round(workflowProgress)}% Complete`}
+              color={workflowProgress === 100 ? "success" : "primary"}
+              size="small"
+            />
           </Stack>
-          <Divider sx={{ mb: 2 }} />
-
-          <Typography variant="body1" paragraph>
-            PSLoader is a comprehensive financial planning and data management tool designed to streamline
-            your workflow for importing, validating, and reporting financial data.
-          </Typography>
-
-          <Typography variant="h6" sx={{ mt: 3, mb: 2 }}>
-            Getting Started
-          </Typography>
-
-          <Stack spacing={2}>
-            <Paper sx={{ p: 2, bgcolor: 'background.default' }}>
-              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                1. Import Your Data
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Navigate to <strong>Data Import</strong> to upload your financial data files.
-              </Typography>
-            </Paper>
-
-            <Paper sx={{ p: 2, bgcolor: 'background.default' }}>
-              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                2. Review Validations
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Check the <strong>Validations</strong> page to ensure your data meets all requirements.
-              </Typography>
-            </Paper>
-
-            <Paper sx={{ p: 2, bgcolor: 'background.default' }}>
-              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                3. Sign-Off & Upload
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Once validated, proceed to <strong>Sign-Off & Upload</strong> to finalize and submit your data.
-              </Typography>
-            </Paper>
-
-            <Paper sx={{ p: 2, bgcolor: 'background.default' }}>
-              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                4. View Reports
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Access various reports including <strong>P&L</strong>, <strong>Data Table</strong>, and custom <strong>Reports</strong>.
-              </Typography>
-            </Paper>
-          </Stack>
+          <LinearProgress
+            variant="determinate"
+            value={workflowProgress}
+            sx={{
+              height: 8,
+              borderRadius: 4,
+              backgroundColor: (theme) => alpha(theme.palette.primary.main, 0.1),
+              "& .MuiLinearProgress-bar": {
+                borderRadius: 4,
+              },
+            }}
+          />
         </CardContent>
-      </StyledCard>
+      </Card>
+
+      {/* Workflow Steps */}
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        {workflowSteps.map((step, index) => (
+          <Grid item xs={12} sm={6} md={3} key={step.id}>
+            <WorkflowCard
+              active={step.active}
+              completed={step.completed}
+              onClick={() => navigate(step.route)}
+            >
+              <CardContent sx={{ p: 3 }}>
+                <Stack spacing={2}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                    <StepNumber active={step.active} completed={step.completed}>
+                      {step.completed ? <CheckCircleIcon /> : step.id}
+                    </StepNumber>
+                    <step.icon
+                      sx={{
+                        fontSize: 32,
+                        color: step.completed
+                          ? "success.main"
+                          : step.active
+                          ? "primary.main"
+                          : "text.disabled",
+                      }}
+                    />
+                  </Stack>
+                  <Box>
+                    <Typography variant="h6" fontWeight={600} gutterBottom>
+                      {step.title}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {step.description}
+                    </Typography>
+                  </Box>
+                </Stack>
+              </CardContent>
+            </WorkflowCard>
+          </Grid>
+        ))}
+      </Grid>
+
+      {/* Quick Stats */}
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={4}>
+          <StyledCard>
+            <CardContent sx={{ p: 3 }}>
+              <Typography variant="overline" color="text.secondary" fontWeight={600}>
+                Data Import
+              </Typography>
+              <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 1, mb: 1 }}>
+                <Typography variant="h4" fontWeight={700}>
+                  {stats.importCompleted ? 'Completed' : 'Not Started'}
+                </Typography>
+                {stats.importCompleted && <CheckCircleIcon color="success" sx={{ fontSize: 32 }} />}
+              </Stack>
+              <Button
+                size="small"
+                endIcon={<ArrowForwardIcon />}
+                onClick={() => navigate("/signed-in-landing/data-import")}
+                sx={{ mt: 1 }}
+              >
+                {stats.importCompleted ? 'View Import' : 'Start Import'}
+              </Button>
+            </CardContent>
+          </StyledCard>
+        </Grid>
+
+        <Grid item xs={12} md={4}>
+          <StyledCard>
+            <CardContent sx={{ p: 3 }}>
+              <Typography variant="overline" color="text.secondary" fontWeight={600}>
+                Validations
+              </Typography>
+              <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 1, mb: 1 }}>
+                <Typography variant="h4" fontWeight={700}>
+                  {stats.validationCompleted ? 'Completed' : stats.importCompleted ? 'Pending' : 'Locked'}
+                </Typography>
+                {stats.validationCompleted && <CheckCircleIcon color="success" sx={{ fontSize: 32 }} />}
+              </Stack>
+              <Button
+                size="small"
+                endIcon={<ArrowForwardIcon />}
+                onClick={() => navigate("/signed-in-landing/validations")}
+                sx={{ mt: 1 }}
+                disabled={!stats.importCompleted}
+              >
+                {stats.validationCompleted ? 'View Validations' : 'Run Validations'}
+              </Button>
+            </CardContent>
+          </StyledCard>
+        </Grid>
+
+        <Grid item xs={12} md={4}>
+          <StyledCard>
+            <CardContent sx={{ p: 3 }}>
+              <Typography variant="overline" color="text.secondary" fontWeight={600}>
+                Sign-Off & Upload
+              </Typography>
+              <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 1, mb: 1 }}>
+                <Typography variant="h4" fontWeight={700}>
+                  {stats.signOffCompleted ? 'Completed' : stats.validationCompleted ? 'Pending' : 'Locked'}
+                </Typography>
+                {stats.signOffCompleted && <CheckCircleIcon color="success" sx={{ fontSize: 32 }} />}
+              </Stack>
+              <Button
+                size="small"
+                endIcon={<ArrowForwardIcon />}
+                onClick={() => navigate("/signed-in-landing/sign-off-upload")}
+                sx={{ mt: 1 }}
+                disabled={!stats.validationCompleted}
+              >
+                {stats.signOffCompleted ? 'View Sign-Off' : 'Sign Off & Upload'}
+              </Button>
+            </CardContent>
+          </StyledCard>
+        </Grid>
+      </Grid>
+
+      {/* Reports Access Card - Always Available */}
+      <Box sx={{ mt: 3 }}>
+        <StyledCard>
+          <CardContent sx={{ p: 3 }}>
+            <Stack direction="row" alignItems="center" justifyContent="space-between">
+              <Stack direction="row" alignItems="center" spacing={2}>
+                <AssessmentIcon sx={{ fontSize: 40, color: "primary.main" }} />
+                <Box>
+                  <Typography variant="h6" fontWeight={600}>
+                    Financial Reports
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    View P&L reports and financial data analysis
+                  </Typography>
+                </Box>
+              </Stack>
+              <Button
+                variant="contained"
+                endIcon={<ArrowForwardIcon />}
+                onClick={() => navigate("/signed-in-landing/report")}
+                sx={{
+                  borderRadius: 2,
+                  textTransform: "none",
+                  fontWeight: 600,
+                }}
+              >
+                View Reports
+              </Button>
+            </Stack>
+          </CardContent>
+        </StyledCard>
+      </Box>
     </Box>
   );
 }

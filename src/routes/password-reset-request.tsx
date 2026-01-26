@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import authService from '../services/auth';
 import {
@@ -11,20 +11,15 @@ import {
   TextField,
   Typography,
   CircularProgress,
-  useMediaQuery,
-  Link,
-  Divider,
   alpha,
 } from '@mui/material';
 import { styled, useTheme, keyframes } from '@mui/material/styles';
-import LoginIcon from '@mui/icons-material/Login';
-import PersonAddAltRoundedIcon from '@mui/icons-material/PersonAddAltRounded';
-import LockRoundedIcon from '@mui/icons-material/LockRounded';
+import EmailIcon from '@mui/icons-material/Email';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import IconButton from '@mui/material/IconButton';
-import marriottLogo from '../images/marriott_logo.png';
 
-// Animations from landing page
+// Animations
 const liquidMorph = keyframes`
   0%, 100% {
     border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
@@ -64,11 +59,18 @@ const hologramPulse = keyframes`
   50% { opacity: 0.6; transform: scale(1.02) translateY(-2px); }
 `;
 
-const magneticFloat = keyframes`
-  0%, 100% { transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg); }
-  25% { transform: translate3d(10px, -15px, 20px) rotateX(5deg) rotateY(10deg); }
-  50% { transform: translate3d(-10px, -20px, 30px) rotateX(-5deg) rotateY(-10deg); }
-  75% { transform: translate3d(5px, -10px, 15px) rotateX(3deg) rotateY(5deg); }
+const checkmarkAnimation = keyframes`
+  0% {
+    transform: scale(0) rotate(-45deg);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2) rotate(0deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
 `;
 
 // Styled Components
@@ -335,13 +337,13 @@ const BackButton = styled(IconButton)(({ theme }) => ({
   },
 }));
 
-const Login: React.FC = () => {
+const PasswordResetRequest: React.FC = () => {
   const navigate = useNavigate();
   const theme = useTheme();
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -349,23 +351,135 @@ const Login: React.FC = () => {
     setIsLoading(true);
 
     try {
-      await authService.login(email, password);
-      navigate('/auth/device-verify');
+      await authService.requestPasswordReset(email);
+      setSuccess(true);
     } catch (err: any) {
-      console.error('Login error:', err);
-
-      // Better error handling for CORS issues
-      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        setError('Cannot connect to server. Please ensure the backend server is running and CORS is properly configured.');
-      } else if (err.message.includes('CORS')) {
-        setError('Server connection blocked by CORS policy. Please contact your system administrator.');
-      } else {
-        setError(err.message || 'Invalid email or password');
-      }
-
+      console.error('Password reset request error:', err);
+      setError(err.message || 'Failed to send reset email. Please try again.');
       setIsLoading(false);
     }
   };
+
+  if (success) {
+    return (
+      <PageRoot>
+        <LiquidMetalOrbs $reduceMotion={false}>
+          <div className="metal-orb orb1" />
+          <div className="metal-orb orb2" />
+          <div className="metal-orb orb3" />
+        </LiquidMetalOrbs>
+
+        <BackButton onClick={() => navigate('/login')} aria-label="Go back to login">
+          <ArrowBackIcon />
+        </BackButton>
+
+        <Box sx={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 480, px: 2 }}>
+          <HolographicCard elevation={0}>
+            <CardContent sx={{ p: 5 }}>
+              <Stack spacing={3} alignItems="center">
+                <Box
+                  sx={{
+                    width: 80,
+                    height: 80,
+                    borderRadius: '50%',
+                    background: `linear-gradient(135deg, #10b981, #059669)`,
+                    boxShadow: `0 20px 40px rgba(16, 185, 129, 0.4)`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    animation: `${checkmarkAnimation} 0.6s cubic-bezier(0.23, 1, 0.32, 1)`,
+                  }}
+                >
+                  <CheckCircleIcon sx={{ color: '#ffffff', fontSize: 48 }} />
+                </Box>
+
+                <Typography
+                  variant="h4"
+                  sx={{
+                    fontWeight: 800,
+                    fontSize: '2rem',
+                    lineHeight: 1.2,
+                    textAlign: 'center',
+                    background: theme.palette.mode === 'dark'
+                      ? `linear-gradient(135deg, #ffffff, #c9b8ff)`
+                      : `linear-gradient(135deg, #1a1a2e, #764ba2)`,
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                  }}
+                >
+                  Check Your Email
+                </Typography>
+
+                <Alert
+                  severity="success"
+                  sx={{
+                    width: '100%',
+                    borderRadius: 3,
+                    background: alpha('#10b981', 0.08),
+                    border: `1px solid ${alpha('#10b981', 0.2)}`,
+                    backdropFilter: 'blur(10px)',
+                    '& .MuiAlert-icon': {
+                      color: '#10b981',
+                    },
+                  }}
+                >
+                  If an account exists with <strong>{email}</strong>, a password reset link has been sent.
+                </Alert>
+
+                <Box
+                  sx={{
+                    width: '100%',
+                    p: 3,
+                    borderRadius: 3,
+                    background: alpha(theme.palette.primary.main, 0.05),
+                    border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
+                  }}
+                >
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      color: theme.palette.text.secondary,
+                      mb: 2,
+                      fontWeight: 500,
+                    }}
+                  >
+                    Next steps:
+                  </Typography>
+                  <Stack spacing={1.5}>
+                    <Typography variant="body2" sx={{ color: theme.palette.text.secondary }}>
+                      1. Check your email inbox for a password reset link
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: theme.palette.text.secondary }}>
+                      2. Copy the reset token from the email
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: theme.palette.text.secondary }}>
+                      3. Use the token to set your new password
+                    </Typography>
+                  </Stack>
+                </Box>
+
+                <PremiumButton
+                  fullWidth
+                  size="large"
+                  onClick={() => navigate('/auth/password-reset/confirm')}
+                >
+                  Continue to Reset Password
+                </PremiumButton>
+
+                <SecondaryButton
+                  fullWidth
+                  size="large"
+                  onClick={() => navigate('/login')}
+                >
+                  Back to Login
+                </SecondaryButton>
+              </Stack>
+            </CardContent>
+          </HolographicCard>
+        </Box>
+      </PageRoot>
+    );
+  }
 
   return (
     <PageRoot>
@@ -375,8 +489,7 @@ const Login: React.FC = () => {
         <div className="metal-orb orb3" />
       </LiquidMetalOrbs>
 
-      {/* Back button */}
-      <BackButton onClick={() => navigate('/')} aria-label="Go back">
+      <BackButton onClick={() => navigate('/login')} aria-label="Go back to login">
         <ArrowBackIcon />
       </BackButton>
 
@@ -396,7 +509,7 @@ const Login: React.FC = () => {
                   justifyContent: 'center',
                 }}
               >
-                <LoginIcon sx={{ color: '#ffffff', fontSize: 28 }} />
+                <EmailIcon sx={{ color: '#ffffff', fontSize: 28 }} />
               </Box>
               <Typography
                 variant="h4"
@@ -411,7 +524,7 @@ const Login: React.FC = () => {
                   WebkitTextFillColor: 'transparent',
                 }}
               >
-                Welcome Back
+                Reset Password
               </Typography>
             </Stack>
 
@@ -425,7 +538,7 @@ const Login: React.FC = () => {
                   fontWeight: 500,
                 }}
               >
-                Sign in to continue
+                Enter your email to receive a reset link
               </Typography>
             </Box>
 
@@ -459,100 +572,30 @@ const Login: React.FC = () => {
                   required
                   disabled={isLoading}
                   autoComplete="email"
+                  autoFocus
                 />
-
-                <StyledTextField
-                  fullWidth
-                  label="Password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  disabled={isLoading}
-                  autoComplete="current-password"
-                />
-
-                <Box sx={{ textAlign: 'right' }}>
-                  <Link
-                    component="button"
-                    type="button"
-                    variant="body2"
-                    onClick={() => navigate('/auth/password-reset/request')}
-                    disabled={isLoading}
-                    sx={{
-                      color: theme.palette.primary.main,
-                      textDecoration: 'none',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      opacity: isLoading ? 0.5 : 1,
-                      transition: 'all 0.2s',
-                      '&:hover': {
-                        textDecoration: 'underline',
-                        opacity: 0.8,
-                      },
-                    }}
-                  >
-                    Forgot Password?
-                  </Link>
-                </Box>
 
                 <PremiumButton
                   fullWidth
                   size="large"
                   type="submit"
-                  startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <LoginIcon />}
+                  startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <EmailIcon />}
                   disabled={isLoading}
                 >
-                  {isLoading ? 'Signing In...' : 'Sign In'}
+                  {isLoading ? 'Sending...' : 'Send Reset Link'}
                 </PremiumButton>
 
                 <SecondaryButton
                   fullWidth
                   size="large"
-                  startIcon={<PersonAddAltRoundedIcon />}
-                  onClick={() => navigate('/register')}
+                  startIcon={<ArrowBackIcon />}
+                  onClick={() => navigate('/login')}
                   disabled={isLoading}
                 >
-                  Request New Account
+                  Back to Login
                 </SecondaryButton>
               </Stack>
             </form>
-
-            <Divider sx={{ my: 3, opacity: 0.2 }} />
-
-            <Stack spacing={2}>
-              <Stack
-                direction="row"
-                spacing={1}
-                alignItems="center"
-                justifyContent="center"
-                sx={{ opacity: 0.8 }}
-              >
-                <LockRoundedIcon fontSize="small" sx={{ color: theme.palette.text.secondary }} />
-                <Typography
-                  variant="caption"
-                  sx={{
-                    color: theme.palette.text.secondary,
-                    fontWeight: 600,
-                    letterSpacing: 0.3,
-                  }}
-                >
-                  Device-linked authentication • Secure OTP pairing
-                </Typography>
-              </Stack>
-
-              <Typography
-                variant="caption"
-                align="center"
-                sx={{
-                  color: theme.palette.text.secondary,
-                  opacity: 0.6,
-                  mt: 1,
-                }}
-              >
-                Made by EMEA FR&A
-              </Typography>
-            </Stack>
           </CardContent>
         </HolographicCard>
       </Box>
@@ -560,4 +603,4 @@ const Login: React.FC = () => {
   );
 };
 
-export default Login;
+export default PasswordResetRequest;

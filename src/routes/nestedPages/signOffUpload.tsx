@@ -424,24 +424,43 @@ export default function SignOffUpload() {
         </StyledCard>
       )}
 
-      {/* Locked State - Reset Button */}
+      {/* Locked State - Completion Message & Reset Button */}
       {signOffCompleted && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
-          <Button
-            variant="contained"
-            color="warning"
-            startIcon={<LockIcon />}
-            onClick={() => setShowResetConfirmModal(true)}
+        <Stack spacing={2} mt={3}>
+          <Alert
+            severity="success"
+            icon={<CheckCircleIcon />}
             sx={{
-              borderRadius: 2,
-              textTransform: 'none',
-              fontWeight: 600,
-              fontSize: '0.9rem',
+              borderRadius: 3,
+              background: alpha(theme.palette.success.main, 0.1),
+              border: `1px solid ${alpha(theme.palette.success.main, 0.3)}`,
             }}
           >
-            Reset All Stages
-          </Button>
-        </Box>
+            <Typography variant="body1" fontWeight={600} mb={0.5}>
+              Sign-Off & Upload Stage Completed
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Data has been signed off and uploaded successfully. You can now view reports or reset all stages to start a new workflow.
+            </Typography>
+          </Alert>
+
+          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+            <Button
+              variant="contained"
+              color="warning"
+              startIcon={<LockIcon />}
+              onClick={() => setShowResetConfirmModal(true)}
+              sx={{
+                borderRadius: 2,
+                textTransform: 'none',
+                fontWeight: 600,
+                fontSize: '0.9rem',
+              }}
+            >
+              Reset All Stages
+            </Button>
+          </Box>
+        </Stack>
       )}
 
       {/* Access Denied Modal */}

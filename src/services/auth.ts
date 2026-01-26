@@ -70,6 +70,14 @@ export interface DeviceRegisterResponse {
   status: 'pending' | 'approved';
 }
 
+export interface PasswordResetRequestResponse {
+  message: string;
+}
+
+export interface PasswordResetConfirmResponse {
+  message: string;
+}
+
 class AuthService {
   private accessToken: string | null = null;
   private securityLevel: number = 0;
@@ -507,6 +515,60 @@ class AuthService {
 
     // Fetch and cache new data
     return this.getHotels();
+  }
+
+  // Password Reset: Request reset token
+  async requestPasswordReset(email: string): Promise<PasswordResetRequestResponse> {
+    const response = await fetch(`${API_BASE_URL}/auth/password-reset/request`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ email })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Password reset request failed');
+    }
+
+    return await response.json();
+  }
+
+  // Password Reset: Confirm with token and new password
+  async confirmPasswordReset(
+    token: string,
+    newPassword: string
+  ): Promise<PasswordResetConfirmResponse> {
+    // Get device credentials from memory (already generated in constructor)
+    if (!this.deviceId || !this.deviceSecret) {
+      throw new Error('No registered device found. Password reset requires a registered device.');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/auth/password-reset/confirm`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        token,
+        new_password: newPassword,
+        device_id: this.deviceId,
+        device_secret: this.deviceSecret
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Password reset confirmation failed');
+    }
+
+    return await response.json();
+  }
+
+  // Get device ID (for display purposes)
+  getDeviceId(): string | null {
+    return this.deviceId;
   }
 }
 

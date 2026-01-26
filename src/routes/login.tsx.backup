@@ -472,30 +472,6 @@ const Login: React.FC = () => {
                   autoComplete="current-password"
                 />
 
-                <Box sx={{ textAlign: 'right' }}>
-                  <Link
-                    component="button"
-                    type="button"
-                    variant="body2"
-                    onClick={() => navigate('/auth/password-reset/request')}
-                    disabled={isLoading}
-                    sx={{
-                      color: theme.palette.primary.main,
-                      textDecoration: 'none',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      opacity: isLoading ? 0.5 : 1,
-                      transition: 'all 0.2s',
-                      '&:hover': {
-                        textDecoration: 'underline',
-                        opacity: 0.8,
-                      },
-                    }}
-                  >
-                    Forgot Password?
-                  </Link>
-                </Box>
-
                 <PremiumButton
                   fullWidth
                   size="large"

@@ -29,6 +29,8 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
+  TextField,
+  Tooltip,
 } from '@mui/material';
 import { styled, useTheme } from '@mui/material/styles';
 import {
@@ -40,8 +42,12 @@ import {
   ExpandMore as ExpandMoreIcon,
   Info as InfoIcon,
   Lock as LockIcon,
+  Assignment as AssignmentIcon,
+  HourglassEmpty as HourglassEmptyIcon,
+  CheckCircleOutline as CheckCircleOutlineIcon,
 } from '@mui/icons-material';
 import validationService, { Validation } from '../../services/validationService';
+import validationOverrideService, { ValidationOverrideStatus } from '../../services/validationOverrideService';
 import { useSettingsStore } from '../../store/settings';
 import { useNavigate } from 'react-router-dom';
 
@@ -99,6 +105,12 @@ interface ValidationResult {
   expanded?: boolean;
 }
 
+interface OverrideRequestDialogState {
+  open: boolean;
+  validationName: string;
+  displayName: string;
+}
+
 // ────────────────────────────────────────────────────────────
 // MAIN COMPONENT
 // ────────────────────────────────────────────────────────────
@@ -119,7 +131,19 @@ const Validations: React.FC = () => {
   const [validationCompleted, setValidationCompleted] = useState(false);
   const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
 
+  // Override state
+  const [overrideStatuses, setOverrideStatuses] = useState<Map<string, ValidationOverrideStatus>>(new Map());
+  const [overrideRequestDialog, setOverrideRequestDialog] = useState<OverrideRequestDialogState>({
+    open: false,
+    validationName: '',
+    displayName: '',
+  });
+  const [overrideReason, setOverrideReason] = useState('');
+  const [submittingOverride, setSubmittingOverride] = useState(false);
+  const [checkingOverrideStatus, setCheckingOverrideStatus] = useState(false);
+
   const selectedOU = useSettingsStore((s) => s.selectedHotelOu);
+  const selectedPeriod = useSettingsStore((s) => s.selectedPeriod);
 
   // Check if imports and validations are completed for this OU
   useEffect(() => {
@@ -331,6 +355,112 @@ const Validations: React.FC = () => {
     }
   }, [selectedOU, navigate]);
 
+  // Load override statuses for all required validations
+  const loadOverrideStatuses = useCallback(async () => {
+    if (!selectedOU || !selectedPeriod) return;
+
+    const requiredValidations = validations.filter(v => v.is_required);
+    if (requiredValidations.length === 0) return;
+
+    const contexts = requiredValidations.map(v =>
+      validationOverrideService.getContextForValidation(v.name, selectedOU, selectedPeriod)
+    );
+
+    try {
+      const statusMap = await validationOverrideService.checkMultipleOverrideStatuses(contexts);
+      setOverrideStatuses(statusMap);
+    } catch (error) {
+      console.error('Failed to load override statuses:', error);
+    }
+  }, [selectedOU, selectedPeriod, validations]);
+
+  // Load override statuses when validations are loaded
+  useEffect(() => {
+    if (validations.length > 0 && selectedOU && selectedPeriod) {
+      loadOverrideStatuses();
+    }
+  }, [validations, selectedOU, selectedPeriod, loadOverrideStatuses]);
+
+  // Open override request dialog
+  const handleOpenOverrideDialog = useCallback((validation: Validation) => {
+    setOverrideRequestDialog({
+      open: true,
+      validationName: validation.name,
+      displayName: validation.display_name,
+    });
+    setOverrideReason('');
+  }, []);
+
+  // Close override request dialog
+  const handleCloseOverrideDialog = useCallback(() => {
+    setOverrideRequestDialog({
+      open: false,
+      validationName: '',
+      displayName: '',
+    });
+    setOverrideReason('');
+  }, []);
+
+  // Submit override request
+  const handleSubmitOverrideRequest = useCallback(async () => {
+    if (!selectedOU || !selectedPeriod || !overrideRequestDialog.validationName || !overrideReason.trim()) {
+      return;
+    }
+
+    setSubmittingOverride(true);
+
+    try {
+      const context = validationOverrideService.getContextForValidation(
+        overrideRequestDialog.validationName,
+        selectedOU,
+        selectedPeriod
+      );
+
+      const result = validationResults.get(overrideRequestDialog.validationName);
+      const state = result?.status === 'error' ? 'failed' : result?.status === 'warning' ? 'warning' : 'unknown';
+
+      await validationOverrideService.requestOverride(
+        context,
+        [{ name: overrideRequestDialog.validationName, state }],
+        overrideReason.trim()
+      );
+
+      // Refresh override status for this validation
+      const status = await validationOverrideService.checkOverrideStatus(context);
+      setOverrideStatuses(prev => {
+        const newMap = new Map(prev);
+        newMap.set(context, status);
+        return newMap;
+      });
+
+      handleCloseOverrideDialog();
+    } catch (error) {
+      console.error('Failed to submit override request:', error);
+      alert('Failed to submit override request. Please try again.');
+    } finally {
+      setSubmittingOverride(false);
+    }
+  }, [selectedOU, selectedPeriod, overrideRequestDialog, overrideReason, validationResults, handleCloseOverrideDialog]);
+
+  // Refresh all override statuses
+  const handleRefreshOverrideStatuses = useCallback(async () => {
+    if (!selectedOU || !selectedPeriod) return;
+
+    setCheckingOverrideStatus(true);
+    try {
+      await loadOverrideStatuses();
+    } finally {
+      setCheckingOverrideStatus(false);
+    }
+  }, [selectedOU, selectedPeriod, loadOverrideStatuses]);
+
+  // Get override status for a specific validation
+  const getOverrideStatusForValidation = useCallback((validationName: string): ValidationOverrideStatus | undefined => {
+    if (!selectedOU || !selectedPeriod) return undefined;
+    const context = validationOverrideService.getContextForValidation(validationName, selectedOU, selectedPeriod);
+    return overrideStatuses.get(context);
+  }, [selectedOU, selectedPeriod, overrideStatuses]);
+
   // Stats calculation and validation checks
   const stats = {
     total: validations.length,
@@ -340,14 +470,17 @@ const Validations: React.FC = () => {
     warnings: Array.from(validationResults.values()).filter(r => r.status === 'warning').length,
   };
 
-  // Check if all required validations have passed
+  // Check if all required validations have passed (or have approved overrides)
   const requiredValidations = validations.filter(v => v.is_required);
   const allRequiredValidationsPassed = requiredValidations.length > 0 && requiredValidations.every(v => {
     const result = validationResults.get(v.name);
-    return result?.status === 'success';
+    const overrideStatus = getOverrideStatusForValidation(v.name);
+
+    // Pass if validation succeeded OR if there's an approved override
+    return result?.status === 'success' || overrideStatus?.is_approved;
   });
 
-  // Can mark as done if all required validations have passed
+  // Can mark as done if all required validations have passed (or have approved overrides)
   const canMarkAsDone = allRequiredValidationsPassed && !validationCompleted;
 
   if (loading) {
@@ -483,6 +616,9 @@ const Validations: React.FC = () => {
               const result = validationResults.get(validation.name);
               const hasErrors = result?.errors && result.errors.length > 0;
               const hasWarnings = result?.warnings && result.warnings.length > 0;
+              const overrideStatus = getOverrideStatusForValidation(validation.name);
+              const hasOverrideRequest = overrideStatus && overrideStatus.requested_at !== null;
+              const isOverrideApproved = overrideStatus?.is_approved || false;
 
               return (
                 <ValidationCard key={validation.id}>
@@ -502,12 +638,34 @@ const Validations: React.FC = () => {
 
                           {/* Title and description */}
                           <Box flex={1}>
-                            <Stack direction="row" alignItems="center" spacing={1}>
+                            <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
                               <Typography variant="h6" fontWeight={600} fontSize="1rem">
                                 {validation.display_name}
                               </Typography>
                               {validation.is_required && (
                                 <Chip label="Required" size="small" color="primary" sx={{ height: 20, fontSize: '0.7rem' }} />
+                              )}
+                              {isOverrideApproved && (
+                                <Tooltip title="Override approved - validation bypassed">
+                                  <Chip
+                                    icon={<CheckCircleOutlineIcon />}
+                                    label="Override Approved"
+                                    size="small"
+                                    color="success"
+                                    sx={{ height: 20, fontSize: '0.7rem' }}
+                                  />
+                                </Tooltip>
+                              )}
+                              {hasOverrideRequest && !isOverrideApproved && (
+                                <Tooltip title="Override request pending approval">
+                                  <Chip
+                                    icon={<HourglassEmptyIcon />}
+                                    label="Override Pending"
+                                    size="small"
+                                    color="warning"
+                                    sx={{ height: 20, fontSize: '0.7rem' }}
+                                  />
+                                </Tooltip>
                               )}
                             </Stack>
                             <Typography variant="body2" color="text.secondary" fontSize="0.85rem">
@@ -586,6 +744,41 @@ const Validations: React.FC = () => {
                                 ))}
                               </Alert>
                             )}
+
+                            {/* Request Override Button - only show for required validations with errors */}
+                            {validation.is_required && hasErrors && !validationCompleted && (
+                              <Box sx={{ mt: 1 }}>
+                                {isOverrideApproved ? (
+                                  <Alert severity="success" sx={{ borderRadius: 2 }}>
+                                    <Typography variant="body2" fontSize="0.85rem">
+                                      Override approved - this validation has been bypassed
+                                    </Typography>
+                                  </Alert>
+                                ) : hasOverrideRequest ? (
+                                  <Alert severity="info" sx={{ borderRadius: 2 }}>
+                                    <Typography variant="body2" fontSize="0.85rem">
+                                      Override request submitted. Awaiting admin approval.
+                                    </Typography>
+                                  </Alert>
+                                ) : (
+                                  <Button
+                                    variant="outlined"
+                                    color="warning"
+                                    size="small"
+                                    startIcon={<AssignmentIcon />}
+                                    onClick={() => handleOpenOverrideDialog(validation)}
+                                    sx={{
+                                      borderRadius: 2,
+                                      textTransform: 'none',
+                                      fontWeight: 600,
+                                      fontSize: '0.85rem',
+                                    }}
+                                  >
+                                    Request Override
+                                  </Button>
+                                )}
+                              </Box>
+                            )}
                           </Stack>
                         </Collapse>
                       )}
@@ -661,6 +854,23 @@ const Validations: React.FC = () => {
           </Button>
 
           <Button
+            variant="outlined"
+            color="info"
+            startIcon={checkingOverrideStatus ? <CircularProgress size={16} /> : <RefreshIcon />}
+            onClick={handleRefreshOverrideStatuses}
+            disabled={checkingOverrideStatus}
+            fullWidth={isMobile}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+            }}
+          >
+            {checkingOverrideStatus ? 'Checking...' : 'Check Override Status'}
+          </Button>
+
+          <Button
             variant="contained"
             startIcon={<CheckCircleIcon />}
             onClick={handleMarkAsDone}
@@ -682,37 +892,56 @@ const Validations: React.FC = () => {
         </Stack>
       )}
 
-      {/* Locked State - Reset Button */}
+      {/* Locked State - Completion Message & Reset Button */}
       {validations.length > 0 && validationCompleted && (
-        <Stack
-          direction={isMobile ? 'column' : 'row'}
-          spacing={2}
-          justifyContent="center"
-          sx={{
-            position: 'sticky',
-            bottom: 16,
-            background: alpha(theme.palette.background.default, 0.8),
-            backdropFilter: 'blur(20px)',
-            p: 2,
-            borderRadius: 3,
-            border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
-          }}
-        >
-          <Button
-            variant="contained"
-            color="warning"
-            startIcon={<LockIcon />}
-            onClick={() => setShowResetConfirmModal(true)}
-            fullWidth={isMobile}
+        <Stack spacing={2}>
+          <Alert
+            severity="success"
+            icon={<CheckCircleIcon />}
             sx={{
-              borderRadius: 2,
-              textTransform: 'none',
-              fontWeight: 600,
-              fontSize: '0.9rem',
+              borderRadius: 3,
+              background: alpha(theme.palette.success.main, 0.1),
+              border: `1px solid ${alpha(theme.palette.success.main, 0.3)}`,
             }}
           >
-            Reset All Stages
-          </Button>
+            <Typography variant="body1" fontWeight={600} mb={0.5}>
+              Validation Stage Completed
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              All required validations have been completed and marked as done. You can now proceed to the Sign-Off & Upload stage.
+            </Typography>
+          </Alert>
+
+          <Stack
+            direction={isMobile ? 'column' : 'row'}
+            spacing={2}
+            justifyContent="center"
+            sx={{
+              position: 'sticky',
+              bottom: 16,
+              background: alpha(theme.palette.background.default, 0.8),
+              backdropFilter: 'blur(20px)',
+              p: 2,
+              borderRadius: 3,
+              border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+            }}
+          >
+            <Button
+              variant="contained"
+              color="warning"
+              startIcon={<LockIcon />}
+              onClick={() => setShowResetConfirmModal(true)}
+              fullWidth={isMobile}
+              sx={{
+                borderRadius: 2,
+                textTransform: 'none',
+                fontWeight: 600,
+                fontSize: '0.9rem',
+              }}
+            >
+              Reset All Stages
+            </Button>
+          </Stack>
         </Stack>
       )}
 
@@ -734,7 +963,9 @@ const Validations: React.FC = () => {
             • Validations check imported data for errors and inconsistencies<br />
             • Required validations must pass before data can be used<br />
             • Click "Run" on individual validations or "Run All" to check everything<br />
-            • Expand failed validations to see detailed error messages
+            • Expand failed validations to see detailed error messages<br />
+            • If a required validation fails, you can request an override (requires admin approval)<br />
+            • Click "Check Override Status" to refresh and see if your override request has been approved
           </Typography>
         </Alert>
       </Box>
@@ -834,6 +1065,85 @@ const Validations: React.FC = () => {
             }}
           >
             Go to Data Import
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Override Request Dialog */}
+      <Dialog
+        open={overrideRequestDialog.open}
+        onClose={handleCloseOverrideDialog}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600, color: 'warning.main' }}>
+          Request Validation Override
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Typography variant="body1" color="text.secondary">
+              You are requesting an override for:
+            </Typography>
+            <Alert severity="warning" sx={{ borderRadius: 2 }}>
+              <Typography variant="subtitle2" fontWeight={600}>
+                {overrideRequestDialog.displayName}
+              </Typography>
+            </Alert>
+            {(!selectedOU || !selectedPeriod) && (
+              <Alert severity="error" sx={{ borderRadius: 2 }}>
+                <Typography variant="body2" fontSize="0.85rem">
+                  {!selectedOU && 'Please select an organizational unit (OU) before requesting an override.'}
+                  {!selectedPeriod && 'Please select a period before requesting an override.'}
+                </Typography>
+              </Alert>
+            )}
+            <Typography variant="body2" color="text.secondary">
+              Please provide a reason for this override request. An administrator will review and approve or deny your request.
+            </Typography>
+            <TextField
+              label="Reason for Override (Required)"
+              multiline
+              rows={4}
+              fullWidth
+              value={overrideReason}
+              onChange={(e) => setOverrideReason(e.target.value)}
+              placeholder="e.g., Partial data submission approved by manager, awaiting missing information..."
+              required
+              disabled={!selectedOU || !selectedPeriod}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 2,
+                }
+              }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button
+            variant="outlined"
+            onClick={handleCloseOverrideDialog}
+            disabled={submittingOverride}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={handleSubmitOverrideRequest}
+            disabled={!overrideReason.trim() || submittingOverride || !selectedOU || !selectedPeriod}
+            startIcon={submittingOverride ? <CircularProgress size={16} /> : <AssignmentIcon />}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            {submittingOverride ? 'Submitting...' : 'Submit Override Request'}
           </Button>
         </DialogActions>
       </Dialog>

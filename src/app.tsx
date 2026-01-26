@@ -13,6 +13,8 @@ import Register from "./routes/register";
 import Login from "./routes/login";
 import DeviceVerify from "./routes/device-verify";
 import TOTPVerify from "./routes/totp-verify";
+import PasswordResetRequest from "./routes/password-reset-request";
+import PasswordResetConfirm from "./routes/password-reset-confirm";
 import DataTable from "./routes/nestedPages/dataTable";
 import StagingDataReview from "./routes/nestedPages/stagingDataReview";
 import SignedInLanding from "./routes/signedinLanding";
@@ -52,6 +54,14 @@ const router = createHashRouter([
   {
     path: "/auth/totp",
     element: <TOTPVerify />,
+  },
+  {
+    path: "/auth/password-reset/request",
+    element: <PasswordResetRequest />,
+  },
+  {
+    path: "/auth/password-reset/confirm",
+    element: <PasswordResetConfirm />,
   },
   {
     path: "/signed-in-landing",

@@ -111,11 +111,13 @@ const DataImport: React.FC = () => {
   const [selectedImportGroup, setSelectedImportGroup] = useState<string>('');
   const [loadingImportGroups, setLoadingImportGroups] = useState(false);
   const selectedOU = useSettingsStore((s) => s.selectedHotelOu);
+  const setSelectedPeriodGlobal = useSettingsStore((s) => s.setSelectedPeriod);
+  const globalSelectedPeriod = useSettingsStore((s) => s.selectedPeriod);
   const [hotels, setHotels] = useState<any[]>([]);
 
   // Upload Periods state (required for imports - must be set before importing)
   const [uploadPeriods, setUploadPeriods] = useState<UploadPeriod[]>([]);
-  const [selectedPeriod, setSelectedPeriod] = useState<string>('');
+  const [selectedPeriod, setSelectedPeriod] = useState<string>(globalSelectedPeriod || '');
   const [loadingUploadPeriods, setLoadingUploadPeriods] = useState(false);
 
   // Sequential processing state
@@ -162,6 +164,7 @@ const DataImport: React.FC = () => {
 
       setLoadingUploadPeriods(true);
       setSelectedPeriod(''); // Reset period selection when hotel changes
+      setSelectedPeriodGlobal(null); // Also clear global setting
 
       try {
         // Fetch all periods (including locked ones) to show them with indicators
@@ -182,7 +185,14 @@ const DataImport: React.FC = () => {
     };
 
     fetchUploadPeriods();
-  }, [selectedOU]);
+  }, [selectedOU, setSelectedPeriodGlobal]);
+
+  // Sync local period state with global settings store
+  useEffect(() => {
+    if (globalSelectedPeriod && globalSelectedPeriod !== selectedPeriod) {
+      setSelectedPeriod(globalSelectedPeriod);
+    }
+  }, [globalSelectedPeriod]);
 
   // Fetch import groups when OU is selected or changes
   useEffect(() => {
@@ -682,7 +692,10 @@ const DataImport: React.FC = () => {
                 value={selectedPeriod}
                 label="Upload Period *"
                 onChange={(event: SelectChangeEvent) => {
-                  setSelectedPeriod(event.target.value);
+                  const newPeriod = event.target.value;
+                  setSelectedPeriod(newPeriod);
+                  // Also save to global settings store so it's available on other pages
+                  setSelectedPeriodGlobal(newPeriod || null);
                 }}
                 disabled={loadingUploadPeriods || importSessionStarted || importCompleted}
               >
@@ -981,35 +994,54 @@ const DataImport: React.FC = () => {
           </Button>
         </Stack>
       ) : (
-        <Stack
-          direction={isMobile ? 'column' : 'row'}
-          spacing={2}
-          justifyContent="center"
-          sx={{
-            position: 'sticky',
-            bottom: 16,
-            background: alpha(theme.palette.background.default, 0.8),
-            backdropFilter: 'blur(20px)',
-            p: 2,
-            borderRadius: 3,
-            border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
-          }}
-        >
-          <Button
-            variant="contained"
-            color="warning"
-            startIcon={<LockIcon />}
-            onClick={() => setShowResetConfirmModal(true)}
-            fullWidth={isMobile}
+        <Stack spacing={2}>
+          <Alert
+            severity="success"
+            icon={<CheckCircleIcon />}
             sx={{
-              borderRadius: 2,
-              textTransform: 'none',
-              fontWeight: 600,
-              fontSize: '0.9rem',
+              borderRadius: 3,
+              background: alpha(theme.palette.success.main, 0.1),
+              border: `1px solid ${alpha(theme.palette.success.main, 0.3)}`,
             }}
           >
-            Reset All Stages
-          </Button>
+            <Typography variant="body1" fontWeight={600} mb={0.5}>
+              Data Import Stage Completed
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              All data has been successfully imported. You can now proceed to the Validations stage to run data checks.
+            </Typography>
+          </Alert>
+
+          <Stack
+            direction={isMobile ? 'column' : 'row'}
+            spacing={2}
+            justifyContent="center"
+            sx={{
+              position: 'sticky',
+              bottom: 16,
+              background: alpha(theme.palette.background.default, 0.8),
+              backdropFilter: 'blur(20px)',
+              p: 2,
+              borderRadius: 3,
+              border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+            }}
+          >
+            <Button
+              variant="contained"
+              color="warning"
+              startIcon={<LockIcon />}
+              onClick={() => setShowResetConfirmModal(true)}
+              fullWidth={isMobile}
+              sx={{
+                borderRadius: 2,
+                textTransform: 'none',
+                fontWeight: 600,
+                fontSize: '0.9rem',
+              }}
+            >
+              Reset All Stages
+            </Button>
+          </Stack>
         </Stack>
       )}
 

@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import authService from '../services/auth';
 import {
@@ -11,20 +11,21 @@ import {
   TextField,
   Typography,
   CircularProgress,
-  useMediaQuery,
-  Link,
-  Divider,
   alpha,
+  InputAdornment,
+  IconButton,
 } from '@mui/material';
 import { styled, useTheme, keyframes } from '@mui/material/styles';
-import LoginIcon from '@mui/icons-material/Login';
-import PersonAddAltRoundedIcon from '@mui/icons-material/PersonAddAltRounded';
-import LockRoundedIcon from '@mui/icons-material/LockRounded';
+import LockResetIcon from '@mui/icons-material/LockReset';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import IconButton from '@mui/material/IconButton';
-import marriottLogo from '../images/marriott_logo.png';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import VpnKeyIcon from '@mui/icons-material/VpnKey';
+import LockIcon from '@mui/icons-material/Lock';
+import DevicesIcon from '@mui/icons-material/Devices';
 
-// Animations from landing page
+// Animations
 const liquidMorph = keyframes`
   0%, 100% {
     border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
@@ -64,11 +65,18 @@ const hologramPulse = keyframes`
   50% { opacity: 0.6; transform: scale(1.02) translateY(-2px); }
 `;
 
-const magneticFloat = keyframes`
-  0%, 100% { transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg); }
-  25% { transform: translate3d(10px, -15px, 20px) rotateX(5deg) rotateY(10deg); }
-  50% { transform: translate3d(-10px, -20px, 30px) rotateX(-5deg) rotateY(-10deg); }
-  75% { transform: translate3d(5px, -10px, 15px) rotateX(3deg) rotateY(5deg); }
+const checkmarkAnimation = keyframes`
+  0% {
+    transform: scale(0) rotate(-45deg);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2) rotate(0deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
 `;
 
 // Styled Components
@@ -152,7 +160,7 @@ const LiquidMetalOrbs = styled('div')<{ $reduceMotion: boolean }>(({ theme, $red
 
 const HolographicCard = styled(Card)(({ theme }) => ({
   width: '100%',
-  maxWidth: 480,
+  maxWidth: 520,
   borderRadius: 32,
   position: 'relative',
   overflow: 'visible',
@@ -335,37 +343,158 @@ const BackButton = styled(IconButton)(({ theme }) => ({
   },
 }));
 
-const Login: React.FC = () => {
+const PasswordResetConfirm: React.FC = () => {
   const navigate = useNavigate();
   const theme = useTheme();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [token, setToken] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Check if device is registered
+    const id = authService.getDeviceId();
+    setDeviceId(id);
+
+    if (!id) {
+      setError('No registered device found. You must use a registered device to reset your password.');
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    // Validate password match
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    // Validate password length
+    if (newPassword.length < 8) {
+      setError('Password must be at least 8 characters long');
+      return;
+    }
+
+    // Validate token format (43 chars, URL-safe base64)
+    if (token.length !== 43) {
+      setError('Invalid reset token format. Token should be 43 characters long.');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      await authService.login(email, password);
-      navigate('/auth/device-verify');
+      await authService.confirmPasswordReset(token, newPassword);
+      setSuccess(true);
     } catch (err: any) {
-      console.error('Login error:', err);
+      console.error('Password reset confirm error:', err);
 
-      // Better error handling for CORS issues
-      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        setError('Cannot connect to server. Please ensure the backend server is running and CORS is properly configured.');
-      } else if (err.message.includes('CORS')) {
-        setError('Server connection blocked by CORS policy. Please contact your system administrator.');
+      // Handle specific error messages
+      const errorMsg = err.message || 'Failed to reset password';
+
+      if (errorMsg.includes('Invalid or expired reset token')) {
+        setError('This reset token is invalid or has expired. Please request a new one.');
+      } else if (errorMsg.includes('Reset token has expired')) {
+        setError('This reset token has expired (tokens expire after 30 minutes). Please request a new one.');
+      } else if (errorMsg.includes('Invalid device credentials')) {
+        setError('You must use the device you originally registered with to reset your password.');
+      } else if (errorMsg.includes('Device does not belong to this user')) {
+        setError('This device is not associated with your account. Please contact support.');
+      } else if (errorMsg.includes('Device is not approved')) {
+        setError('Your device is pending approval. Please wait for admin approval before resetting your password.');
+      } else if (errorMsg.includes('No registered device found')) {
+        setError('No registered device found. You must use a registered device to reset your password.');
       } else {
-        setError(err.message || 'Invalid email or password');
+        setError(errorMsg);
       }
 
       setIsLoading(false);
     }
   };
+
+  if (success) {
+    return (
+      <PageRoot>
+        <LiquidMetalOrbs $reduceMotion={false}>
+          <div className="metal-orb orb1" />
+          <div className="metal-orb orb2" />
+          <div className="metal-orb orb3" />
+        </LiquidMetalOrbs>
+
+        <Box sx={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 480, px: 2 }}>
+          <HolographicCard elevation={0}>
+            <CardContent sx={{ p: 5 }}>
+              <Stack spacing={3} alignItems="center">
+                <Box
+                  sx={{
+                    width: 80,
+                    height: 80,
+                    borderRadius: '50%',
+                    background: `linear-gradient(135deg, #10b981, #059669)`,
+                    boxShadow: `0 20px 40px rgba(16, 185, 129, 0.4)`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    animation: `${checkmarkAnimation} 0.6s cubic-bezier(0.23, 1, 0.32, 1)`,
+                  }}
+                >
+                  <CheckCircleIcon sx={{ color: '#ffffff', fontSize: 48 }} />
+                </Box>
+
+                <Typography
+                  variant="h4"
+                  sx={{
+                    fontWeight: 800,
+                    fontSize: '2rem',
+                    lineHeight: 1.2,
+                    textAlign: 'center',
+                    background: theme.palette.mode === 'dark'
+                      ? `linear-gradient(135deg, #ffffff, #c9b8ff)`
+                      : `linear-gradient(135deg, #1a1a2e, #764ba2)`,
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                  }}
+                >
+                  Password Reset Successful
+                </Typography>
+
+                <Alert
+                  severity="success"
+                  sx={{
+                    width: '100%',
+                    borderRadius: 3,
+                    background: alpha('#10b981', 0.08),
+                    border: `1px solid ${alpha('#10b981', 0.2)}`,
+                    backdropFilter: 'blur(10px)',
+                    '& .MuiAlert-icon': {
+                      color: '#10b981',
+                    },
+                  }}
+                >
+                  Your password has been reset successfully. You can now log in with your new password.
+                </Alert>
+
+                <PremiumButton
+                  fullWidth
+                  size="large"
+                  onClick={() => navigate('/login')}
+                >
+                  Continue to Login
+                </PremiumButton>
+              </Stack>
+            </CardContent>
+          </HolographicCard>
+        </Box>
+      </PageRoot>
+    );
+  }
 
   return (
     <PageRoot>
@@ -375,12 +504,11 @@ const Login: React.FC = () => {
         <div className="metal-orb orb3" />
       </LiquidMetalOrbs>
 
-      {/* Back button */}
-      <BackButton onClick={() => navigate('/')} aria-label="Go back">
+      <BackButton onClick={() => navigate('/auth/password-reset/request')} aria-label="Go back">
         <ArrowBackIcon />
       </BackButton>
 
-      <Box sx={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 480, px: 2 }}>
+      <Box sx={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 520, px: 2 }}>
         <HolographicCard elevation={0}>
           <CardContent sx={{ p: 5 }}>
             <Stack spacing={2} alignItems="center" sx={{ mb: 4 }}>
@@ -396,7 +524,7 @@ const Login: React.FC = () => {
                   justifyContent: 'center',
                 }}
               >
-                <LoginIcon sx={{ color: '#ffffff', fontSize: 28 }} />
+                <LockResetIcon sx={{ color: '#ffffff', fontSize: 28 }} />
               </Box>
               <Typography
                 variant="h4"
@@ -411,7 +539,7 @@ const Login: React.FC = () => {
                   WebkitTextFillColor: 'transparent',
                 }}
               >
-                Welcome Back
+                Set New Password
               </Typography>
             </Stack>
 
@@ -425,9 +553,29 @@ const Login: React.FC = () => {
                   fontWeight: 500,
                 }}
               >
-                Sign in to continue
+                Enter the token from your email
               </Typography>
             </Box>
+
+            {/* Device Status */}
+            {deviceId && (
+              <Alert
+                severity="info"
+                icon={<DevicesIcon />}
+                sx={{
+                  mb: 3,
+                  borderRadius: 3,
+                  background: alpha(theme.palette.info.main, 0.08),
+                  border: `1px solid ${alpha(theme.palette.info.main, 0.2)}`,
+                  backdropFilter: 'blur(10px)',
+                  '& .MuiAlert-icon': {
+                    color: theme.palette.info.main,
+                  },
+                }}
+              >
+                Device registered: <strong>{deviceId.substring(0, 13)}...</strong>
+              </Alert>
+            )}
 
             {error && (
               <Alert
@@ -452,107 +600,103 @@ const Login: React.FC = () => {
               <Stack spacing={3}>
                 <StyledTextField
                   fullWidth
-                  label="Email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  label="Reset Token"
+                  type="text"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value.trim())}
                   required
-                  disabled={isLoading}
-                  autoComplete="email"
+                  disabled={isLoading || !deviceId}
+                  autoComplete="off"
+                  autoFocus
+                  placeholder="Paste token from email (43 characters)"
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <VpnKeyIcon sx={{ color: theme.palette.text.secondary }} />
+                      </InputAdornment>
+                    ),
+                  }}
+                  helperText={`Token length: ${token.length}/43`}
                 />
 
                 <StyledTextField
                   fullWidth
-                  label="Password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  label="New Password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
                   required
-                  disabled={isLoading}
-                  autoComplete="current-password"
+                  disabled={isLoading || !deviceId}
+                  autoComplete="new-password"
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <LockIcon sx={{ color: theme.palette.text.secondary }} />
+                      </InputAdornment>
+                    ),
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          onClick={() => setShowPassword(!showPassword)}
+                          edge="end"
+                        >
+                          {showPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                  helperText="Minimum 8 characters"
                 />
 
-                <Box sx={{ textAlign: 'right' }}>
-                  <Link
-                    component="button"
-                    type="button"
-                    variant="body2"
-                    onClick={() => navigate('/auth/password-reset/request')}
-                    disabled={isLoading}
-                    sx={{
-                      color: theme.palette.primary.main,
-                      textDecoration: 'none',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      opacity: isLoading ? 0.5 : 1,
-                      transition: 'all 0.2s',
-                      '&:hover': {
-                        textDecoration: 'underline',
-                        opacity: 0.8,
-                      },
-                    }}
-                  >
-                    Forgot Password?
-                  </Link>
-                </Box>
+                <StyledTextField
+                  fullWidth
+                  label="Confirm Password"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  disabled={isLoading || !deviceId}
+                  autoComplete="new-password"
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <LockIcon sx={{ color: theme.palette.text.secondary }} />
+                      </InputAdornment>
+                    ),
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          edge="end"
+                        >
+                          {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
 
                 <PremiumButton
                   fullWidth
                   size="large"
                   type="submit"
-                  startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <LoginIcon />}
-                  disabled={isLoading}
+                  startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <LockResetIcon />}
+                  disabled={isLoading || !deviceId}
                 >
-                  {isLoading ? 'Signing In...' : 'Sign In'}
+                  {isLoading ? 'Resetting Password...' : 'Reset Password'}
                 </PremiumButton>
 
                 <SecondaryButton
                   fullWidth
                   size="large"
-                  startIcon={<PersonAddAltRoundedIcon />}
-                  onClick={() => navigate('/register')}
+                  startIcon={<ArrowBackIcon />}
+                  onClick={() => navigate('/auth/password-reset/request')}
                   disabled={isLoading}
                 >
-                  Request New Account
+                  Request New Token
                 </SecondaryButton>
               </Stack>
             </form>
-
-            <Divider sx={{ my: 3, opacity: 0.2 }} />
-
-            <Stack spacing={2}>
-              <Stack
-                direction="row"
-                spacing={1}
-                alignItems="center"
-                justifyContent="center"
-                sx={{ opacity: 0.8 }}
-              >
-                <LockRoundedIcon fontSize="small" sx={{ color: theme.palette.text.secondary }} />
-                <Typography
-                  variant="caption"
-                  sx={{
-                    color: theme.palette.text.secondary,
-                    fontWeight: 600,
-                    letterSpacing: 0.3,
-                  }}
-                >
-                  Device-linked authentication • Secure OTP pairing
-                </Typography>
-              </Stack>
-
-              <Typography
-                variant="caption"
-                align="center"
-                sx={{
-                  color: theme.palette.text.secondary,
-                  opacity: 0.6,
-                  mt: 1,
-                }}
-              >
-                Made by EMEA FR&A
-              </Typography>
-            </Stack>
           </CardContent>
         </HolographicCard>
       </Box>
@@ -560,4 +704,4 @@ const Login: React.FC = () => {
   );
 };
 
-export default Login;
+export default PasswordResetConfirm;
