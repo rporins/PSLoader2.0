@@ -31,6 +31,7 @@ import SignOffUpload from "./routes/nestedPages/signOffUpload";
 import CustomPL from "./routes/nestedPages/customPL";
 import SummaryPL from "./routes/nestedPages/summaryPL";
 import F90PL from "./routes/nestedPages/f90PL";
+import RoomSegmentReview from "./routes/nestedPages/roomSegmentReview";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 // define the route
@@ -86,6 +87,11 @@ const router = createHashRouter([
         path: "validations",
         element: <Validations />,
         handle: { title: "Validations" },
+      },
+      {
+        path: "room-segment-review",
+        element: <RoomSegmentReview />,
+        handle: { title: "Room Seg. Review" },
       },
       {
         path: "sign-off-upload",

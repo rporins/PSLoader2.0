@@ -966,7 +966,7 @@ const MappingReview: React.FC = () => {
             <>
               {!isMobile && (
                 <StatsChip
-                  label={`v${selectedConfig.version}`}
+                  label={`Version: ${selectedConfig.version}`}
                   size="small"
                   sx={{
                     backgroundColor: alpha(theme.palette.info.main, 0.1),

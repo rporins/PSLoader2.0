@@ -678,23 +678,6 @@ const Validations: React.FC = () => {
                             )}
                           </Box>
 
-                          {/* Run button */}
-                          <Button
-                            variant="outlined"
-                            size="small"
-                            startIcon={<PlayArrowIcon />}
-                            onClick={() => handleRunValidation(validation)}
-                            disabled={isRunningAll || result?.status === 'running'}
-                            sx={{
-                              borderRadius: 2,
-                              textTransform: 'none',
-                              fontWeight: 600,
-                              fontSize: '0.85rem',
-                            }}
-                          >
-                            Run
-                          </Button>
-
                           {/* Expand button for errors/warnings */}
                           {(hasErrors || hasWarnings) && (
                             <IconButton
@@ -962,7 +945,6 @@ const Validations: React.FC = () => {
           <Typography variant="caption" component="div" color="text.secondary" sx={{ lineHeight: 1.6 }}>
             • Validations check imported data for errors and inconsistencies<br />
             • Required validations must pass before data can be used<br />
-            • Click "Run" on individual validations or "Run All" to check everything<br />
             • Expand failed validations to see detailed error messages<br />
             • If a required validation fails, you can request an override (requires admin approval)<br />
             • Click "Check Override Status" to refresh and see if your override request has been approved

@@ -179,6 +179,9 @@ export const IPC_CHANNELS = {
 
   // Reset all completion states
   DB_RESET_ALL_COMPLETION_STATES: 'db:reset-all-completion-states',
+
+  // Manual adjustments channel
+  DB_INSERT_MANUAL_ADJUSTMENTS: 'db:insert-manual-adjustments',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];

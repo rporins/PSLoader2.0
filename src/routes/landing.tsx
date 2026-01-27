@@ -29,7 +29,7 @@ import * as THREE from "three";
 // 0) ROUTING + CONSTANTS
 // ────────────────────────────────────────────────────────────
 
-const REDIRECT_AFTER_LOGIN = "/signed-in-landing";
+const REDIRECT_AFTER_LOGIN = "/signed-in-landing/home";
 const SUPPORT_EMAIL = "EMEAReportingSupport@marriott.com";
 
 // ────────────────────────────────────────────────────────────

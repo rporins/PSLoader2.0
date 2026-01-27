@@ -49,6 +49,7 @@ import VerifiedUserIcon from "@mui/icons-material/VerifiedUser";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import DescriptionIcon from "@mui/icons-material/Description";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import MeetingRoomIcon from "@mui/icons-material/MeetingRoom";
 import ThemeToggle from "./customComponents/themeToggle";
 import { useSettingsStore } from "../store/settings";
 import authService, { Hotel } from "../services/auth";
@@ -266,7 +267,7 @@ export default function SignedInLanding() {
   }));
 
   const theme = useTheme();
-  const [open, setOpen] = React.useState(false);
+  const [open, setOpen] = React.useState(true);
   const [user, setUser] = useState<any>(null);
   const [notificationCount] = useState(3); // Example notification count
   const [hotels, setHotels] = useState<Hotel[]>([]);
@@ -862,6 +863,15 @@ const handleSignOut = useCallback(async () => {
               />
             </ListItem>
           )}
+
+          <ListItem key="RoomSegReview" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/room-segment-review")}>
+              <ListItemIcon sx={listItemIconStyle}>
+                <MeetingRoomIcon />
+              </ListItemIcon>
+              <ListItemText primary="Room Seg. Review" sx={listItemTextStyle} />
+            </ListItemButton>
+          </ListItem>
 
           <ListItem key="navigate" disablePadding sx={{ display: "block" }}>
             <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/report")}>

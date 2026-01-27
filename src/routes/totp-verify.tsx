@@ -96,7 +96,7 @@ const TOTPVerify: React.FC = () => {
       await authService.verifyTOTP(fullCode);
 
       // Success - navigate to main app
-      navigate('/signed-in-landing/report');
+      navigate('/signed-in-landing/home');
     } catch (err: any) {
       setError(err.message || 'Invalid verification code');
       setIsLoading(false);

@@ -3899,6 +3899,75 @@ export async function insertBatchStagingData(batchData: StagingData[]): Promise<
   }
 }
 
+// Interface for manual adjustment data
+interface ManualAdjustmentData {
+  dep_acc_combo_id: string;
+  month: number;
+  year: number;
+  period_combo: string;
+  scenario: string;
+  amount: number;
+  count: number | null;
+  currency: string;
+  ou: string;
+  department: string;
+  account: string;
+  version: string;
+  source_account: string;
+  source_department: string;
+  source_description: string;
+  mapping_status: string;
+  import_batch_id: string;
+}
+
+// Insert manual adjustments to staging table
+// These are marked with a special import_batch_id prefix "ROOM_SEG_REVIEW_" for traceability
+export async function insertManualAdjustments(adjustments: ManualAdjustmentData[]): Promise<number> {
+  if (!Array.isArray(adjustments) || adjustments.length === 0) {
+    console.error("Adjustments must be a non-empty array.");
+    return 0;
+  }
+
+  try {
+    const queries = adjustments.map((item) => ({
+      sql: `
+        INSERT INTO financial_data_staging (
+          dep_acc_combo_id, month, year, period_combo, scenario,
+          amount, count, currency, ou, department, account, version,
+          source_account, source_department, source_description, mapping_status,
+          import_batch_id, last_modified, item_version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1)
+      `,
+      args: [
+        item.dep_acc_combo_id,
+        item.month,
+        item.year,
+        item.period_combo,
+        item.scenario,
+        item.amount,
+        item.count,
+        item.currency,
+        item.ou,
+        item.department,
+        item.account,
+        item.version,
+        item.source_account,
+        item.source_department,
+        item.source_description,
+        item.mapping_status,
+        item.import_batch_id
+      ]
+    }));
+
+    await client.batch(queries);
+    console.log(`[ManualAdjustments] Inserted ${adjustments.length} manual adjustment(s) to staging table`);
+    return adjustments.length;
+  } catch (error) {
+    console.error("Error inserting manual adjustments:", error);
+    throw error;
+  }
+}
+
 // Get staging mapping statistics
 export async function getStagingMappingStats(): Promise<{ mapped: number; unmapped: number; partial: number; total: number }> {
   try {

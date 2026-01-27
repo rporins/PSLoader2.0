@@ -891,6 +891,232 @@ export const validationDefinitions: Record<string, ValidationFn> = {
   },
 
   // ─────────────────────────────────────────────────────────────────────────
+  // SEGMENT STATS VALIDATION
+  // Validates that revenue segment accounts (3xxxxx) and their corresponding
+  // stats accounts (9xxxxx) are either both populated or both zero/missing
+  // ─────────────────────────────────────────────────────────────────────────
+
+  segment_stats_validation: async (db, options) => {
+    // Explicit account pairs: [revenue_account, stats_account]
+    // All accounts are in department D0010
+    const accountPairs: [string, string][] = [
+      ['A361010', 'A961010'],
+      ['A361011', 'A961011'],
+      ['A361012', 'A961012'],
+      ['A361013', 'A961013'],
+      ['A361014', 'A961014'],
+      ['A361015', 'A961015'],
+      ['A361016', 'A961016'],
+      ['A361017', 'A961017'],
+      ['A361018', 'A961018'],
+      ['A361019', 'A961019'],
+      ['A361020', 'A961020'],
+      ['A361021', 'A961021'],
+      ['A361026', 'A961026'],
+      ['A361027', 'A961027'],
+      ['A361028', 'A961028'],
+      ['A361029', 'A961029'],
+      ['A361030', 'A961030'],
+      ['A361031', 'A961031'],
+      ['A361032', 'A961032'],
+      ['A361033', 'A961033'],
+      // A361041 excluded - no stats counterpart
+      ['A361318', 'A961318'],
+      ['A361334', 'A961334'],
+      ['A361335', 'A961335'],
+      ['A361336', 'A961336'],
+      ['A361337', 'A961337'],
+      ['A361338', 'A961338'],
+      ['A361510', 'A961510'],
+      ['A361511', 'A961511'],
+      ['A361512', 'A961512'],
+      ['A361513', 'A961513'],
+      ['A361514', 'A961514'],
+      ['A361515', 'A961515'],
+      ['A361516', 'A961516'],
+      ['A361517', 'A961517'],
+      ['A361518', 'A961518'],
+      ['A361519', 'A961519'],
+      ['A361520', 'A961520'],
+      ['A361521', 'A961521'],
+      ['A361526', 'A961526'],
+      ['A361527', 'A961527'],
+      ['A361528', 'A961528'],
+      ['A361529', 'A961529'],
+      ['A361530', 'A961530'],
+      ['A361531', 'A961531'],
+      ['A361533', 'A961533'],
+      // A361541 excluded - no stats counterpart
+      ['A361601', 'A961601'],
+      ['A361602', 'A961602'],
+      ['A361603', 'A961603'],
+      ['A361604', 'A961604'],
+      ['A361607', 'A961607'],
+      ['A361608', 'A961608'],
+      ['A361734', 'A961734'],
+      ['A361735', 'A961735'],
+      ['A361736', 'A961736'],
+      ['A361737', 'A961737'],
+      ['A361738', 'A961738'],
+      ['A361818', 'A961818'],
+    ];
+
+    const errors: string[] = [];
+    const errorDetails: any[] = [];
+    let pairsChecked = 0;
+
+    for (const [revenueAccount, statsAccount] of accountPairs) {
+      // Get revenue amount
+      const revenueResult = await db.execute({
+        sql: `
+          SELECT SUM(amount) as total
+          FROM financial_data_staging
+          WHERE ou = ?
+            AND department = 'D0010'
+            AND account = ?
+        `,
+        args: [options.ou, revenueAccount]
+      });
+
+      // Get stats amount
+      const statsResult = await db.execute({
+        sql: `
+          SELECT SUM(amount) as total
+          FROM financial_data_staging
+          WHERE ou = ?
+            AND department = 'D0010'
+            AND account = ?
+        `,
+        args: [options.ou, statsAccount]
+      });
+
+      const revenueTotal = revenueResult.rows?.[0]?.total || 0;
+      const statsTotal = statsResult.rows?.[0]?.total || 0;
+
+      const revenueHasValue = revenueTotal !== 0 && revenueTotal !== null;
+      const statsHasValue = statsTotal !== 0 && statsTotal !== null;
+
+      pairsChecked++;
+
+      // Error if one has value but the other doesn't
+      if (revenueHasValue !== statsHasValue) {
+        if (revenueHasValue && !statsHasValue) {
+          errors.push(`Revenue ${revenueAccount} has value (${revenueTotal}) but stats ${statsAccount} is zero/missing`);
+          errorDetails.push({
+            type: 'REVENUE_WITHOUT_STATS',
+            revenueAccount,
+            statsAccount,
+            revenueAmount: revenueTotal,
+            statsAmount: statsTotal
+          });
+        } else {
+          errors.push(`Stats ${statsAccount} has value (${statsTotal}) but revenue ${revenueAccount} is zero/missing`);
+          errorDetails.push({
+            type: 'STATS_WITHOUT_REVENUE',
+            revenueAccount,
+            statsAccount,
+            revenueAmount: revenueTotal,
+            statsAmount: statsTotal
+          });
+        }
+      }
+    }
+
+    return {
+      success: errors.length === 0,
+      recordCount: pairsChecked,
+      errors: errors.length > 0 ? errors : undefined,
+      errorDetails: errorDetails.length > 0 ? errorDetails : undefined,
+      stats: {
+        recordsChecked: pairsChecked,
+        issuesFound: errors.length
+      }
+    };
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SEGMENT TOTALS VALIDATION
+  // Validates that the sum of individual segment stats equals the total stat line
+  // Total: D0010 A960103
+  // ─────────────────────────────────────────────────────────────────────────
+
+  segment_totals: async (db, options) => {
+    // All individual segment stats accounts that should sum to the total
+    const segmentStatsAccounts: string[] = [
+      'A961010', 'A961011', 'A961012', 'A961013', 'A961014', 'A961015',
+      'A961016', 'A961017', 'A961018', 'A961019', 'A961020', 'A961021',
+      'A961026', 'A961027', 'A961028', 'A961029', 'A961030', 'A961031',
+      'A961032', 'A961033',
+      // A961041 excluded - no stats account exists
+      'A961318', 'A961334', 'A961335', 'A961336', 'A961337', 'A961338',
+      'A961510', 'A961511', 'A961512', 'A961513', 'A961514', 'A961515',
+      'A961516', 'A961517', 'A961518', 'A961519', 'A961520', 'A961521',
+      'A961526', 'A961527', 'A961528', 'A961529', 'A961530', 'A961531',
+      'A961533',
+      // A961541 excluded - no stats account exists
+      'A961601', 'A961602', 'A961603', 'A961604', 'A961607', 'A961608',
+      'A961734', 'A961735', 'A961736', 'A961737', 'A961738',
+      'A961818',
+    ];
+
+    // Get the total from D0010 A960103
+    const totalResult = await db.execute({
+      sql: `
+        SELECT SUM(amount) as total
+        FROM financial_data_staging
+        WHERE ou = ?
+          AND department = 'D0010'
+          AND account = 'A960103'
+      `,
+      args: [options.ou]
+    });
+
+    const totalValue = totalResult.rows?.[0]?.total || 0;
+
+    // Build placeholders for IN clause
+    const placeholders = segmentStatsAccounts.map(() => '?').join(', ');
+
+    // Get sum of all individual segment stats
+    const segmentSumResult = await db.execute({
+      sql: `
+        SELECT SUM(amount) as segment_sum
+        FROM financial_data_staging
+        WHERE ou = ?
+          AND department = 'D0010'
+          AND account IN (${placeholders})
+      `,
+      args: [options.ou, ...segmentStatsAccounts]
+    });
+
+    const segmentSum = segmentSumResult.rows?.[0]?.segment_sum || 0;
+
+    const errors: string[] = [];
+
+    if (totalValue !== segmentSum) {
+      const difference = totalValue - segmentSum;
+      errors.push(`Segment stats total mismatch: Total line (A960103) = ${totalValue}, Sum of segments = ${segmentSum}, Difference = ${difference}`);
+    }
+
+    return {
+      success: errors.length === 0,
+      recordCount: segmentStatsAccounts.length + 1,
+      errors: errors.length > 0 ? errors : undefined,
+      errorDetails: errors.length > 0 ? [{
+        type: 'SEGMENT_TOTAL_MISMATCH',
+        totalLineAccount: 'A960103',
+        totalLineValue: totalValue,
+        segmentSum: segmentSum,
+        difference: totalValue - segmentSum,
+        segmentAccountsChecked: segmentStatsAccounts.length
+      }] : undefined,
+      stats: {
+        recordsChecked: segmentStatsAccounts.length + 1,
+        issuesFound: errors.length
+      }
+    };
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
   // TEST VALIDATION (for development/testing)
   // ─────────────────────────────────────────────────────────────────────────
 

@@ -654,6 +654,16 @@ export class DatabaseHandlers {
       timestamp: Date.now(),
     };
   };
+
+  // Manual adjustments handler
+  insertManualAdjustmentsHandler: IpcHandler = async (event, request) => {
+    const count = await db.insertManualAdjustments(request.adjustments);
+    return {
+      success: true,
+      data: { message: `Inserted ${count} manual adjustment(s) successfully`, count },
+      timestamp: Date.now(),
+    };
+  };
 }
 
 // Factory function to create and register database handlers
@@ -728,5 +738,6 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_SIGNOFF_COMPLETED_STATE]: handlers.getSignOffCompletedStateHandler,
     [IPC_CHANNELS.DB_SET_SIGNOFF_COMPLETED_STATE]: handlers.setSignOffCompletedStateHandler,
     [IPC_CHANNELS.DB_RESET_ALL_COMPLETION_STATES]: handlers.resetAllCompletionStatesHandler,
+    [IPC_CHANNELS.DB_INSERT_MANUAL_ADJUSTMENTS]: handlers.insertManualAdjustmentsHandler,
   };
 }
