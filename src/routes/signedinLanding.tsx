@@ -35,8 +35,6 @@ import Avatar from "@mui/material/Avatar";
 import SettingsIcon from "@mui/icons-material/Settings";
 import PersonIcon from "@mui/icons-material/Person";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
-import NotificationsIcon from "@mui/icons-material/Notifications";
-import Badge from "@mui/material/Badge";
 import Tooltip from "@mui/material/Tooltip";
 import { alpha } from "@mui/material/styles";
 import Paper from "@mui/material/Paper";
@@ -269,7 +267,6 @@ export default function SignedInLanding() {
   const theme = useTheme();
   const [open, setOpen] = React.useState(true);
   const [user, setUser] = useState<any>(null);
-  const [notificationCount] = useState(3); // Example notification count
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [currentHotelName, setCurrentHotelName] = useState<string>('');
   const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
@@ -535,21 +532,6 @@ const handleSignOut = useCallback(async () => {
             )}
             {/* Theme toggle (global) */}
             <ThemeToggle />
-            {/* Notifications */}
-            <Tooltip title="Notifications">
-              <IconButton 
-                sx={{ 
-                  color: 'text.secondary',
-                  '&:hover': { 
-                    backgroundColor: alpha(theme.palette.primary.main, 0.08) 
-                  }
-                }}
-              >
-                <Badge badgeContent={notificationCount} color="error" variant="dot">
-                  <NotificationsIcon />
-                </Badge>
-              </IconButton>
-            </Tooltip>
 
             {/* User Avatar and Menu */}
             <IconButton

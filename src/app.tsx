@@ -26,6 +26,7 @@ import Validations from "./routes/nestedPages/validations";
 import MappingReview from "./routes/nestedPages/mappingReview";
 import Profile from "./routes/nestedPages/profile";
 import Settings from "./routes/nestedPages/settings";
+import HelpSupport from "./routes/nestedPages/helpSupport";
 import Home from "./routes/nestedPages/home";
 import SignOffUpload from "./routes/nestedPages/signOffUpload";
 import CustomPL from "./routes/nestedPages/customPL";
@@ -152,6 +153,11 @@ const router = createHashRouter([
         path: "settings",
         element: <Settings />,
         handle: { title: "Settings" },
+      },
+      {
+        path: "help",
+        element: <HelpSupport />,
+        handle: { title: "Help & Support" },
       },
     ],
   },

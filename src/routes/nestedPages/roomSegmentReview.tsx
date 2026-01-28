@@ -790,7 +790,7 @@ export default function RoomSegmentReview() {
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Alert severity="info" sx={{ fontSize: "0.8rem", py: 0.5 }}>
               {dialogData?.type === "revenue"
-                ? "Revenue is a credit account. Enter positive to increase."
+                ? "Revenue is a credit account. Enter positive to decrease, negative to increase."
                 : "Stats are debits. Positive to increase, negative to decrease."}
             </Alert>
             <Box>
