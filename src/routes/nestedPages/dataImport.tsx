@@ -185,7 +185,7 @@ const DataImport: React.FC = () => {
     };
 
     fetchUploadPeriods();
-  }, [selectedOU, setSelectedPeriodGlobal]);
+  }, [selectedOU, setSelectedPeriodGlobal, refreshKey]);
 
   // Sync local period state with global settings store
   useEffect(() => {
