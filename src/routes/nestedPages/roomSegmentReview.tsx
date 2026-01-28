@@ -527,11 +527,11 @@ export default function RoomSegmentReview() {
         ),
       },
       { field: "description", headerName: "Description", flex: 1, minWidth: 180 },
-      { field: "category", headerName: "Category", width: 100 },
+      { field: "category", headerName: "Category", width: 200 },
       {
         field: "revenue",
         headerName: "Revenue",
-        width: 120,
+        width: 240,
         type: "number",
         renderCell: (params: GridRenderCellParams) => (
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, width: "100%" }}>
@@ -562,7 +562,7 @@ export default function RoomSegmentReview() {
       {
         field: "stats",
         headerName: "Stats",
-        width: 100,
+        width: 200,
         type: "number",
         renderCell: (params: GridRenderCellParams) => (
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, width: "100%" }}>
