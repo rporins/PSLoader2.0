@@ -129,6 +129,14 @@ export const IPC_CHANNELS = {
   // Staging table channels
   DB_CLEAR_STAGING_TABLE: 'db:clear-staging-table',
   DB_GET_STAGING_DATA: 'db:get-staging-data',
+  DB_ADD_STAGING_ROW: 'db:add-staging-row',
+  DB_UPDATE_STAGING_ROW: 'db:update-staging-row',
+  DB_DELETE_STAGING_ROW: 'db:delete-staging-row',
+  DB_CHECK_IMPORTS_EXIST: 'db:check-imports-exist',
+  DB_GET_UNIQUE_ACCOUNTS: 'db:get-unique-accounts',
+  DB_GET_UNIQUE_DEPARTMENTS: 'db:get-unique-departments',
+  DB_GET_DEPARTMENTS_FOR_ACCOUNT: 'db:get-departments-for-account',
+  DB_GET_ACCOUNTS_FOR_DEPARTMENT: 'db:get-accounts-for-department',
 
   // Mapping tables channels
   DB_GET_MAPPING_TABLES_VERSION: 'db:get-mapping-tables-version',

@@ -3811,6 +3811,7 @@ export async function getStagingData(ou?: string): Promise<string> {
   try {
     let sql = `
       SELECT
+        rowid,
         dep_acc_combo_id,
         month,
         year,
@@ -4021,6 +4022,275 @@ export async function insertManualAdjustments(adjustments: ManualAdjustmentData[
     return adjustments.length;
   } catch (error) {
     console.error("Error inserting manual adjustments:", error);
+    throw error;
+  }
+}
+
+// Add a single staging row (for manual user entry)
+export interface AddStagingRowData {
+  month: number;
+  year: number;
+  period_combo: string;
+  scenario: string;
+  amount: number;
+  count: number | null;
+  currency: string;
+  ou: string;
+  department: string;
+  account: string;
+  version: string;
+}
+
+export async function addStagingRow(data: AddStagingRowData): Promise<number> {
+  try {
+    // Validate combo - in combo table, "account" column has dept values and "department" column has account values
+    const comboId = `D${data.department}_A${data.account}`;
+    const validCombosResult = await client.execute({
+      sql: "SELECT COUNT(*) as count FROM account_department_combos WHERE account = ? AND department = ?",
+      args: [data.department, data.account]
+    });
+    const isValidCombo = (validCombosResult.rows[0].count as number) > 0 ? 1 : 0;
+
+    const result = await client.execute({
+      sql: `
+        INSERT INTO financial_data_staging (
+          dep_acc_combo_id, month, year, period_combo, scenario,
+          amount, count, currency, ou, department, account, version,
+          source_account, source_department, source_description, mapping_status,
+          import_batch_id, last_modified, item_version, is_valid_combo
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1, ?)
+      `,
+      args: [
+        comboId,
+        data.month,
+        data.year,
+        data.period_combo,
+        data.scenario,
+        data.amount,
+        data.count,
+        data.currency,
+        data.ou,
+        `D${data.department}`,  // Add D prefix for department
+        `A${data.account}`,     // Add A prefix for account
+        data.version,
+        'MANUAL_USER_ENTRY',  // source_account
+        'MANUAL_USER_ENTRY',  // source_department
+        'Manual user entry',  // source_description
+        'mapped',             // mapping_status (user provides mapped values directly)
+        `MANUAL_ENTRY_${Date.now()}`,  // import_batch_id
+        isValidCombo
+      ]
+    });
+
+    console.log(`[AddStagingRow] Added manual staging row with combo ${comboId}`);
+
+    // Reset validation state since data has changed
+    await setValidationCompletedState(data.ou, false);
+
+    return result.lastInsertRowid ? Number(result.lastInsertRowid) : 0;
+  } catch (error) {
+    console.error("Error adding staging row:", error);
+    throw error;
+  }
+}
+
+// Update a staging row by rowid
+export interface UpdateStagingRowData {
+  rowid: number;
+  month: number;
+  year: number;
+  period_combo: string;
+  scenario: string;
+  amount: number;
+  count: number | null;
+  currency: string;
+  department: string;
+  account: string;
+  version: string;
+}
+
+export async function updateStagingRow(data: UpdateStagingRowData): Promise<boolean> {
+  try {
+    // Validate combo - in combo table, "account" column has dept values and "department" column has account values
+    const comboId = `D${data.department}_A${data.account}`;
+    const validCombosResult = await client.execute({
+      sql: "SELECT COUNT(*) as count FROM account_department_combos WHERE account = ? AND department = ?",
+      args: [data.department, data.account]
+    });
+    const isValidCombo = (validCombosResult.rows[0].count as number) > 0 ? 1 : 0;
+
+    // Get the current row data to append edit note and get OU for validation reset
+    const currentRow = await client.execute({
+      sql: "SELECT source_description, ou FROM financial_data_staging WHERE rowid = ?",
+      args: [data.rowid]
+    });
+
+    let newSourceDescription = 'Edited by user';
+    if (currentRow.rows.length > 0) {
+      const currentDesc = currentRow.rows[0].source_description as string | null;
+      if (currentDesc && !currentDesc.includes('[EDITED]')) {
+        newSourceDescription = `${currentDesc} [EDITED]`;
+      } else if (currentDesc) {
+        newSourceDescription = currentDesc;
+      }
+    }
+
+    const result = await client.execute({
+      sql: `
+        UPDATE financial_data_staging
+        SET
+          dep_acc_combo_id = ?,
+          month = ?,
+          year = ?,
+          period_combo = ?,
+          scenario = ?,
+          amount = ?,
+          count = ?,
+          currency = ?,
+          department = ?,
+          account = ?,
+          version = ?,
+          source_description = ?,
+          mapping_status = 'mapped',
+          last_modified = CURRENT_TIMESTAMP,
+          is_valid_combo = ?
+        WHERE rowid = ?
+      `,
+      args: [
+        comboId,
+        data.month,
+        data.year,
+        data.period_combo,
+        data.scenario,
+        data.amount,
+        data.count,
+        data.currency,
+        `D${data.department}`,  // Add D prefix for department
+        `A${data.account}`,     // Add A prefix for account
+        data.version,
+        newSourceDescription,
+        isValidCombo,
+        data.rowid
+      ]
+    });
+
+    console.log(`[UpdateStagingRow] Updated staging row ${data.rowid}`);
+
+    // Reset validation state since data has changed
+    if (currentRow.rows.length > 0) {
+      const ou = currentRow.rows[0].ou as string;
+      if (ou) {
+        await setValidationCompletedState(ou, false);
+      }
+    }
+
+    return result.rowsAffected > 0;
+  } catch (error) {
+    console.error("Error updating staging row:", error);
+    throw error;
+  }
+}
+
+// Delete a staging row by rowid
+export async function deleteStagingRow(rowid: number): Promise<boolean> {
+  try {
+    // Get the OU before deleting so we can reset validation completion state
+    const rowData = await client.execute({
+      sql: "SELECT ou FROM financial_data_staging WHERE rowid = ?",
+      args: [rowid]
+    });
+    const ou = rowData.rows.length > 0 ? (rowData.rows[0].ou as string) : null;
+
+    const result = await client.execute({
+      sql: "DELETE FROM financial_data_staging WHERE rowid = ?",
+      args: [rowid]
+    });
+
+    console.log(`[DeleteStagingRow] Deleted staging row ${rowid}, affected: ${result.rowsAffected}`);
+
+    // Reset validation completion state (requires re-validation, but keeps all data)
+    if (result.rowsAffected > 0 && ou) {
+      await setValidationCompletedState(ou, false);
+    }
+
+    return result.rowsAffected > 0;
+  } catch (error) {
+    console.error("Error deleting staging row:", error);
+    throw error;
+  }
+}
+
+// Check if any imports exist for a given OU (to determine if Add New is available)
+export async function checkImportsExist(ou: string): Promise<boolean> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT COUNT(*) as count FROM financial_data_staging WHERE ou = ?",
+      args: [ou]
+    });
+    return (result.rows[0].count as number) > 0;
+  } catch (error) {
+    console.error("Error checking imports exist:", error);
+    throw error;
+  }
+}
+
+// Get unique accounts from account_department_combos for dropdown
+// Note: In the combos table, what we call "account" is stored in the "department" column
+// and what we call "department" is stored in the "account" column (API naming convention)
+export async function getUniqueAccounts(): Promise<string[]> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT DISTINCT department FROM account_department_combos ORDER BY department",
+      args: []
+    });
+    return result.rows.map(row => row.department as string);
+  } catch (error) {
+    console.error("Error getting unique accounts:", error);
+    throw error;
+  }
+}
+
+// Get unique departments from account_department_combos for dropdown
+// Note: In the combos table, departments are stored in the "account" column
+export async function getUniqueDepartments(): Promise<string[]> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT DISTINCT account FROM account_department_combos ORDER BY account",
+      args: []
+    });
+    return result.rows.map(row => row.account as string);
+  } catch (error) {
+    console.error("Error getting unique departments:", error);
+    throw error;
+  }
+}
+
+// Get valid departments for a given account
+// Note: account values are in "department" column, department values are in "account" column
+export async function getDepartmentsForAccount(account: string): Promise<string[]> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT DISTINCT account FROM account_department_combos WHERE department = ? ORDER BY account",
+      args: [account]
+    });
+    return result.rows.map(row => row.account as string);
+  } catch (error) {
+    console.error("Error getting departments for account:", error);
+    throw error;
+  }
+}
+
+// Get valid accounts for a given department
+// Note: account values are in "department" column, department values are in "account" column
+export async function getAccountsForDepartment(department: string): Promise<string[]> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT DISTINCT department FROM account_department_combos WHERE account = ? ORDER BY department",
+      args: [department]
+    });
+    return result.rows.map(row => row.department as string);
+  } catch (error) {
+    console.error("Error getting accounts for department:", error);
     throw error;
   }
 }
@@ -4438,9 +4708,11 @@ export async function getAccountDepartmentCombos(): Promise<AccountDepartmentCom
  */
 export async function isValidCombo(account: string, department: string): Promise<boolean> {
   try {
+    // Note: The account_department_combos table has swapped column names
+    // The "account" column contains department values and "department" column contains account values
     const result = await client.execute({
       sql: "SELECT COUNT(*) as count FROM account_department_combos WHERE account = ? AND department = ?",
-      args: [account, department]
+      args: [department, account]
     });
 
     const count = result.rows[0].count as number;

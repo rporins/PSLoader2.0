@@ -90,6 +90,11 @@ const router = createHashRouter([
         handle: { title: "Validations" },
       },
       {
+        path: "staging-review",
+        element: <StagingDataReview />,
+        handle: { title: "Staging Data Review" },
+      },
+      {
         path: "room-segment-review",
         element: <RoomSegmentReview />,
         handle: { title: "Room Seg. Review" },
@@ -108,11 +113,6 @@ const router = createHashRouter([
         path: "data-table",
         element: <DataTable />,
         handle: { title: "Upload Review" },
-      },
-      {
-        path: "staging-review",
-        element: <StagingDataReview />,
-        handle: { title: "Staging Data Review" },
       },
       {
         path: "custom-pl",

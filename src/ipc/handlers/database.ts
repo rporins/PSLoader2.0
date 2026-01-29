@@ -664,6 +664,79 @@ export class DatabaseHandlers {
       timestamp: Date.now(),
     };
   };
+
+  // Staging row CRUD handlers
+  addStagingRowHandler: IpcHandler = async (event, request) => {
+    const rowid = await db.addStagingRow(request);
+    return {
+      success: true,
+      data: { message: 'Staging row added successfully', rowid },
+      timestamp: Date.now(),
+    };
+  };
+
+  updateStagingRowHandler: IpcHandler = async (event, request) => {
+    const updated = await db.updateStagingRow(request);
+    return {
+      success: true,
+      data: { message: updated ? 'Staging row updated successfully' : 'No row found to update', updated },
+      timestamp: Date.now(),
+    };
+  };
+
+  deleteStagingRowHandler: IpcHandler = async (event, request) => {
+    const deleted = await db.deleteStagingRow(request.rowid);
+    return {
+      success: true,
+      data: { message: deleted ? 'Staging row deleted successfully' : 'No row found to delete', deleted },
+      timestamp: Date.now(),
+    };
+  };
+
+  checkImportsExistHandler: IpcHandler = async (event, request) => {
+    const exists = await db.checkImportsExist(request.ou);
+    return {
+      success: true,
+      data: exists,
+      timestamp: Date.now(),
+    };
+  };
+
+  getUniqueAccountsHandler: IpcHandler = async (event) => {
+    const accounts = await db.getUniqueAccounts();
+    return {
+      success: true,
+      data: accounts,
+      timestamp: Date.now(),
+    };
+  };
+
+  getUniqueDepartmentsHandler: IpcHandler = async (event) => {
+    const departments = await db.getUniqueDepartments();
+    return {
+      success: true,
+      data: departments,
+      timestamp: Date.now(),
+    };
+  };
+
+  getDepartmentsForAccountHandler: IpcHandler = async (event, request) => {
+    const departments = await db.getDepartmentsForAccount(request.account);
+    return {
+      success: true,
+      data: departments,
+      timestamp: Date.now(),
+    };
+  };
+
+  getAccountsForDepartmentHandler: IpcHandler = async (event, request) => {
+    const accounts = await db.getAccountsForDepartment(request.department);
+    return {
+      success: true,
+      data: accounts,
+      timestamp: Date.now(),
+    };
+  };
 }
 
 // Factory function to create and register database handlers
@@ -705,6 +778,14 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_IMPORT_SESSIONS]: handlers.getImportSessionsHandler,
     [IPC_CHANNELS.DB_CLEAR_STAGING_TABLE]: handlers.clearStagingTableHandler,
     [IPC_CHANNELS.DB_GET_STAGING_DATA]: handlers.getStagingDataHandler,
+    [IPC_CHANNELS.DB_ADD_STAGING_ROW]: handlers.addStagingRowHandler,
+    [IPC_CHANNELS.DB_UPDATE_STAGING_ROW]: handlers.updateStagingRowHandler,
+    [IPC_CHANNELS.DB_DELETE_STAGING_ROW]: handlers.deleteStagingRowHandler,
+    [IPC_CHANNELS.DB_CHECK_IMPORTS_EXIST]: handlers.checkImportsExistHandler,
+    [IPC_CHANNELS.DB_GET_UNIQUE_ACCOUNTS]: handlers.getUniqueAccountsHandler,
+    [IPC_CHANNELS.DB_GET_UNIQUE_DEPARTMENTS]: handlers.getUniqueDepartmentsHandler,
+    [IPC_CHANNELS.DB_GET_DEPARTMENTS_FOR_ACCOUNT]: handlers.getDepartmentsForAccountHandler,
+    [IPC_CHANNELS.DB_GET_ACCOUNTS_FOR_DEPARTMENT]: handlers.getAccountsForDepartmentHandler,
     [IPC_CHANNELS.DB_GET_MAPPING_TABLES_VERSION]: handlers.getMappingTablesVersionHandler,
     [IPC_CHANNELS.DB_SET_MAPPING_TABLES_VERSION]: handlers.setMappingTablesVersionHandler,
     [IPC_CHANNELS.DB_STORE_ACCOUNT_MAPS]: handlers.storeAccountMapsHandler,

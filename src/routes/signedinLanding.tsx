@@ -846,6 +846,15 @@ const handleSignOut = useCallback(async () => {
             </ListItem>
           )}
 
+          <ListItem key="staging_review" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/staging-review")}>
+              <ListItemIcon sx={listItemIconStyle}>
+                <TableRowsIcon />
+              </ListItemIcon>
+              <ListItemText primary="Staging Review" sx={listItemTextStyle} />
+            </ListItemButton>
+          </ListItem>
+
           <ListItem key="RoomSegReview" disablePadding sx={{ display: "block" }}>
             <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/room-segment-review")}>
               <ListItemIcon sx={listItemIconStyle}>
@@ -870,15 +879,6 @@ const handleSignOut = useCallback(async () => {
                 <GridOnIcon />
               </ListItemIcon>
               <ListItemText primary="Upload Review" sx={listItemTextStyle} />
-            </ListItemButton>
-          </ListItem>
-
-          <ListItem key="staging_review" disablePadding sx={{ display: "block" }}>
-            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/staging-review")}>
-              <ListItemIcon sx={listItemIconStyle}>
-                <TableRowsIcon />
-              </ListItemIcon>
-              <ListItemText primary="Staging Review" sx={listItemTextStyle} />
             </ListItemButton>
           </ListItem>
 
