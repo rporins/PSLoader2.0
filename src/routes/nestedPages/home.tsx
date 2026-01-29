@@ -36,6 +36,9 @@ const WorkflowCard = styled(Card)<{ active?: boolean; completed?: boolean }>(({ 
     : theme.palette.background.paper,
   transition: "all 0.3s ease",
   cursor: "pointer",
+  width: "100%",
+  display: "flex",
+  flexDirection: "column",
   "&:hover": {
     boxShadow: theme.shadows[3],
     transform: "translateY(-2px)",
@@ -188,9 +191,9 @@ export default function Home() {
       </Card>
 
       {/* Workflow Steps */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
+      <Grid container spacing={3} sx={{ mb: 4, alignItems: "stretch" }}>
         {workflowSteps.map((step, index) => (
-          <Grid item xs={12} sm={6} md={3} key={step.id}>
+          <Grid item xs={12} sm={6} md={3} key={step.id} sx={{ display: "flex" }}>
             <WorkflowCard
               active={step.active}
               completed={step.completed}
