@@ -422,6 +422,93 @@ class MappingTablesService {
     }
     return null;
   }
+
+  /**
+   * Get all combos from local database for autocomplete
+   * @returns Promise<AccountDepartmentComboAPI[]> Array of all stored combos
+   */
+  async getAllStoredCombos(): Promise<AccountDepartmentComboAPI[]> {
+    if (typeof window !== 'undefined' && window.ipcApi) {
+      try {
+        const result = await window.ipcApi.sendIpcRequest('db:get-all-combos');
+        return result?.data || [];
+      } catch (error) {
+        console.error('Failed to get all combos:', error);
+        return [];
+      }
+    }
+    return [];
+  }
+
+  /**
+   * Get unique accounts from stored combos
+   * @returns Promise<string[]> Array of unique account codes
+   */
+  async getUniqueAccounts(): Promise<string[]> {
+    if (typeof window !== 'undefined' && window.ipcApi) {
+      try {
+        const result = await window.ipcApi.sendIpcRequest('db:get-unique-accounts');
+        return result?.data || [];
+      } catch (error) {
+        console.error('Failed to get unique accounts:', error);
+        return [];
+      }
+    }
+    return [];
+  }
+
+  /**
+   * Get unique departments from stored combos
+   * @returns Promise<string[]> Array of unique department codes
+   */
+  async getUniqueDepartments(): Promise<string[]> {
+    if (typeof window !== 'undefined' && window.ipcApi) {
+      try {
+        const result = await window.ipcApi.sendIpcRequest('db:get-unique-departments');
+        return result?.data || [];
+      } catch (error) {
+        console.error('Failed to get unique departments:', error);
+        return [];
+      }
+    }
+    return [];
+  }
+
+  /**
+   * Get departments valid for a specific account
+   * @param account The account to filter by
+   * @returns Promise<string[]> Array of valid department codes
+   */
+  async getDepartmentsForAccount(account: string): Promise<string[]> {
+    if (typeof window !== 'undefined' && window.ipcApi) {
+      try {
+        const result = await window.ipcApi.sendIpcRequest('db:get-departments-for-account', { account });
+        return result?.data || [];
+      } catch (error) {
+        console.error('Failed to get departments for account:', error);
+        return [];
+      }
+    }
+    return [];
+  }
+
+  /**
+   * Get accounts valid for a specific department
+   * @param department The department to filter by
+   * @returns Promise<string[]> Array of valid account codes
+   */
+  async getAccountsForDepartment(department: string): Promise<string[]> {
+    if (typeof window !== 'undefined' && window.ipcApi) {
+      try {
+        const result = await window.ipcApi.sendIpcRequest('db:get-accounts-for-department', { department });
+        return result?.data || [];
+      } catch (error) {
+        console.error('Failed to get accounts for department:', error);
+        return [];
+      }
+    }
+    return [];
+  }
 }
 
 export default new MappingTablesService();

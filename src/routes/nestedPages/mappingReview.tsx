@@ -26,6 +26,7 @@ import {
   alpha,
   IconButton,
   Card,
+  Button,
 } from '@mui/material';
 import {
   DataGridPremium,
@@ -48,10 +49,12 @@ import {
   ThumbUp as ApproveIcon,
   ThumbDown as RejectIcon,
   Block as BlockIcon,
+  Add as AddIcon,
 } from '@mui/icons-material';
 import mappingConfigService, { MappingConfigResponse, MappingEntry, ApprovalStatus } from '../../services/mappingConfigService';
 import importConfigService from '../../services/importConfigService';
 import authService from '../../services/auth';
+import RequestMappingDialog from '../../components/RequestMappingDialog';
 
 // ────────────────────────────────────────────────────────────
 // ANIMATIONS
@@ -342,6 +345,7 @@ const MappingReview: React.FC = () => {
   const [error, setError] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string>('');
   const [approvalFilter, setApprovalFilter] = useState<ApprovalStatus | 'ALL'>('ALL');
+  const [requestDialogOpen, setRequestDialogOpen] = useState(false);
 
   // Fetch mapping configs
   const fetchMappingConfigs = useCallback(async () => {
@@ -514,6 +518,28 @@ const MappingReview: React.FC = () => {
       setApprovingId(null);
     }
   }, []);
+
+  // Handle successful mapping request - refresh mappings from API
+  const handleMappingRequestSuccess = useCallback(async () => {
+    if (!selectedConfig) return;
+
+    try {
+      const configId = selectedConfig.config_id || selectedConfig.id;
+      // Fetch fresh mappings from API
+      const apiMappings = await mappingConfigService.getMappingsFromAPI(configId);
+      // Update local database
+      await mappingConfigService.replaceMappings(configId, apiMappings);
+      // Update state
+      setMappings(apiMappings);
+      setSuccessMessage('Mapping request submitted and list refreshed');
+      setTimeout(() => setSuccessMessage(''), 5000);
+    } catch (err) {
+      console.error('Error refreshing mappings:', err);
+      // Still show success for the request, just note refresh failed
+      setSuccessMessage('Mapping request submitted. Sync to see it in the list.');
+      setTimeout(() => setSuccessMessage(''), 5000);
+    }
+  }, [selectedConfig]);
 
   // Define columns with responsive widths
   const columns: GridColDef[] = [
@@ -1009,6 +1035,35 @@ const MappingReview: React.FC = () => {
 
           <Box flex={1} />
 
+          {/* Request New Mapping Button */}
+          {selectedConfig && !selectedConfig.is_locked && (
+            <Tooltip title="Request a new mapping line" arrow placement="top">
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={() => setRequestDialogOpen(true)}
+                disabled={syncing || loading}
+                sx={{
+                  textTransform: 'none',
+                  borderRadius: 2,
+                  fontSize: '0.8125rem',
+                  fontWeight: 500,
+                  px: 2,
+                  height: 36,
+                  borderColor: 'divider',
+                  color: 'text.primary',
+                  '&:hover': {
+                    borderColor: theme.palette.primary.main,
+                    backgroundColor: alpha(theme.palette.primary.main, 0.04),
+                  },
+                }}
+              >
+                {isMobile ? 'Request' : 'Request Mapping'}
+              </Button>
+            </Tooltip>
+          )}
+
           <Tooltip title="Sync configurations from server" arrow placement="top">
             <span>
               <IconButton
@@ -1158,6 +1213,17 @@ const MappingReview: React.FC = () => {
           )
         )}
       </ContentArea>
+
+      {/* Request Mapping Dialog */}
+      {selectedConfig && (
+        <RequestMappingDialog
+          open={requestDialogOpen}
+          onClose={() => setRequestDialogOpen(false)}
+          configId={selectedConfig.config_id || selectedConfig.id || 0}
+          configDescription={selectedConfig.description}
+          onSuccess={handleMappingRequestSuccess}
+        />
+      )}
     </PageContainer>
   );
 };

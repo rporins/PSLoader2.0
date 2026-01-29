@@ -51,6 +51,18 @@ export interface MappingApprovalRequest {
   rejection_reason?: string;
 }
 
+// Interface for creating a new mapping request
+export interface CreateMappingRequest {
+  source_account?: string | null;
+  source_department?: string | null;
+  source_account_department?: string | null;
+  target_account?: string | null;
+  target_department?: string | null;
+  target_account_department?: string | null;
+  priority?: number;
+  is_active?: boolean;
+}
+
 class MappingConfigService {
   /**
    * Fetch mapping configuration from API
@@ -504,6 +516,46 @@ class MappingConfigService {
       }
     }
   }
+
+  /**
+   * Create a new mapping request via API
+   * @param configId The configuration ID to add the mapping to
+   * @param mappingData The mapping data to create
+   * @returns Promise<MappingEntry> The created mapping (with PENDING_APPROVAL status)
+   */
+  async createMapping(configId: number, mappingData: CreateMappingRequest): Promise<MappingEntry> {
+    const accessToken = authService.getAccessToken();
+
+    if (!accessToken) {
+      throw new Error('No access token available');
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/mappings/configs/${configId}/mappings`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(mappingData)
+      });
+
+      if (!response.ok) {
+        if (response.status === 422) {
+          const error = await response.json();
+          throw new Error(error.detail?.[0]?.msg || 'Validation error');
+        }
+        const error = await response.json();
+        throw new Error(error.detail || `Failed to create mapping: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error creating mapping:', error);
+      throw error;
+    }
+  }
+
 }
 
 export default new MappingConfigService();
