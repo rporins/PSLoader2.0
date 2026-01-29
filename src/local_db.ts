@@ -472,18 +472,44 @@ async function migrateFinancialDataStagingTable() {
     });
 
     const columnNames = tableInfo.rows.map(row => row.name as string);
-    const newColumns = ['source_account', 'source_department', 'mapping_status', 'source_description'];
+    const newColumns = ['source_account', 'source_department', 'mapping_status', 'source_description', 'is_valid_combo'];
     const columnsToAdd = newColumns.filter(col => !columnNames.includes(col));
 
     if (columnsToAdd.length > 0) {
       // console.log("Migrating financial_data_staging table to add new columns:", columnsToAdd.join(', '));
       // Add new columns one by one
-      const alterQueries = columnsToAdd.map(col => ({
-        sql: `ALTER TABLE financial_data_staging ADD COLUMN ${col} TEXT`,
-        args: [] as any[]
-      }));
+      const alterQueries = columnsToAdd.map(col => {
+        // is_valid_combo is INTEGER with default 1, others are TEXT
+        if (col === 'is_valid_combo') {
+          return {
+            sql: `ALTER TABLE financial_data_staging ADD COLUMN ${col} INTEGER DEFAULT 1`,
+            args: [] as any[]
+          };
+        }
+        return {
+          sql: `ALTER TABLE financial_data_staging ADD COLUMN ${col} TEXT`,
+          args: [] as any[]
+        };
+      });
 
       await client.batch(alterQueries);
+
+      // If we just added is_valid_combo, update existing rows to set the correct value
+      if (columnsToAdd.includes('is_valid_combo')) {
+        // Set is_valid_combo = 0 for rows where the combo doesn't exist in the master list
+        await client.execute({
+          sql: `
+            UPDATE financial_data_staging
+            SET is_valid_combo = 0
+            WHERE dep_acc_combo_id NOT IN (
+              SELECT 'D' || department || '_A' || account
+              FROM account_department_combos
+            )
+          `,
+          args: []
+        });
+      }
+
       // console.log("Successfully added new columns to financial_data_staging table");
     } else {
       // console.log("Financial_data_staging table already has all required columns");
@@ -751,7 +777,8 @@ export async function initializeDatabase() {
             mapping_status TEXT,
             import_batch_id TEXT,
             last_modified TEXT DEFAULT CURRENT_TIMESTAMP,
-            item_version INTEGER DEFAULT 1
+            item_version INTEGER DEFAULT 1,
+            is_valid_combo INTEGER DEFAULT 1
         )
         `,
       `
@@ -3762,6 +3789,7 @@ interface StagingData {
   source_description: string | null;
   mapping_status: string;
   import_batch_id: string;
+  is_valid_combo?: number; // 1 = valid, 0 = invalid (computed during insert)
 }
 
 // Clear staging table
@@ -3800,7 +3828,8 @@ export async function getStagingData(ou?: string): Promise<string> {
         source_description,
         mapping_status,
         import_batch_id,
-        last_modified
+        last_modified,
+        is_valid_combo
       FROM financial_data_staging
     `;
 
@@ -3861,35 +3890,50 @@ export async function insertBatchStagingData(batchData: StagingData[]): Promise<
   }
 
   try {
-    const queries = batchData.map((item) => ({
-      sql: `
-        INSERT INTO financial_data_staging (
-          dep_acc_combo_id, month, year, period_combo, scenario,
-          amount, count, currency, ou, department, account, version,
-          source_account, source_department, source_description, mapping_status,
-          import_batch_id, last_modified, item_version
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1)
-      `,
-      args: [
-        item.dep_acc_combo_id,
-        item.month,
-        item.year,
-        item.period_combo,
-        item.scenario,
-        item.amount,
-        item.count,
-        item.currency,
-        item.ou,
-        item.department,
-        item.account,
-        item.version,
-        item.source_account,
-        item.source_department,
-        item.source_description,
-        item.mapping_status,
-        item.import_batch_id
-      ]
-    }));
+    // Build a set of valid combo IDs for fast lookup
+    // Format: "D{department}_A{account}" to match dep_acc_combo_id format in staging
+    const validCombosResult = await client.execute({
+      sql: "SELECT 'D' || department || '_A' || account AS combo_id FROM account_department_combos",
+      args: []
+    });
+    const validCombos = new Set(validCombosResult.rows.map(row => row.combo_id as string));
+
+    const queries = batchData.map((item) => {
+      // Check if this combo is valid (exists in master list)
+      // If dep_acc_combo_id is null or not in the valid set, mark as invalid (0)
+      const isValidCombo = item.dep_acc_combo_id && validCombos.has(item.dep_acc_combo_id) ? 1 : 0;
+
+      return {
+        sql: `
+          INSERT INTO financial_data_staging (
+            dep_acc_combo_id, month, year, period_combo, scenario,
+            amount, count, currency, ou, department, account, version,
+            source_account, source_department, source_description, mapping_status,
+            import_batch_id, last_modified, item_version, is_valid_combo
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1, ?)
+        `,
+        args: [
+          item.dep_acc_combo_id,
+          item.month,
+          item.year,
+          item.period_combo,
+          item.scenario,
+          item.amount,
+          item.count,
+          item.currency,
+          item.ou,
+          item.department,
+          item.account,
+          item.version,
+          item.source_account,
+          item.source_department,
+          item.source_description,
+          item.mapping_status,
+          item.import_batch_id,
+          isValidCombo
+        ]
+      };
+    });
 
     await client.batch(queries);
     // console.log(`${batchData.length} staging records inserted successfully.`);
@@ -3929,35 +3973,48 @@ export async function insertManualAdjustments(adjustments: ManualAdjustmentData[
   }
 
   try {
-    const queries = adjustments.map((item) => ({
-      sql: `
-        INSERT INTO financial_data_staging (
-          dep_acc_combo_id, month, year, period_combo, scenario,
-          amount, count, currency, ou, department, account, version,
-          source_account, source_department, source_description, mapping_status,
-          import_batch_id, last_modified, item_version
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1)
-      `,
-      args: [
-        item.dep_acc_combo_id,
-        item.month,
-        item.year,
-        item.period_combo,
-        item.scenario,
-        item.amount,
-        item.count,
-        item.currency,
-        item.ou,
-        item.department,
-        item.account,
-        item.version,
-        item.source_account,
-        item.source_department,
-        item.source_description,
-        item.mapping_status,
-        item.import_batch_id
-      ]
-    }));
+    // Build a set of valid combo IDs for fast lookup
+    const validCombosResult = await client.execute({
+      sql: "SELECT 'D' || department || '_A' || account AS combo_id FROM account_department_combos",
+      args: []
+    });
+    const validCombos = new Set(validCombosResult.rows.map(row => row.combo_id as string));
+
+    const queries = adjustments.map((item) => {
+      // Check if this combo is valid
+      const isValidCombo = item.dep_acc_combo_id && validCombos.has(item.dep_acc_combo_id) ? 1 : 0;
+
+      return {
+        sql: `
+          INSERT INTO financial_data_staging (
+            dep_acc_combo_id, month, year, period_combo, scenario,
+            amount, count, currency, ou, department, account, version,
+            source_account, source_department, source_description, mapping_status,
+            import_batch_id, last_modified, item_version, is_valid_combo
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1, ?)
+        `,
+        args: [
+          item.dep_acc_combo_id,
+          item.month,
+          item.year,
+          item.period_combo,
+          item.scenario,
+          item.amount,
+          item.count,
+          item.currency,
+          item.ou,
+          item.department,
+          item.account,
+          item.version,
+          item.source_account,
+          item.source_department,
+          item.source_description,
+          item.mapping_status,
+          item.import_batch_id,
+          isValidCombo
+        ]
+      };
+    });
 
     await client.batch(queries);
     console.log(`[ManualAdjustments] Inserted ${adjustments.length} manual adjustment(s) to staging table`);

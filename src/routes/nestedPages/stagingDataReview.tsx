@@ -8,6 +8,7 @@ import {
   GridToolbarColumnsButton,
   GridToolbarDensitySelector,
   GridToolbarQuickFilter,
+  GridRowClassNameParams,
 } from "@mui/x-data-grid-premium";
 import {
   Box,
@@ -42,6 +43,7 @@ interface StagingDataRow {
   mapping_status: string;
   import_batch_id: string;
   last_modified: string;
+  is_valid_combo: number; // 1 = valid, 0 = invalid combo
 }
 
 const StyledCard = styled(Card)(({ theme }) => ({
@@ -384,7 +386,7 @@ export default function StagingDataReview() {
         </CardContent>
       </StyledCard>
 
-      <Box sx={{ mb: 3, display: 'flex', gap: 2, alignItems: 'center' }}>
+      <Box sx={{ mb: 3, display: 'flex', gap: 2, alignItems: 'center', justifyContent: 'space-between' }}>
         <Button
           variant="outlined"
           onClick={fetchStagingData}
@@ -392,6 +394,18 @@ export default function StagingDataReview() {
         >
           {loading ? 'Loading...' : 'Refresh Data'}
         </Button>
+
+        <Stack direction="row" spacing={2} alignItems="center">
+          <Typography variant="body2" color="text.secondary">Legend:</Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Box sx={{ width: 16, height: 16, borderRadius: 0.5, bgcolor: (theme) => alpha(theme.palette.warning.main, 0.3) }} />
+            <Typography variant="body2">Unmapped</Typography>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Box sx={{ width: 16, height: 16, borderRadius: 0.5, bgcolor: (theme) => alpha(theme.palette.error.main, 0.3) }} />
+            <Typography variant="body2">Invalid Combo</Typography>
+          </Box>
+        </Stack>
       </Box>
 
       <Paper sx={{ height: 700, width: '100%' }}>
@@ -401,6 +415,17 @@ export default function StagingDataReview() {
           columns={columns}
           slots={{
             toolbar: CustomToolbar,
+          }}
+          getRowClassName={(params: GridRowClassNameParams<StagingDataRow>) => {
+            // Invalid combo takes priority (red)
+            if (params.row.is_valid_combo === 0) {
+              return 'row-invalid-combo';
+            }
+            // Unmapped rows (orange)
+            if (params.row.mapping_status?.toLowerCase().includes('unmapped')) {
+              return 'row-unmapped';
+            }
+            return '';
           }}
           initialState={{
             pagination: {
@@ -438,6 +463,20 @@ export default function StagingDataReview() {
             },
             '& .MuiDataGrid-columnHeaderTitle': {
               fontWeight: 'bold',
+            },
+            // Row styling for unmapped rows (orange/warning)
+            '& .row-unmapped': {
+              backgroundColor: (theme) => alpha(theme.palette.warning.main, 0.15),
+              '&:hover': {
+                backgroundColor: (theme) => alpha(theme.palette.warning.main, 0.25),
+              },
+            },
+            // Row styling for invalid combo rows (red/error)
+            '& .row-invalid-combo': {
+              backgroundColor: (theme) => alpha(theme.palette.error.main, 0.15),
+              '&:hover': {
+                backgroundColor: (theme) => alpha(theme.palette.error.main, 0.25),
+              },
             },
           }}
         />

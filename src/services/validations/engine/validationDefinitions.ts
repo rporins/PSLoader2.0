@@ -1135,4 +1135,160 @@ export const validationDefinitions: Record<string, ValidationFn> = {
     };
   },
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // INVALID COMBOS VALIDATION
+  // Checks that all account-department combinations in staging exist in the
+  // master account_department_combos table. Catches "creative" coding.
+  //
+  // Optimization: Uses a CTE to build the valid combo lookup set once, then
+  // does a simple NOT IN check against distinct staging combos.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  invalid_combos: async (db, options) => {
+    // Step 1: Build a set of valid combo IDs from master table (format: D0480_A701110)
+    // Step 2: Find distinct combos in staging that aren't in that set
+    // This approach is efficient because:
+    //   - We build the valid set once (small table, ~few thousand rows typically)
+    //   - We only check distinct combos from staging, not every row
+    //   - The NOT IN uses a hash lookup
+    const result = await db.execute({
+      sql: `
+        WITH valid_combos AS (
+          SELECT 'D' || department || '_A' || account AS combo_id
+          FROM account_department_combos
+        ),
+        staging_combos AS (
+          SELECT DISTINCT
+            dep_acc_combo_id,
+            department,
+            account
+          FROM financial_data_staging
+          WHERE ou = ?
+        )
+        SELECT
+          s.dep_acc_combo_id,
+          s.department,
+          s.account
+        FROM staging_combos s
+        WHERE s.dep_acc_combo_id NOT IN (SELECT combo_id FROM valid_combos)
+        ORDER BY s.department, s.account
+      `,
+      args: [options.ou]
+    });
+
+    const invalidCombos = result.rows || [];
+    const errors: string[] = [];
+
+    if (invalidCombos.length > 0) {
+      errors.push(`Found ${invalidCombos.length} invalid combo(s) not in master COA list:`);
+
+      // Show up to 15 invalid combos in error messages
+      const displayLimit = 15;
+      for (let i = 0; i < Math.min(invalidCombos.length, displayLimit); i++) {
+        const combo = invalidCombos[i];
+        errors.push(`  ${combo.dep_acc_combo_id}`);
+      }
+
+      if (invalidCombos.length > displayLimit) {
+        errors.push(`  ... and ${invalidCombos.length - displayLimit} more`);
+      }
+    }
+
+    return {
+      success: invalidCombos.length === 0,
+      recordCount: invalidCombos.length,
+      errors: errors.length > 0 ? errors : undefined,
+      errorDetails: invalidCombos.length > 0 ? [{
+        type: 'INVALID_COMBOS',
+        message: 'Combos not in master COA list',
+        count: invalidCombos.length,
+        combos: invalidCombos.map(c => c.dep_acc_combo_id)
+      }] : undefined,
+      stats: {
+        recordsChecked: invalidCombos.length,
+        issuesFound: invalidCombos.length
+      }
+    };
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // UNMAPPED LINES VALIDATION
+  // Checks that all lines in staging have been mapped (have account and department)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  unmapped_lines: async (db, options) => {
+    // Find lines where mapping_status indicates unmapped or where account/department is null
+    const result = await db.execute({
+      sql: `
+        SELECT
+          source_account,
+          source_department,
+          source_description,
+          COUNT(*) as line_count,
+          SUM(amount) as total_amount
+        FROM financial_data_staging
+        WHERE ou = ?
+          AND (
+            mapping_status LIKE '%unmapped%'
+            OR account IS NULL
+            OR department IS NULL
+            OR account = ''
+            OR department = ''
+          )
+        GROUP BY source_account, source_department, source_description
+        ORDER BY line_count DESC
+      `,
+      args: [options.ou]
+    });
+
+    const unmappedLines = result.rows || [];
+    const errors: string[] = [];
+    let totalUnmappedCount = 0;
+
+    if (unmappedLines.length > 0) {
+      // Calculate total unmapped lines
+      for (const row of unmappedLines) {
+        totalUnmappedCount += (row.line_count as number) || 0;
+      }
+
+      errors.push(`Found ${totalUnmappedCount} unmapped line(s) across ${unmappedLines.length} unique source combination(s):`);
+
+      // Show up to 10 unmapped source combinations
+      const displayLimit = 10;
+      for (let i = 0; i < Math.min(unmappedLines.length, displayLimit); i++) {
+        const line = unmappedLines[i];
+        const srcAcct = line.source_account || '(none)';
+        const srcDept = line.source_department || '(none)';
+        errors.push(`  - Acct: ${srcAcct}, Dept: ${srcDept} (${line.line_count} line(s))`);
+      }
+
+      if (unmappedLines.length > displayLimit) {
+        errors.push(`  ... and ${unmappedLines.length - displayLimit} more source combinations`);
+      }
+    }
+
+    return {
+      success: unmappedLines.length === 0,
+      recordCount: totalUnmappedCount,
+      errors: errors.length > 0 ? errors : undefined,
+      errorDetails: unmappedLines.length > 0 ? [{
+        type: 'UNMAPPED_LINES',
+        message: 'Lines without account/department mapping',
+        count: totalUnmappedCount,
+        uniqueCombinations: unmappedLines.length,
+        samples: unmappedLines.slice(0, 10).map(l => ({
+          sourceAccount: l.source_account,
+          sourceDepartment: l.source_department,
+          sourceDescription: l.source_description,
+          lineCount: l.line_count,
+          totalAmount: l.total_amount
+        }))
+      }] : undefined,
+      stats: {
+        recordsChecked: totalUnmappedCount,
+        issuesFound: totalUnmappedCount
+      }
+    };
+  },
+
 };
