@@ -163,22 +163,37 @@ const DataImport: React.FC = () => {
       if (!selectedOU) return;
 
       setLoadingUploadPeriods(true);
-      setSelectedPeriod(''); // Reset period selection when hotel changes
-      setSelectedPeriodGlobal(null); // Also clear global setting
 
       try {
         // Fetch all periods (including locked ones) to show them with indicators
         const allPeriods = await uploadPeriodsService.getUploadPeriods(selectedOU, true);
         setUploadPeriods(allPeriods);
 
-        // Optionally auto-select the first available (unlocked) period
-        // const firstUnlocked = allPeriods.find(p => !p.is_locked);
-        // if (firstUnlocked) {
-        //   setSelectedPeriod(firstUnlocked.period);
-        // }
+        // Try to load the saved period for this OU from SQLite
+        // @ts-ignore
+        const savedPeriodResult = await window.ipcApi.sendIpcRequest('db:get-selected-period-for-ou', { ou: selectedOU });
+        if (savedPeriodResult?.success && savedPeriodResult.data) {
+          const savedPeriod = savedPeriodResult.data as string;
+          // Only use the saved period if it's still available in the list
+          const periodExists = allPeriods.some(p => p.period === savedPeriod);
+          if (periodExists) {
+            setSelectedPeriod(savedPeriod);
+            setSelectedPeriodGlobal(savedPeriod);
+          } else {
+            // Saved period no longer available, clear it
+            setSelectedPeriod('');
+            setSelectedPeriodGlobal(null);
+          }
+        } else {
+          // No saved period, clear the selection
+          setSelectedPeriod('');
+          setSelectedPeriodGlobal(null);
+        }
       } catch (error) {
         console.error('Failed to fetch upload periods:', error);
         setUploadPeriods([]);
+        setSelectedPeriod('');
+        setSelectedPeriodGlobal(null);
       } finally {
         setLoadingUploadPeriods(false);
       }
@@ -691,11 +706,23 @@ const DataImport: React.FC = () => {
                 id="period-select"
                 value={selectedPeriod}
                 label="Upload Period *"
-                onChange={(event: SelectChangeEvent) => {
+                onChange={async (event: SelectChangeEvent) => {
                   const newPeriod = event.target.value;
                   setSelectedPeriod(newPeriod);
                   // Also save to global settings store so it's available on other pages
                   setSelectedPeriodGlobal(newPeriod || null);
+                  // Persist the period per OU to SQLite
+                  if (selectedOU) {
+                    try {
+                      // @ts-ignore
+                      await window.ipcApi.sendIpcRequest('db:set-selected-period-for-ou', {
+                        ou: selectedOU,
+                        period: newPeriod || null
+                      });
+                    } catch (error) {
+                      console.error('Failed to save selected period:', error);
+                    }
+                  }
                 }}
                 disabled={loadingUploadPeriods || importSessionStarted || importCompleted}
               >

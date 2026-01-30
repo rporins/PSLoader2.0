@@ -19,7 +19,7 @@ import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 
 export default function HelpSupport() {
-  const supportEmail = "support@example.com"; // TODO: Replace with actual support email
+  const supportEmail = "emeapowerBIsupport@marriott.com";
 
   return (
     <Box sx={{ maxWidth: 800, mx: "auto" }}>

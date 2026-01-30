@@ -1,5 +1,4 @@
-import { API_BASE_URL } from '../config';
-import authService from './auth';
+import api from './api';
 
 // Interface for version response from API
 export interface MappingTablesVersionResponse {
@@ -111,20 +110,8 @@ class MappingTablesService {
    * @returns Promise<MappingTablesVersionResponse> The version info
    */
   async getVersion(): Promise<MappingTablesVersionResponse> {
-    const accessToken = authService.getAccessToken();
-
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
     try {
-      const response = await fetch(`${API_BASE_URL}/mapping-tables/version`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await api.get(`/mapping-tables/version`);
 
       if (!response.ok) {
         const error = await response.json();
@@ -144,20 +131,8 @@ class MappingTablesService {
    * @returns Promise<MappingTablesDataResponse> All mapping tables data
    */
   async getData(): Promise<MappingTablesDataResponse> {
-    const accessToken = authService.getAccessToken();
-
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
     try {
-      const response = await fetch(`${API_BASE_URL}/mapping-tables/data`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await api.get(`/mapping-tables/data`);
 
       if (!response.ok) {
         const error = await response.json();
@@ -176,21 +151,8 @@ class MappingTablesService {
    * @returns Promise<CombosDataResponse> All combo data
    */
   async getCombos(): Promise<CombosDataResponse> {
-    const accessToken = authService.getAccessToken();
-
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
     try {
-      // Assuming the API endpoint for combos - adjust based on actual API
-      const response = await fetch(`${API_BASE_URL}/mapping-tables/combos`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await api.get(`/mapping-tables/combos`);
 
       if (!response.ok) {
         const error = await response.json();

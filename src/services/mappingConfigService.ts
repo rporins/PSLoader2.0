@@ -1,5 +1,4 @@
-import { API_BASE_URL } from '../config';
-import authService from './auth';
+import api from './api';
 
 // Interface for the Mapping Config from API
 export interface MappingConfigResponse {
@@ -70,20 +69,8 @@ class MappingConfigService {
    * @returns Promise<MappingConfigResponse> The mapping configuration
    */
   async getMappingConfig(configId: number): Promise<MappingConfigResponse> {
-    const accessToken = authService.getAccessToken();
-
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
     try {
-      const response = await fetch(`${API_BASE_URL}/mappings/configs/${configId}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await api.get(`/mappings/configs/${configId}`);
 
       if (!response.ok) {
         if (response.status === 422) {
@@ -111,17 +98,10 @@ class MappingConfigService {
     configId: number,
     updateData: MappingConfigUpdateRequest
   ): Promise<MappingConfigResponse> {
-    const accessToken = authService.getAccessToken();
-
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
     try {
-      const response = await fetch(`${API_BASE_URL}/mappings/configs/${configId}`, {
+      const response = await api.fetch(`/mappings/configs/${configId}`, {
         method: 'PATCH',
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(updateData)
@@ -223,20 +203,8 @@ class MappingConfigService {
    * @returns Promise<MappingEntry[]> Array of mappings
    */
   async getMappingsFromAPI(configId: number): Promise<MappingEntry[]> {
-    const accessToken = authService.getAccessToken();
-
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
     try {
-      const response = await fetch(`${API_BASE_URL}/mappings/configs/${configId}/mappings`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await api.get(`/mappings/configs/${configId}/mappings`);
 
       if (!response.ok) {
         if (response.status === 422) {
@@ -392,25 +360,13 @@ class MappingConfigService {
    * @returns Promise<MappingEntry[]> Array of pending mappings
    */
   async getPendingMappingsFromAPI(configId?: number): Promise<MappingEntry[]> {
-    const accessToken = authService.getAccessToken();
-
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
     try {
-      let url = `${API_BASE_URL}/mappings/mappings/pending`;
+      let endpoint = `/mappings/mappings/pending`;
       if (configId !== undefined) {
-        url += `?config_id=${configId}`;
+        endpoint += `?config_id=${configId}`;
       }
 
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await api.get(endpoint);
 
       if (!response.ok) {
         if (response.status === 422) {
@@ -435,21 +391,8 @@ class MappingConfigService {
    * @returns Promise<MappingEntry> The updated mapping
    */
   async approveMapping(mappingId: number, approvalRequest: MappingApprovalRequest): Promise<MappingEntry> {
-    const accessToken = authService.getAccessToken();
-
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
     try {
-      const response = await fetch(`${API_BASE_URL}/mappings/mappings/${mappingId}/approve`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(approvalRequest)
-      });
+      const response = await api.post(`/mappings/mappings/${mappingId}/approve`, approvalRequest);
 
       if (!response.ok) {
         if (response.status === 422) {
@@ -524,21 +467,8 @@ class MappingConfigService {
    * @returns Promise<MappingEntry> The created mapping (with PENDING_APPROVAL status)
    */
   async createMapping(configId: number, mappingData: CreateMappingRequest): Promise<MappingEntry> {
-    const accessToken = authService.getAccessToken();
-
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
     try {
-      const response = await fetch(`${API_BASE_URL}/mappings/configs/${configId}/mappings`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(mappingData)
-      });
+      const response = await api.post(`/mappings/configs/${configId}/mappings`, mappingData);
 
       if (!response.ok) {
         if (response.status === 422) {

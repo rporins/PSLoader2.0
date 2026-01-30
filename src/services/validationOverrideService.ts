@@ -12,8 +12,7 @@
  * 4. User checks status and can proceed past the failed validation
  */
 
-import { API_BASE_URL } from '../config';
-import authService from './auth';
+import api from './api';
 
 // Types for Validation Override
 export interface ValidationOverrideRequest {
@@ -63,23 +62,10 @@ class ValidationOverrideService {
     validations: Array<{ name: string; state: string }>,
     reason: string | null
   ): Promise<ValidationOverrideResponse> {
-    const accessToken = authService.getAccessToken();
-
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/validation-override/request`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        context,
-        validations,
-        reason
-      })
+    const response = await api.post(`/validation-override/request`, {
+      context,
+      validations,
+      reason
     });
 
     if (!response.ok) {
@@ -100,19 +86,7 @@ class ValidationOverrideService {
    * @returns Promise<ValidationOverrideStatus>
    */
   async checkOverrideStatus(context: string): Promise<ValidationOverrideStatus> {
-    const accessToken = authService.getAccessToken();
-
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/validation-override/status/${context}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    const response = await api.get(`/validation-override/status/${context}`);
 
     if (!response.ok) {
       if (response.status === 422) {

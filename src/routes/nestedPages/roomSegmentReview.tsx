@@ -239,6 +239,15 @@ const StyledDataGrid = styled(DataGridPremium)(({ theme }) => ({
     cursor: "default",
     "&:hover": { backgroundColor: alpha(theme.palette.primary.main, 0.03) },
   },
+  // Validation error highlighting
+  "& .MuiDataGrid-row.row-error": {
+    backgroundColor: alpha(theme.palette.error.main, 0.08),
+    "&:hover": { backgroundColor: alpha(theme.palette.error.main, 0.12) },
+  },
+  "& .MuiDataGrid-row.row-warning": {
+    backgroundColor: alpha(theme.palette.warning.main, 0.08),
+    "&:hover": { backgroundColor: alpha(theme.palette.warning.main, 0.12) },
+  },
   "& .MuiDataGrid-cell": {
     borderBottom: `1px solid ${alpha(theme.palette.divider, 0.06)}`,
     fontSize: "0.8rem",
@@ -365,38 +374,35 @@ export default function RoomSegmentReview() {
       if (response?.success && response?.data) {
         const data = JSON.parse(response.data as string);
 
-        // Build lookup maps - key by account
+        // Build lookup map - key by account
+        // Stats are now stored in the amount column (identified by stat account codes)
         const amountByAccount = new Map<string, number>();
-        const countByAccount = new Map<string, number>();
 
         data.forEach((row: any) => {
           // Filter by department
           if (row.department === DEPARTMENT) {
             const account = row.account || "";
             amountByAccount.set(account, (amountByAccount.get(account) || 0) + (row.amount || 0));
-            if (row.count != null) {
-              countByAccount.set(account, (countByAccount.get(account) || 0) + row.count);
-            }
           }
         });
 
-        // Update stats rows
+        // Update stats rows - stats values are now in the amount column
         const newStatsRows: StatsRow[] = ROOM_STATS_CONFIG.map((stat) => ({
           id: stat.statAccount,
           account: stat.statAccount,
           description: stat.description,
-          value: countByAccount.get(stat.statAccount) || amountByAccount.get(stat.statAccount) || 0,
+          value: amountByAccount.get(stat.statAccount) || 0,
         }));
         setStatsRows(newStatsRows);
 
-        // Update segment rows
+        // Update segment rows - stats come from amount column for stat accounts
         const newRows: SegmentRow[] = SEGMENTS_CONFIG.map((seg) => ({
           id: seg.revenueAccount,
           revenueAccount: seg.revenueAccount,
           statAccount: seg.statAccount,
           description: seg.description,
           revenue: amountByAccount.get(seg.revenueAccount) || 0,
-          stats: seg.statAccount ? (countByAccount.get(seg.statAccount) || amountByAccount.get(seg.statAccount) || 0) : 0,
+          stats: seg.statAccount ? (amountByAccount.get(seg.statAccount) || 0) : 0,
           category: seg.category,
         }));
         setRows(newRows);
@@ -461,7 +467,7 @@ export default function RoomSegmentReview() {
       const month = parseInt(monthStr);
 
       const stagingEntries = pendingAdjustments.map((adj) => {
-        // Revenue: increase = negative (credit), Stats: increase = positive
+        // Revenue: increase = negative (credit), Stats: stored as positive in amount
         const finalAmount = adj.type === "revenue" ? -adj.amount : adj.amount;
 
         return {
@@ -470,8 +476,7 @@ export default function RoomSegmentReview() {
           year,
           period_combo: periodCombo,
           scenario: "ACT",
-          amount: adj.type === "revenue" ? finalAmount : 0,
-          count: adj.type === "stat" ? adj.amount : null,
+          amount: finalAmount,
           currency: "USD",
           ou: selectedHotelOu,
           department: DEPARTMENT,
@@ -633,14 +638,37 @@ export default function RoomSegmentReview() {
   );
 
   // ────────────────────────────────────────────────────────────
-  // SUMMARY CALCULATIONS
+  // SUMMARY & VALIDATION CALCULATIONS
   // ────────────────────────────────────────────────────────────
 
-  const summary = useMemo(() => {
+  const { summary, segmentErrors, totalsMismatch } = useMemo(() => {
     const totalRevenue = rows.reduce((sum, r) => sum + r.revenue, 0);
     const totalStats = rows.reduce((sum, r) => sum + r.stats, 0);
-    return { totalRevenue, totalStats, segmentCount: rows.length };
-  }, [rows]);
+
+    // Check revenue-to-stats mapping errors (only for rows that have a statAccount)
+    const errors = new Set<string>();
+    rows.forEach((r) => {
+      if (r.statAccount) {
+        const hasRevenue = r.revenue !== 0;
+        const hasStats = r.stats !== 0;
+        // Error if one has value but the other doesn't
+        if (hasRevenue !== hasStats) {
+          errors.add(r.id);
+        }
+      }
+    });
+
+    // Check totals mismatch: sum of segment stats vs Total SOLD Room Nights (A960103)
+    const totalSoldRow = statsRows.find((r) => r.account === "A960103");
+    const segmentStatsSum = totalStats;
+    const mismatch = totalSoldRow ? totalSoldRow.value !== segmentStatsSum : false;
+
+    return {
+      summary: { totalRevenue, totalStats, segmentCount: rows.length },
+      segmentErrors: errors,
+      totalsMismatch: mismatch,
+    };
+  }, [rows, statsRows]);
 
   // ────────────────────────────────────────────────────────────
   // RENDER
@@ -751,6 +779,9 @@ export default function RoomSegmentReview() {
             disableRowSelectionOnClick
             hideFooter
             disableColumnMenu
+            getRowClassName={(params) =>
+              totalsMismatch && params.row.account === "A960103" ? "row-warning" : ""
+            }
           />
         </Box>
       </SectionCard>
@@ -777,6 +808,7 @@ export default function RoomSegmentReview() {
             }}
             pageSizeOptions={[25, 50, 100]}
             disableRowSelectionOnClick
+            getRowClassName={(params) => (segmentErrors.has(params.id as string) ? "row-error" : "")}
           />
         </Box>
       </SectionCard>

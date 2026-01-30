@@ -11,8 +11,7 @@
  * 3. Validation functions are defined in validationDefinitions.ts
  */
 
-import { API_BASE_URL } from '../config';
-import authService from './auth';
+import api from './api';
 
 // Types for Validations from API
 export interface Validation {
@@ -69,19 +68,7 @@ class ValidationService {
    * @returns Promise<Validation[]> Array of validations from API
    */
   async getValidations(ou: string): Promise<Validation[]> {
-    const accessToken = authService.getAccessToken();
-
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/validations/ou/${ou}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    const response = await api.get(`/validations/ou/${ou}`);
 
     if (!response.ok) {
       if (response.status === 422) {

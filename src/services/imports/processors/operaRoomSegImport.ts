@@ -327,6 +327,7 @@ export class OperaRoomSegImportProcessor extends BaseImportProcessor {
       );
 
       // Step 4: Add total stats entry (hardcoded D0010_A960099)
+      // Stats are stored in the amount column - stat accounts are identified by account code
       const periodCombo = `${year}-${String(month).padStart(2, '0')}`;
       const totalStatsEntry = {
         dep_acc_combo_id: `${this.TOTAL_STATS_DEPARTMENT}_${this.TOTAL_STATS_ACCOUNT}`,
@@ -335,7 +336,6 @@ export class OperaRoomSegImportProcessor extends BaseImportProcessor {
         period_combo: periodCombo,
         scenario: 'ACT',
         amount: totalNights,
-        count: 1,
         currency: finalCurrency,
         ou,
         department: this.TOTAL_STATS_DEPARTMENT,
@@ -580,7 +580,6 @@ export class OperaRoomSegImportProcessor extends BaseImportProcessor {
       // Add to existing aggregate
       const existing = aggregationMap.get(aggKey);
       existing.amount += amount;
-      existing.count += 1;
     } else {
       // Create new aggregate entry
       aggregationMap.set(aggKey, {
@@ -590,7 +589,6 @@ export class OperaRoomSegImportProcessor extends BaseImportProcessor {
         period_combo: periodCombo,
         scenario: 'ACT',
         amount,
-        count: 1,
         currency,
         ou,
         department: targetDepartment,

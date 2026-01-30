@@ -224,7 +224,6 @@ export class AccpacCompsImportProcessor extends BaseImportProcessor {
         period_combo: periodCombo,
         scenario: 'ACT',
         amount: totalRoomsRented,
-        count: 1,
         currency: finalCurrency,
         ou,
         department: this.TARGET_DEPARTMENT,

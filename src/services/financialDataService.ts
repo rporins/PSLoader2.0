@@ -1,5 +1,4 @@
-import { API_BASE_URL } from '../config';
-import authService from './auth';
+import api from './api';
 
 export interface FinancialDataRecord {
   id: number;
@@ -38,18 +37,7 @@ class FinancialDataService {
    * Fetch financial data from the API for a given OU
    */
   async fetchFinancialData(ou: string): Promise<FinancialDataRecord[]> {
-    const accessToken = authService.getAccessToken();
-
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/act-bud-fcst-data/?ou=${ou}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      }
-    });
+    const response = await api.get(`/act-bud-fcst-data/?ou=${ou}`);
 
     if (!response.ok) {
       if (response.status === 403) {
@@ -137,18 +125,7 @@ class FinancialDataService {
    * Returns last_updated timestamp for each period
    */
   async fetchServerVersions(ou: string): Promise<ServerPeriodVersion[]> {
-    const accessToken = authService.getAccessToken();
-
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/act-bud-fcst-data/versions/?ou=${ou}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      }
-    });
+    const response = await api.get(`/act-bud-fcst-data/versions/?ou=${ou}`);
 
     if (!response.ok) {
       if (response.status === 403) {
@@ -165,19 +142,8 @@ class FinancialDataService {
    * Fetch financial data for specific periods only
    */
   async fetchFinancialDataForPeriods(ou: string, periods: string[]): Promise<FinancialDataRecord[]> {
-    const accessToken = authService.getAccessToken();
-
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
     const periodsParam = periods.join(',');
-    const response = await fetch(`${API_BASE_URL}/act-bud-fcst-data/?ou=${ou}&periods=${periodsParam}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      }
-    });
+    const response = await api.get(`/act-bud-fcst-data/?ou=${ou}&periods=${periodsParam}`);
 
     if (!response.ok) {
       if (response.status === 403) {

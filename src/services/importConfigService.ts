@@ -1,5 +1,4 @@
-import { API_BASE_URL } from '../config';
-import authService from './auth';
+import api from './api';
 import mappingConfigService from './mappingConfigService';
 
 // Types for Import Groups
@@ -29,19 +28,7 @@ class ImportGroupsService {
    * @returns Promise<ImportGroup[]> Array of import groups
    */
   async getImportGroups(ou: string): Promise<ImportGroup[]> {
-    const accessToken = authService.getAccessToken();
-
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/hotels/${ou}/import_groups`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    const response = await api.get(`/hotels/${ou}/import_groups`);
 
     if (!response.ok) {
       if (response.status === 422) {

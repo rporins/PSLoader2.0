@@ -144,6 +144,7 @@ const Validations: React.FC = () => {
 
   const selectedOU = useSettingsStore((s) => s.selectedHotelOu);
   const selectedPeriod = useSettingsStore((s) => s.selectedPeriod);
+  const setSelectedPeriod = useSettingsStore((s) => s.setSelectedPeriod);
 
   // Check if imports and validations are completed for this OU
   useEffect(() => {
@@ -162,6 +163,27 @@ const Validations: React.FC = () => {
           if (!isImportCompleted) {
             setShowAccessDeniedModal(true);
           }
+
+          // If imports are completed but no period is selected, try to load it from SQLite or import session
+          if (isImportCompleted && !selectedPeriod) {
+            try {
+              // First try to get the saved period for this OU from SQLite
+              // @ts-ignore
+              const savedPeriodResult = await window.ipcApi.sendIpcRequest('db:get-selected-period-for-ou', { ou: selectedOU });
+              if (savedPeriodResult?.success && savedPeriodResult.data) {
+                setSelectedPeriod(savedPeriodResult.data);
+              } else {
+                // Fall back to getting period from the latest import session
+                // @ts-ignore
+                const sessionResult = await window.ipcApi.sendIpcRequest('db:get-latest-import-session', { ou: selectedOU });
+                if (sessionResult?.success && sessionResult.data?.period_combo) {
+                  setSelectedPeriod(sessionResult.data.period_combo);
+                }
+              }
+            } catch (sessionError) {
+              console.error('Failed to get period:', sessionError);
+            }
+          }
         }
 
         // Check validation completion
@@ -177,7 +199,7 @@ const Validations: React.FC = () => {
     };
 
     checkCompletionStates();
-  }, [selectedOU]);
+  }, [selectedOU, selectedPeriod, setSelectedPeriod]);
 
   // Fetch validations when OU is selected or changes
   useEffect(() => {
@@ -642,8 +664,10 @@ const Validations: React.FC = () => {
                               <Typography variant="h6" fontWeight={600} fontSize="1rem">
                                 {validation.display_name}
                               </Typography>
-                              {validation.is_required && (
+                              {validation.is_required ? (
                                 <Chip label="Required" size="small" color="primary" sx={{ height: 20, fontSize: '0.7rem' }} />
+                              ) : (
+                                <Chip label="Optional" size="small" variant="outlined" sx={{ height: 20, fontSize: '0.7rem', color: 'text.secondary', borderColor: 'divider' }} />
                               )}
                               {isOverrideApproved && (
                                 <Tooltip title="Override approved - validation bypassed">

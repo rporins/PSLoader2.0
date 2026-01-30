@@ -1,5 +1,4 @@
-import { API_BASE_URL } from '../config';
-import authService from './auth';
+import api from './api';
 
 export interface SubmittedDataEntry {
   ou: string;
@@ -31,22 +30,10 @@ class SubmittedDataService {
    * @returns Promise with the uploaded data including IDs and load dates
    */
   async uploadBulk(data: SubmittedDataEntry[], signedBy: string): Promise<SubmittedDataResponse[]> {
-    const token = authService.getAccessToken();
-    if (!token) {
-      throw new Error('No access token available');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/submitted-data/bulk`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        data,
-        signed_by: signedBy
-      } as BulkUploadRequest)
-    });
+    const response = await api.post(`/submitted-data/bulk`, {
+      data,
+      signed_by: signedBy
+    } as BulkUploadRequest);
 
     if (!response.ok) {
       const error = await response.json();

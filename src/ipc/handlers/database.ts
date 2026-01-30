@@ -655,6 +655,25 @@ export class DatabaseHandlers {
     };
   };
 
+  // Selected period per OU handlers
+  getSelectedPeriodForOUHandler: IpcHandler = async (event, request) => {
+    const result = await db.getSelectedPeriodForOU(request.ou);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  setSelectedPeriodForOUHandler: IpcHandler = async (event, request) => {
+    await db.setSelectedPeriodForOU(request.ou, request.period);
+    return {
+      success: true,
+      data: { message: 'Selected period updated successfully' },
+      timestamp: Date.now(),
+    };
+  };
+
   // Manual adjustments handler
   insertManualAdjustmentsHandler: IpcHandler = async (event, request) => {
     const count = await db.insertManualAdjustments(request.adjustments);
@@ -818,6 +837,8 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_SET_VALIDATION_COMPLETED_STATE]: handlers.setValidationCompletedStateHandler,
     [IPC_CHANNELS.DB_GET_SIGNOFF_COMPLETED_STATE]: handlers.getSignOffCompletedStateHandler,
     [IPC_CHANNELS.DB_SET_SIGNOFF_COMPLETED_STATE]: handlers.setSignOffCompletedStateHandler,
+    [IPC_CHANNELS.DB_GET_SELECTED_PERIOD_FOR_OU]: handlers.getSelectedPeriodForOUHandler,
+    [IPC_CHANNELS.DB_SET_SELECTED_PERIOD_FOR_OU]: handlers.setSelectedPeriodForOUHandler,
     [IPC_CHANNELS.DB_RESET_ALL_COMPLETION_STATES]: handlers.resetAllCompletionStatesHandler,
     [IPC_CHANNELS.DB_INSERT_MANUAL_ADJUSTMENTS]: handlers.insertManualAdjustmentsHandler,
   };

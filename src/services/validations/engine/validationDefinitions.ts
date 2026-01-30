@@ -771,9 +771,26 @@ export const validationDefinitions: Record<string, ValidationFn> = {
 
   /**
    * Segment Total v Stats
-   * Checks that D0010 A960103 (total rooms) matches sum of segment stats
+   * Checks that D0010 A960103 (Total SOLD Room Nights) matches sum of individual segment stats
+   * Uses explicit segment stats accounts from Room Segment Review
    */
   segment_total_v_stats: async (db, options) => {
+    // Explicit segment stats accounts from Room Segment Review (all in D0010)
+    const segmentStatsAccounts: string[] = [
+      'A961010', 'A961011', 'A961012', 'A961013', 'A961014', 'A961015',
+      'A961016', 'A961017', 'A961018', 'A961019', 'A961020', 'A961021',
+      'A961026', 'A961027', 'A961028', 'A961029', 'A961030', 'A961031',
+      'A961032', 'A961033',
+      'A961318', 'A961334', 'A961335', 'A961336', 'A961337', 'A961338',
+      'A961510', 'A961511', 'A961512', 'A961513', 'A961514', 'A961515',
+      'A961516', 'A961517', 'A961518', 'A961519', 'A961520', 'A961521',
+      'A961526', 'A961527', 'A961528', 'A961529', 'A961530', 'A961531',
+      'A961533',
+      'A961601', 'A961602', 'A961603', 'A961604', 'A961607', 'A961608',
+      'A961734', 'A961735', 'A961736', 'A961737', 'A961738',
+      'A961818',
+    ];
+
     // Get total rooms from D0010_A960103
     const totalRoomsResult = await db.execute({
       sql: `
@@ -787,16 +804,19 @@ export const validationDefinitions: Record<string, ValidationFn> = {
 
     const totalRooms = totalRoomsResult.rows?.[0]?.total_rooms || 0;
 
-    // Get segment stats - sum of all segment room counts (excluding D0010)
+    // Build placeholders for IN clause
+    const placeholders = segmentStatsAccounts.map(() => '?').join(', ');
+
+    // Get sum of all individual segment stats in D0010
     const segmentStatsResult = await db.execute({
       sql: `
         SELECT SUM(amount) as segment_total
         FROM financial_data_staging
         WHERE ou = ?
-          AND account = 'A960103'
-          AND department != 'D0010'
+          AND department = 'D0010'
+          AND account IN (${placeholders})
       `,
-      args: [options.ou]
+      args: [options.ou, ...segmentStatsAccounts]
     });
 
     const segmentTotal = segmentStatsResult.rows?.[0]?.segment_total || 0;
@@ -814,79 +834,144 @@ export const validationDefinitions: Record<string, ValidationFn> = {
 
   /**
    * Rooms revenue accounts must have corresponding stat values
-   * Checks revenue (A36____) against stats (A96____)
+   * Uses explicit account pairs from Room Segment Review - D0010 only
+   * Note: Some revenue accounts (A361041, A361541) have no stat counterpart
    */
   rooms_rev_stats_match: async (db, options) => {
-    // Find revenue combos without stats
-    const revenueWithoutStats = await db.execute({
-      sql: `
-        SELECT r.dep_acc_combo_id, r.department, r.account, SUM(r.amount) as revenue_amount
-        FROM financial_data_staging r
-        WHERE r.ou = ?
-          AND r.account LIKE 'A36____'
-          AND r.amount != 0
-          AND NOT EXISTS (
-            SELECT 1 FROM financial_data_staging s
-            WHERE s.ou = r.ou
-              AND s.department = r.department
-              AND s.account = 'A96' || SUBSTR(r.account, 4)
-              AND s.amount != 0
-          )
-        GROUP BY r.dep_acc_combo_id, r.department, r.account
-      `,
-      args: [options.ou]
-    });
+    // Explicit revenue/stats account pairs from Room Segment Review
+    // All accounts are in department D0010
+    const accountPairs: [string, string][] = [
+      ['A361010', 'A961010'],
+      ['A361011', 'A961011'],
+      ['A361012', 'A961012'],
+      ['A361013', 'A961013'],
+      ['A361014', 'A961014'],
+      ['A361015', 'A961015'],
+      ['A361016', 'A961016'],
+      ['A361017', 'A961017'],
+      ['A361018', 'A961018'],
+      ['A361019', 'A961019'],
+      ['A361020', 'A961020'],
+      ['A361021', 'A961021'],
+      ['A361026', 'A961026'],
+      ['A361027', 'A961027'],
+      ['A361028', 'A961028'],
+      ['A361029', 'A961029'],
+      ['A361030', 'A961030'],
+      ['A361031', 'A961031'],
+      ['A361032', 'A961032'],
+      ['A361033', 'A961033'],
+      // A361041 excluded - no stats counterpart (Bonvoy Occ Premium - WD)
+      ['A361318', 'A961318'],
+      ['A361334', 'A961334'],
+      ['A361335', 'A961335'],
+      ['A361336', 'A961336'],
+      ['A361337', 'A961337'],
+      ['A361338', 'A961338'],
+      ['A361510', 'A961510'],
+      ['A361511', 'A961511'],
+      ['A361512', 'A961512'],
+      ['A361513', 'A961513'],
+      ['A361514', 'A961514'],
+      ['A361515', 'A961515'],
+      ['A361516', 'A961516'],
+      ['A361517', 'A961517'],
+      ['A361518', 'A961518'],
+      ['A361519', 'A961519'],
+      ['A361520', 'A961520'],
+      ['A361521', 'A961521'],
+      ['A361526', 'A961526'],
+      ['A361527', 'A961527'],
+      ['A361528', 'A961528'],
+      ['A361529', 'A961529'],
+      ['A361530', 'A961530'],
+      ['A361531', 'A961531'],
+      ['A361533', 'A961533'],
+      // A361541 excluded - no stats counterpart (Bonvoy Occ Premium - WE)
+      ['A361601', 'A961601'],
+      ['A361602', 'A961602'],
+      ['A361603', 'A961603'],
+      ['A361604', 'A961604'],
+      ['A361607', 'A961607'],
+      ['A361608', 'A961608'],
+      ['A361734', 'A961734'],
+      ['A361735', 'A961735'],
+      ['A361736', 'A961736'],
+      ['A361737', 'A961737'],
+      ['A361738', 'A961738'],
+      ['A361818', 'A961818'],
+    ];
 
-    // Find stats without revenue
-    const statsWithoutRevenue = await db.execute({
-      sql: `
-        SELECT s.dep_acc_combo_id, s.department, s.account, SUM(s.amount) as stat_amount
-        FROM financial_data_staging s
-        WHERE s.ou = ?
-          AND s.account LIKE 'A96____'
-          AND s.amount != 0
-          AND NOT EXISTS (
-            SELECT 1 FROM financial_data_staging r
-            WHERE r.ou = s.ou
-              AND r.department = s.department
-              AND r.account = 'A36' || SUBSTR(s.account, 4)
-              AND r.amount != 0
-          )
-        GROUP BY s.dep_acc_combo_id, s.department, s.account
-      `,
-      args: [options.ou]
-    });
-
-    const revRows = revenueWithoutStats.rows || [];
-    const statRows = statsWithoutRevenue.rows || [];
     const errors: string[] = [];
+    const errorDetails: any[] = [];
+    let pairsChecked = 0;
 
-    if (revRows.length > 0) {
-      errors.push(`Found ${revRows.length} revenue combo(s) without corresponding stats`);
-    }
+    for (const [revenueAccount, statsAccount] of accountPairs) {
+      // Get revenue amount for D0010
+      const revenueResult = await db.execute({
+        sql: `
+          SELECT SUM(amount) as total
+          FROM financial_data_staging
+          WHERE ou = ?
+            AND department = 'D0010'
+            AND account = ?
+        `,
+        args: [options.ou, revenueAccount]
+      });
 
-    if (statRows.length > 0) {
-      errors.push(`Found ${statRows.length} stat combo(s) without corresponding revenue`);
+      // Get stats amount for D0010
+      const statsResult = await db.execute({
+        sql: `
+          SELECT SUM(amount) as total
+          FROM financial_data_staging
+          WHERE ou = ?
+            AND department = 'D0010'
+            AND account = ?
+        `,
+        args: [options.ou, statsAccount]
+      });
+
+      const revenueTotal = revenueResult.rows?.[0]?.total || 0;
+      const statsTotal = statsResult.rows?.[0]?.total || 0;
+
+      const revenueHasValue = revenueTotal !== 0 && revenueTotal !== null;
+      const statsHasValue = statsTotal !== 0 && statsTotal !== null;
+
+      pairsChecked++;
+
+      // Error if one has value but the other doesn't
+      if (revenueHasValue !== statsHasValue) {
+        if (revenueHasValue && !statsHasValue) {
+          errors.push(`Revenue ${revenueAccount} has value (${revenueTotal}) but stats ${statsAccount} is zero/missing`);
+          errorDetails.push({
+            type: 'REVENUE_WITHOUT_STATS',
+            revenueAccount,
+            statsAccount,
+            revenueAmount: revenueTotal,
+            statsAmount: statsTotal
+          });
+        } else {
+          errors.push(`Stats ${statsAccount} has value (${statsTotal}) but revenue ${revenueAccount} is zero/missing`);
+          errorDetails.push({
+            type: 'STATS_WITHOUT_REVENUE',
+            revenueAccount,
+            statsAccount,
+            revenueAmount: revenueTotal,
+            statsAmount: statsTotal
+          });
+        }
+      }
     }
 
     return {
       success: errors.length === 0,
-      recordCount: revRows.length + statRows.length,
+      recordCount: pairsChecked,
       errors: errors.length > 0 ? errors : undefined,
-      errorDetails: errors.length > 0 ? [
-        ...(revRows.length > 0 ? [{
-          type: 'REVENUE_WITHOUT_STATS',
-          message: 'Revenue combos missing stats',
-          count: revRows.length,
-          sampleRecords: revRows.slice(0, 5)
-        }] : []),
-        ...(statRows.length > 0 ? [{
-          type: 'STATS_WITHOUT_REVENUE',
-          message: 'Stat combos missing revenue',
-          count: statRows.length,
-          sampleRecords: statRows.slice(0, 5)
-        }] : [])
-      ] : undefined
+      errorDetails: errorDetails.length > 0 ? errorDetails : undefined,
+      stats: {
+        recordsChecked: pairsChecked,
+        issuesFound: errors.length
+      }
     };
   },
 

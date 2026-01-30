@@ -185,6 +185,10 @@ export const IPC_CHANNELS = {
   DB_GET_SIGNOFF_COMPLETED_STATE: 'db:get-signoff-completed-state',
   DB_SET_SIGNOFF_COMPLETED_STATE: 'db:set-signoff-completed-state',
 
+  // Selected period per OU channels
+  DB_GET_SELECTED_PERIOD_FOR_OU: 'db:get-selected-period-for-ou',
+  DB_SET_SELECTED_PERIOD_FOR_OU: 'db:set-selected-period-for-ou',
+
   // Reset all completion states
   DB_RESET_ALL_COMPLETION_STATES: 'db:reset-all-completion-states',
 

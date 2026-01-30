@@ -18,7 +18,7 @@ import {
   DialogContentText,
   DialogActions,
 } from "@mui/material";
-import { styled } from "@mui/material/styles";
+import { styled, alpha } from "@mui/material/styles";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorIcon from "@mui/icons-material/Error";
 import UploadIcon from "@mui/icons-material/Upload";
@@ -49,7 +49,9 @@ export default function SignOffUpload() {
   const [uploadComplete, setUploadComplete] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string>("");
   const [unmappedCount, setUnmappedCount] = useState<number>(0);
+  const [invalidComboCount, setInvalidComboCount] = useState<number>(0);
   const [totalRecords, setTotalRecords] = useState<number>(0);
+  const [skippedOnUpload, setSkippedOnUpload] = useState<number>(0);
   const [validationCompleted, setValidationCompleted] = useState<boolean>(false);
   const [signOffCompleted, setSignOffCompleted] = useState<boolean>(false);
   const [showAccessDeniedModal, setShowAccessDeniedModal] = useState<boolean>(false);
@@ -120,7 +122,13 @@ export default function SignOffUpload() {
               row.department === null || row.account === null
             ).length;
 
+            // Count records with invalid combos (mapped but combo doesn't exist)
+            const invalidCombos = stagingData.filter((row: any) =>
+              row.department && row.account && row.is_valid_combo === 0
+            ).length;
+
             setUnmappedCount(unmapped);
+            setInvalidComboCount(invalidCombos);
           }
         }
       } catch (error) {
@@ -161,10 +169,11 @@ export default function SignOffUpload() {
 
       const stagingData = JSON.parse(response.data as string);
 
-      // Filter out unmapped records (those with null/undefined department or account)
+      // Filter out unmapped records and invalid combos
       const mappedData = stagingData.filter((row: any) =>
         row.department && row.account &&
-        row.department !== null && row.account !== null
+        row.department !== null && row.account !== null &&
+        row.is_valid_combo !== 0
       );
 
       // Transform staging data to match API format
@@ -188,7 +197,7 @@ export default function SignOffUpload() {
       const uploadedData = await submittedDataService.uploadBulk(submittedData, signedBy);
 
       const skippedCount = stagingData.length - mappedData.length;
-      // console.log(`Successfully uploaded ${uploadedData.length} records${skippedCount > 0 ? ` (skipped ${skippedCount} unmapped records)` : ''}`);
+      setSkippedOnUpload(skippedCount);
       setUploadComplete(true);
 
       // Mark sign-off as completed
@@ -231,15 +240,17 @@ export default function SignOffUpload() {
         Sign-Off & Upload
       </Typography>
 
-      {/* Unmapped Records Warning */}
-      {unmappedCount > 0 && (
+      {/* Unmapped/Invalid Records Warning */}
+      {(unmappedCount > 0 || invalidComboCount > 0) && (
         <Alert severity="warning" sx={{ mb: 3 }}>
           <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-            {unmappedCount} of {totalRecords} records have unmapped accounts/departments
+            {unmappedCount + invalidComboCount} of {totalRecords} records will be skipped during upload
           </Typography>
           <Typography variant="body2">
-            These records will be automatically skipped during upload. Only {totalRecords - unmappedCount} mapped records will be uploaded.
-            Please review the Data Import page to map missing accounts and departments.
+            {unmappedCount > 0 && `${unmappedCount} unmapped record${unmappedCount !== 1 ? 's' : ''} (missing account/department). `}
+            {invalidComboCount > 0 && `${invalidComboCount} invalid combo${invalidComboCount !== 1 ? 's' : ''} (account/department combination doesn't exist). `}
+            Only {totalRecords - unmappedCount - invalidComboCount} valid records will be uploaded.
+            Please review the Staging Data page to fix these issues.
           </Typography>
         </Alert>
       )}
@@ -393,9 +404,16 @@ export default function SignOffUpload() {
             <Divider sx={{ mb: 2 }} />
 
             {uploadComplete ? (
-              <Alert severity="success" icon={<CheckCircleIcon />}>
-                Data uploaded successfully!
-              </Alert>
+              <Stack spacing={2}>
+                <Alert severity="success" icon={<CheckCircleIcon />}>
+                  Data uploaded successfully!
+                </Alert>
+                {skippedOnUpload > 0 && (
+                  <Alert severity="info">
+                    {skippedOnUpload} record{skippedOnUpload !== 1 ? 's were' : ' was'} skipped (unmapped or invalid account/department combinations).
+                  </Alert>
+                )}
+              </Stack>
             ) : (
               <>
                 {uploadError && (
@@ -430,11 +448,11 @@ export default function SignOffUpload() {
           <Alert
             severity="success"
             icon={<CheckCircleIcon />}
-            sx={{
+            sx={(theme) => ({
               borderRadius: 3,
               background: alpha(theme.palette.success.main, 0.1),
               border: `1px solid ${alpha(theme.palette.success.main, 0.3)}`,
-            }}
+            })}
           >
             <Typography variant="body1" fontWeight={600} mb={0.5}>
               Sign-Off & Upload Stage Completed

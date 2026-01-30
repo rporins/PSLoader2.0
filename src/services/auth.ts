@@ -428,6 +428,12 @@ class AuthService {
     sessionStorage.setItem('authToken', 'dev-bypass-token');
   }
 
+  // Handle 401 errors by clearing auth and redirecting to login
+  private handleAuthError(): void {
+    this.clearAuth();
+    window.location.hash = '#/login';
+  }
+
   // Get current user info
   async getCurrentUser(): Promise<UserInfo> {
     if (!this.accessToken) {
@@ -442,6 +448,10 @@ class AuthService {
     });
 
     if (!response.ok) {
+      if (response.status === 401) {
+        this.handleAuthError();
+        throw new Error('Session expired. Please log in again.');
+      }
       const error = await response.json();
       throw new Error(error.detail || 'Failed to get user info');
     }
@@ -463,6 +473,10 @@ class AuthService {
     });
 
     if (!response.ok) {
+      if (response.status === 401) {
+        this.handleAuthError();
+        throw new Error('Session expired. Please log in again.');
+      }
       const error = await response.json();
       throw new Error(error.detail || 'Failed to get OU access');
     }
@@ -484,6 +498,10 @@ class AuthService {
     });
 
     if (!response.ok) {
+      if (response.status === 401) {
+        this.handleAuthError();
+        throw new Error('Session expired. Please log in again.');
+      }
       const error = await response.json();
       throw new Error(error.detail || 'Failed to get hotels');
     }

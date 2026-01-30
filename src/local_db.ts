@@ -195,7 +195,6 @@ interface FinancialData {
   period_combo: string;
   scenario: string;
   amount: number;
-  count: number;
   currency: string;
   ou?: string;
   department?: string;
@@ -497,12 +496,13 @@ async function migrateFinancialDataStagingTable() {
       // If we just added is_valid_combo, update existing rows to set the correct value
       if (columnsToAdd.includes('is_valid_combo')) {
         // Set is_valid_combo = 0 for rows where the combo doesn't exist in the master list
+        // Note: In account_department_combos table, columns are swapped - "account" has dept values, "department" has account values
         await client.execute({
           sql: `
             UPDATE financial_data_staging
             SET is_valid_combo = 0
             WHERE dep_acc_combo_id NOT IN (
-              SELECT 'D' || department || '_A' || account
+              SELECT 'D' || account || '_A' || department
               FROM account_department_combos
             )
           `,
@@ -612,6 +612,168 @@ async function migrateDepartmentMapsTable() {
   } catch (error) {
     console.error("Error during department_maps migration:", error);
     // If table doesn't exist, it will be created with the new schema
+  }
+}
+
+// Migration to remove 'count' column from financial_data_staging table
+// Count data is no longer used - stats are identified by account codes (stat accounts)
+// and stat values are stored in the 'amount' column
+async function migrateRemoveCountColumn() {
+  try {
+    // Check if the count column exists in financial_data_staging
+    const stagingTableInfo = await client.execute({
+      sql: "PRAGMA table_info(financial_data_staging)",
+      args: []
+    });
+
+    const stagingColumnNames = stagingTableInfo.rows.map(row => row.name as string);
+
+    if (stagingColumnNames.includes('count')) {
+      console.log("Migrating financial_data_staging table to remove 'count' column");
+
+      // SQLite doesn't support DROP COLUMN directly in older versions
+      // Need to recreate the table without the count column
+      await client.execute({
+        sql: `
+          CREATE TABLE IF NOT EXISTS financial_data_staging_new (
+            dep_acc_combo_id TEXT NOT NULL,
+            month INTEGER NOT NULL,
+            year INTEGER NOT NULL,
+            period_combo TEXT NOT NULL,
+            scenario TEXT NOT NULL,
+            amount REAL NOT NULL,
+            currency TEXT NOT NULL,
+            ou TEXT,
+            department TEXT,
+            account TEXT,
+            version TEXT,
+            source_account TEXT,
+            source_department TEXT,
+            source_description TEXT,
+            mapping_status TEXT,
+            import_batch_id TEXT,
+            last_modified TEXT DEFAULT CURRENT_TIMESTAMP,
+            item_version INTEGER DEFAULT 1,
+            is_valid_combo INTEGER DEFAULT 1
+          )
+        `,
+        args: []
+      });
+
+      // Copy data from old table (excluding count column)
+      await client.execute({
+        sql: `
+          INSERT INTO financial_data_staging_new
+          SELECT
+            dep_acc_combo_id,
+            month,
+            year,
+            period_combo,
+            scenario,
+            amount,
+            currency,
+            ou,
+            department,
+            account,
+            version,
+            source_account,
+            source_department,
+            source_description,
+            mapping_status,
+            import_batch_id,
+            last_modified,
+            item_version,
+            is_valid_combo
+          FROM financial_data_staging
+        `,
+        args: []
+      });
+
+      // Drop old table
+      await client.execute({
+        sql: "DROP TABLE financial_data_staging",
+        args: []
+      });
+
+      // Rename new table
+      await client.execute({
+        sql: "ALTER TABLE financial_data_staging_new RENAME TO financial_data_staging",
+        args: []
+      });
+
+      console.log("Successfully removed 'count' column from financial_data_staging table");
+    }
+
+    // Also check and remove from financial_data table if it exists
+    const financialTableInfo = await client.execute({
+      sql: "PRAGMA table_info(financial_data)",
+      args: []
+    });
+
+    const financialColumnNames = financialTableInfo.rows.map(row => row.name as string);
+
+    if (financialColumnNames.includes('count')) {
+      console.log("Migrating financial_data table to remove 'count' column");
+
+      await client.execute({
+        sql: `
+          CREATE TABLE IF NOT EXISTS financial_data_temp (
+            dep_acc_combo_id TEXT NOT NULL,
+            month INTEGER NOT NULL,
+            year INTEGER NOT NULL,
+            period_combo TEXT NOT NULL,
+            scenario TEXT NOT NULL,
+            amount REAL NOT NULL,
+            currency TEXT NOT NULL,
+            ou TEXT NOT NULL DEFAULT '',
+            department TEXT,
+            account TEXT,
+            version TEXT,
+            last_modified TEXT DEFAULT CURRENT_TIMESTAMP,
+            item_version INTEGER DEFAULT 1,
+            FOREIGN KEY(dep_acc_combo_id) REFERENCES department_accounts(dep_acc_combo_id),
+            PRIMARY KEY (dep_acc_combo_id, period_combo, scenario, ou)
+          )
+        `,
+        args: []
+      });
+
+      await client.execute({
+        sql: `
+          INSERT OR IGNORE INTO financial_data_temp
+          SELECT
+            dep_acc_combo_id,
+            month,
+            year,
+            period_combo,
+            scenario,
+            amount,
+            currency,
+            COALESCE(ou, '') as ou,
+            department,
+            account,
+            version,
+            last_modified,
+            item_version
+          FROM financial_data
+        `,
+        args: []
+      });
+
+      await client.execute({
+        sql: "DROP TABLE financial_data",
+        args: []
+      });
+
+      await client.execute({
+        sql: "ALTER TABLE financial_data_temp RENAME TO financial_data",
+        args: []
+      });
+
+      console.log("Successfully removed 'count' column from financial_data table");
+    }
+  } catch (error) {
+    console.error("Error during count column removal migration:", error);
   }
 }
 
@@ -765,7 +927,6 @@ export async function initializeDatabase() {
             period_combo TEXT NOT NULL,
             scenario TEXT NOT NULL,
             amount REAL NOT NULL,
-            count REAL,
             currency TEXT NOT NULL,
             ou TEXT,
             department TEXT,
@@ -1012,6 +1173,7 @@ export async function initializeDatabase() {
     await migrateAccountMapsTable();
     await migrateDepartmentMapsTable();
     await migrateMappingsTable(); // Add approval workflow columns to existing mappings table
+    await migrateRemoveCountColumn(); // Remove deprecated 'count' column - stats use amount column now
   } catch (error) {
     console.error("Error during database initialization:", error);
   }
@@ -1935,10 +2097,10 @@ export async function insertBatchFinancialData(batchData: FinancialData[]) {
       return {
         sql: `
             INSERT INTO financial_data (
-              dep_acc_combo_id, month, year, period_combo, scenario, amount, count, currency,
+              dep_acc_combo_id, month, year, period_combo, scenario, amount, currency,
               ou, department, account, version, last_modified, item_version
             ) VALUES (
-              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
           `,
         args: [
@@ -1948,7 +2110,6 @@ export async function insertBatchFinancialData(batchData: FinancialData[]) {
           item.period_combo,
           item.scenario,
           item.amount,
-          item.count,
           item.currency,
           item.ou || null,
           item.department || null,
@@ -2471,6 +2632,56 @@ export async function setSignOffCompletedState(ou: string, completed: boolean): 
 }
 
 //------------------------------------------------------------------------------------------------------------------
+//--- SELECTED PERIOD PER OU FUNCTIONS ----------------------------------------------------------------------------
+// Get the selected period for a specific OU (persisted across app restarts)
+export async function getSelectedPeriodForOU(ou: string): Promise<string | null> {
+  try {
+    const key = `selected_period_${ou}`;
+    const result = await client.execute({
+      sql: "SELECT value FROM user_settings WHERE key = ?",
+      args: [key]
+    });
+
+    if (result.rows.length > 0) {
+      const value = result.rows[0].value as string;
+      return value || null;
+    }
+    return null;
+  } catch (error) {
+    console.error("Error getting selected period for OU:", error);
+    return null;
+  }
+}
+
+// Set the selected period for a specific OU
+export async function setSelectedPeriodForOU(ou: string, period: string | null): Promise<void> {
+  try {
+    const key = `selected_period_${ou}`;
+    if (period === null) {
+      // Clear the period
+      await client.execute({
+        sql: "DELETE FROM user_settings WHERE key = ?",
+        args: [key]
+      });
+    } else {
+      await client.execute({
+        sql: `
+          INSERT INTO user_settings (key, value, updated_at)
+          VALUES (?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = CURRENT_TIMESTAMP
+        `,
+        args: [key, period]
+      });
+    }
+  } catch (error) {
+    console.error("Error setting selected period for OU:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
 //--- RESET ALL COMPLETION STATES ---------------------------------------------------------------------------------
 // Reset all completion states and clear cached data for a specific OU
 export async function resetAllCompletionStates(ou: string): Promise<void> {
@@ -2479,6 +2690,9 @@ export async function resetAllCompletionStates(ou: string): Promise<void> {
     await setImportCompletedState(ou, false);
     await setValidationCompletedState(ou, false);
     await setSignOffCompletedState(ou, false);
+
+    // Clear the selected period for this OU
+    await setSelectedPeriodForOU(ou, null);
 
     // Clear cached import data (staging table)
     await client.execute({
@@ -3778,7 +3992,6 @@ interface StagingData {
   period_combo: string;
   scenario: string;
   amount: number;
-  count: number;
   currency: string;
   ou: string;
   department: string | null;
@@ -3818,7 +4031,6 @@ export async function getStagingData(ou?: string): Promise<string> {
         period_combo,
         scenario,
         amount,
-        count,
         currency,
         ou,
         department,
@@ -3893,8 +4105,9 @@ export async function insertBatchStagingData(batchData: StagingData[]): Promise<
   try {
     // Build a set of valid combo IDs for fast lookup
     // Format: "D{department}_A{account}" to match dep_acc_combo_id format in staging
+    // Note: In account_department_combos table, columns are swapped - "account" has dept values, "department" has account values
     const validCombosResult = await client.execute({
-      sql: "SELECT 'D' || department || '_A' || account AS combo_id FROM account_department_combos",
+      sql: "SELECT 'D' || account || '_A' || department AS combo_id FROM account_department_combos",
       args: []
     });
     const validCombos = new Set(validCombosResult.rows.map(row => row.combo_id as string));
@@ -3908,10 +4121,10 @@ export async function insertBatchStagingData(batchData: StagingData[]): Promise<
         sql: `
           INSERT INTO financial_data_staging (
             dep_acc_combo_id, month, year, period_combo, scenario,
-            amount, count, currency, ou, department, account, version,
+            amount, currency, ou, department, account, version,
             source_account, source_department, source_description, mapping_status,
             import_batch_id, last_modified, item_version, is_valid_combo
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1, ?)
         `,
         args: [
           item.dep_acc_combo_id,
@@ -3920,7 +4133,6 @@ export async function insertBatchStagingData(batchData: StagingData[]): Promise<
           item.period_combo,
           item.scenario,
           item.amount,
-          item.count,
           item.currency,
           item.ou,
           item.department,
@@ -3952,7 +4164,6 @@ interface ManualAdjustmentData {
   period_combo: string;
   scenario: string;
   amount: number;
-  count: number | null;
   currency: string;
   ou: string;
   department: string;
@@ -3975,8 +4186,9 @@ export async function insertManualAdjustments(adjustments: ManualAdjustmentData[
 
   try {
     // Build a set of valid combo IDs for fast lookup
+    // Note: In account_department_combos table, columns are swapped - "account" has dept values, "department" has account values
     const validCombosResult = await client.execute({
-      sql: "SELECT 'D' || department || '_A' || account AS combo_id FROM account_department_combos",
+      sql: "SELECT 'D' || account || '_A' || department AS combo_id FROM account_department_combos",
       args: []
     });
     const validCombos = new Set(validCombosResult.rows.map(row => row.combo_id as string));
@@ -3989,10 +4201,10 @@ export async function insertManualAdjustments(adjustments: ManualAdjustmentData[
         sql: `
           INSERT INTO financial_data_staging (
             dep_acc_combo_id, month, year, period_combo, scenario,
-            amount, count, currency, ou, department, account, version,
+            amount, currency, ou, department, account, version,
             source_account, source_department, source_description, mapping_status,
             import_batch_id, last_modified, item_version, is_valid_combo
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1, ?)
         `,
         args: [
           item.dep_acc_combo_id,
@@ -4001,7 +4213,6 @@ export async function insertManualAdjustments(adjustments: ManualAdjustmentData[
           item.period_combo,
           item.scenario,
           item.amount,
-          item.count,
           item.currency,
           item.ou,
           item.department,
@@ -4033,7 +4244,6 @@ export interface AddStagingRowData {
   period_combo: string;
   scenario: string;
   amount: number;
-  count: number | null;
   currency: string;
   ou: string;
   department: string;
@@ -4055,10 +4265,10 @@ export async function addStagingRow(data: AddStagingRowData): Promise<number> {
       sql: `
         INSERT INTO financial_data_staging (
           dep_acc_combo_id, month, year, period_combo, scenario,
-          amount, count, currency, ou, department, account, version,
+          amount, currency, ou, department, account, version,
           source_account, source_department, source_description, mapping_status,
           import_batch_id, last_modified, item_version, is_valid_combo
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1, ?)
       `,
       args: [
         comboId,
@@ -4067,7 +4277,6 @@ export async function addStagingRow(data: AddStagingRowData): Promise<number> {
         data.period_combo,
         data.scenario,
         data.amount,
-        data.count,
         data.currency,
         data.ou,
         `D${data.department}`,  // Add D prefix for department
@@ -4102,7 +4311,6 @@ export interface UpdateStagingRowData {
   period_combo: string;
   scenario: string;
   amount: number;
-  count: number | null;
   currency: string;
   department: string;
   account: string;
@@ -4145,7 +4353,6 @@ export async function updateStagingRow(data: UpdateStagingRowData): Promise<bool
           period_combo = ?,
           scenario = ?,
           amount = ?,
-          count = ?,
           currency = ?,
           department = ?,
           account = ?,
@@ -4163,7 +4370,6 @@ export async function updateStagingRow(data: UpdateStagingRowData): Promise<bool
         data.period_combo,
         data.scenario,
         data.amount,
-        data.count,
         data.currency,
         `D${data.department}`,  // Add D prefix for department
         `A${data.account}`,     // Add A prefix for account

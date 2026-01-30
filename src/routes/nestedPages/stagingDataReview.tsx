@@ -44,7 +44,6 @@ interface StagingDataRow {
   period_combo: string;
   scenario: string;
   amount: number;
-  count: number | null;
   currency: string;
   ou: string;
   department: string;
@@ -65,7 +64,6 @@ interface FormData {
   period_combo: string;
   scenario: string;
   amount: string;
-  count: string;
   currency: string;
   department: string;
   account: string;
@@ -172,7 +170,6 @@ export default function StagingDataReview() {
     period_combo: '',
     scenario: 'Actual',
     amount: '',
-    count: '',
     currency: 'USD',
     department: '',
     account: '',
@@ -373,7 +370,6 @@ export default function StagingDataReview() {
       period_combo: defaults.period_combo,
       scenario: defaults.scenario,
       amount: '',
-      count: '',
       currency: defaults.currency,
       department: '',
       account: '',
@@ -399,7 +395,6 @@ export default function StagingDataReview() {
       period_combo: row.period_combo,
       scenario: row.scenario,
       amount: row.amount.toString(),
-      count: row.count?.toString() || '',
       currency: row.currency,
       department: rawDepartment,
       account: rawAccount,
@@ -444,7 +439,6 @@ export default function StagingDataReview() {
         period_combo: formData.period_combo,
         scenario: formData.scenario,
         amount: parseFloat(formData.amount) || 0,
-        count: formData.count ? parseFloat(formData.count) : null,
         currency: formData.currency,
         ou: selectedHotelOu,
         department: formData.department,
@@ -478,7 +472,6 @@ export default function StagingDataReview() {
         period_combo: formData.period_combo,
         scenario: formData.scenario,
         amount: parseFloat(formData.amount) || 0,
-        count: formData.count ? parseFloat(formData.count) : null,
         currency: formData.currency,
         department: formData.department,
         account: formData.account,
@@ -616,13 +609,6 @@ export default function StagingDataReview() {
         type: 'number',
         width: 140,
         valueFormatter: (value) => numberFormatter.format(value || 0),
-      },
-      {
-        field: 'count',
-        headerName: 'Count',
-        type: 'number',
-        width: 100,
-        valueFormatter: (value) => value != null ? value.toString() : '',
       },
       {
         field: 'mapping_status',
@@ -962,14 +948,6 @@ export default function StagingDataReview() {
                 onChange={(e) => setFormData(prev => ({ ...prev, amount: e.target.value }))}
                 size="small"
                 required
-                fullWidth
-              />
-              <TextField
-                label="Count"
-                type="number"
-                value={formData.count}
-                onChange={(e) => setFormData(prev => ({ ...prev, count: e.target.value }))}
-                size="small"
                 fullWidth
               />
             </Stack>

@@ -230,7 +230,6 @@ export class ManualImportFileProcessor extends BaseImportProcessor {
         department: string;
         account: string;
         amount: number;
-        count: number;
         descriptions: string[];
         notes: string[];
       }>();
@@ -253,7 +252,6 @@ export class ManualImportFileProcessor extends BaseImportProcessor {
         if (aggregationMap.has(comboKey)) {
           const existing = aggregationMap.get(comboKey)!;
           existing.amount += amount;
-          existing.count++;
           if (description && !existing.descriptions.includes(description)) {
             existing.descriptions.push(description);
           }
@@ -265,7 +263,6 @@ export class ManualImportFileProcessor extends BaseImportProcessor {
             department: dep,
             account: acc,
             amount,
-            count: 1,
             descriptions: description ? [description] : [],
             notes: notes ? [notes] : []
           });
@@ -284,7 +281,6 @@ export class ManualImportFileProcessor extends BaseImportProcessor {
           period_combo: periodCombo,
           scenario: 'ACT',
           amount: data.amount,
-          count: data.count,
           currency: finalCurrency,
           ou,
           department: data.department,

@@ -1,5 +1,4 @@
-import { API_BASE_URL } from '../config';
-import authService from './auth';
+import api from './api';
 
 export interface UploadPeriod {
   id: number;
@@ -18,17 +17,7 @@ class UploadPeriodsService {
    * Filters out locked periods by default as they cannot be imported to
    */
   async getUploadPeriods(ou: string, includeLocked: boolean = false): Promise<UploadPeriod[]> {
-    const accessToken = authService.getAccessToken();
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/upload-periods/?ou=${encodeURIComponent(ou)}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      }
-    });
+    const response = await api.get(`/upload-periods/?ou=${encodeURIComponent(ou)}`);
 
     if (!response.ok) {
       const error = await response.json();

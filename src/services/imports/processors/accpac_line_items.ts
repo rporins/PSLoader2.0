@@ -70,7 +70,8 @@ export class AccpacLineItemsProcessor extends BaseImportProcessor {
     validationRules: [
       'CSV file must contain all required columns: FILETYPE, FILEVERSION, PROPCODE, BUSDATE, ACCTCODE, ACCTDESC, ENDINGBALANCE, ACTIVITY',
       'PROPCODE in first data row must match hotel Local ID 1',
-      'BUSDATE must match the selected import period (format: YYYYMM)'
+      'BUSDATE must match the selected import period (format: YYYYMM)',
+      'Only ACTIVITY column values are imported (ENDINGBALANCE contains YTD and is not used)'
     ],
 
     // Tags for filtering/searching
@@ -526,7 +527,6 @@ export class AccpacLineItemsProcessor extends BaseImportProcessor {
           period_combo: periodCombo,
           scenario: 'ACT',
           amount: activity,
-          count: 1,
           currency,
           ou,
           department: targetDepartment,

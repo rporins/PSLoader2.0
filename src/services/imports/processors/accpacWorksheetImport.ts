@@ -528,7 +528,6 @@ export class AccpacWorksheetImportProcessor extends BaseImportProcessor {
           period_combo: periodCombo,
           scenario: 'ACT',
           amount: periodAmt,
-          count: 1,
           currency,
           ou,
           department: targetDepartment,
