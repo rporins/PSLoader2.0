@@ -142,7 +142,10 @@ class ValidationOverrideService {
    * @returns Context string (e.g., "validation_total_must_balance_A01_2026-01")
    */
   getContextForValidation(validationName: string, ou: string, period: string): string {
-    return `validation_${validationName}_${ou}_${period}`;
+    // Sanitize period to remove any quotes that may have been accidentally included
+    // This can happen if the period was double-JSON-encoded somewhere in the data flow
+    const sanitizedPeriod = period.replace(/"/g, '');
+    return `validation_${validationName}_${ou}_${sanitizedPeriod}`;
   }
 }
 

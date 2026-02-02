@@ -70,80 +70,6 @@ declare global {
   }
 }
 
-// Helper function to decode JWT token (client-side)
-function decodeJWT(token: string): any {
-  try {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-    }).join(''));
-    return JSON.parse(jsonPayload);
-  } catch (error) {
-    console.error('Failed to decode JWT:', error);
-    return null;
-  }
-}
-
-// Helper function to get display name from user data
-function getDisplayName(user: any): string {
-  if (!user) {
-    return "User";
-  }
-
-  // Try to decode the ID token to get user claims
-  let decodedClaims = null;
-  if (user.id_token) {
-    decodedClaims = decodeJWT(user.id_token);
-  }
-
-  // Try different ways to access the claims data
-  const claimsFunction = typeof user.claims === 'function' ? user.claims() : null;
-  const claimsObject = user.claims;
-  const idTokenClaims = user.idTokenClaims;
-  const userinfo = user.userinfo;
-
-  // Try all possible sources, prioritizing decoded claims
-  const claims = decodedClaims ?? claimsFunction ?? claimsObject ?? idTokenClaims ?? userinfo ?? user;
-
-  // Try to get first name first, then full name, then other fallbacks
-  const firstName = claims?.given_name || claims?.first_name;
-  const fullName = claims?.name;
-  const preferredUsername = claims?.preferred_username;
-  const email = claims?.email;
-
-  // If we have a first name, use that
-  if (firstName) {
-    return String(firstName);
-  }
-
-  // If we have a full name, try to extract first name
-  if (fullName) {
-    const nameParts = String(fullName).split(' ');
-    return nameParts[0]; // Return first part of the name
-  }
-
-  // Fallback to other options
-  const fromClaims = preferredUsername || email;
-  const loose = user.preferred_username || user.name || user.email || user.sub;
-  const result = String(fromClaims || loose || "User");
-
-  return result;
-}
-
-// Helper function to get user email
-function getUserEmail(user: any): string {
-  if (!user) return "";
-  
-  let decodedClaims = null;
-  if (user.id_token) {
-    decodedClaims = decodeJWT(user.id_token);
-  }
-  
-  const claims = decodedClaims ?? user.claims ?? user.idTokenClaims ?? user.userinfo ?? user;
-  return claims?.email || user.email || "";
-}
-
 // Custom styled components for modern menu
 const StyledMenu = styled(Menu)(({ theme }) => ({
   '& .MuiPaper-root': {
@@ -355,22 +281,17 @@ const handleSignOut = useCallback(async () => {
 
   // Get current user data
   useEffect(() => {
-    const getCurrentUser = async () => {
+    const fetchCurrentUser = async () => {
       try {
-        // Settings are now loaded by AppInitializer before this component renders
-
-        if (window.ipcApi) {
-          const authState = await window.ipcApi.sendIpcRequest("auth-check");
-          if (authState?.user) {
-            setUser(authState.user);
-          }
-        }
+        // Get user info from API (same as profile page)
+        const userInfo = await authService.getCurrentUser();
+        setUser(userInfo);
       } catch (error) {
         console.error("Failed to get user data:", error);
       }
     };
 
-    getCurrentUser();
+    fetchCurrentUser();
   }, []);
 
   // Load hotels and find current hotel name
@@ -471,9 +392,11 @@ const handleSignOut = useCallback(async () => {
     syncMappingTablesOnStartup();
   }, []); // Run only once on mount
 
-  const displayName = user ? getDisplayName(user) : 'User';
-  const userEmail = user ? getUserEmail(user) : '';
-  const userInitials = userEmail ? userEmail.substring(0, 2).toUpperCase() : 'U';
+  const userEmail = user?.email || '';
+  // Extract username from email (part before @) for friendly display
+  const friendlyName = userEmail ? userEmail.split('@')[0] : 'User';
+  // Use first 2 letters of email username for initials
+  const userInitials = friendlyName ? friendlyName.substring(0, 2).toUpperCase() : 'U';
 
   return (
     <Box sx={{ display: "flex" }}>
@@ -622,7 +545,7 @@ const handleSignOut = useCallback(async () => {
       </Avatar>
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
-          {userEmail || displayName}
+          {friendlyName}
         </Typography>
         <Typography
           variant="body2"
@@ -634,7 +557,7 @@ const handleSignOut = useCallback(async () => {
             whiteSpace: 'nowrap'
           }}
         >
-          Active User
+          {userEmail || 'Active User'}
         </Typography>
       </Box>
     </UserInfoSection>
