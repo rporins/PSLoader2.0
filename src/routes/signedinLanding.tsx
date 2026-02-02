@@ -805,15 +805,6 @@ const handleSignOut = useCallback(async () => {
             </ListItemButton>
           </ListItem>
 
-          <ListItem key="custom-pl" disablePadding sx={{ display: "block" }}>
-            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/custom-pl")}>
-              <ListItemIcon sx={listItemIconStyle}>
-                <DescriptionIcon />
-              </ListItemIcon>
-              <ListItemText primary="Custom P&L" sx={listItemTextStyle} />
-            </ListItemButton>
-          </ListItem>
-
           <ListItem key="summary-pl" disablePadding sx={{ display: "block" }}>
             <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/summary-pl")}>
               <ListItemIcon sx={listItemIconStyle}>

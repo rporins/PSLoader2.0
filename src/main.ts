@@ -49,6 +49,17 @@ declare const MAIN_WINDOW_VITE_NAME:
 const hasInstanceLock = app.requestSingleInstanceLock();
 if (!hasInstanceLock) {
   app.quit();
+} else {
+  // When a second instance tries to launch, focus the existing window
+  app.on("second-instance", () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
 }
 
 // Squirrel (Windows) install/uninstall shortcut handler — exit early.
@@ -128,6 +139,9 @@ function createMainWindow(): void {
 
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
+    // Initialize auto-updater AFTER window is visible
+    // This ensures users see the app immediately
+    initializeAutoUpdater();
     // DevTools can be opened with Ctrl+Shift+I or F12 (Electron default shortcuts)
     // No automatic opening in production or development
   });
@@ -176,7 +190,16 @@ const stubAuthService = {
  * This works with Electron Forge + Squirrel.Windows
  * Only runs in packaged/production builds
  */
-if (app.isPackaged) {
+/**
+ * Initialize auto-updater AFTER window is shown
+ * This ensures users see the app immediately, then updates happen in background
+ */
+function initializeAutoUpdater(): void {
+  if (!app.isPackaged) {
+    logger.info("Auto-updater disabled in development mode");
+    return;
+  }
+
   logger.info("Initializing auto-updater for packaged app");
 
   // Initialize update-electron-app with configuration
@@ -187,7 +210,6 @@ if (app.isPackaged) {
   });
 
   // Set up event listeners for Electron's native autoUpdater
-  // These events are triggered by update-electron-app
   autoUpdater.on("checking-for-update", () => {
     log.info("Checking for updates...");
     logger.info("Checking for updates...");
@@ -212,8 +234,6 @@ if (app.isPackaged) {
     log.error("Auto-updater error:", err);
     logger.error("Auto-updater error:", err);
   });
-} else {
-  logger.info("Auto-updater disabled in development mode");
 }
 
 // ────────────────────────────────────────────────────────────

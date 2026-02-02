@@ -487,21 +487,6 @@ export class DatabaseHandlers {
     };
   };
 
-  getCustomPLDataHandler: IpcHandler = async (event, request) => {
-    const result = await db.getCustomPLData(
-      request.startMonth,
-      request.startYear,
-      request.endMonth,
-      request.endYear,
-      request.ou
-    );
-    return {
-      success: true,
-      data: result,
-      timestamp: Date.now(),
-    };
-  };
-
   getSummaryPLDataHandler: IpcHandler = async (event, request) => {
     const result = await db.getSummaryPLData(
       request.startMonth,
@@ -822,7 +807,6 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_LAST_IMPORT]: handlers.getFinancialDataLastImportHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_LOCAL_VERSIONS]: handlers.getFinancialDataLocalVersionsHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_REPORT_DATA]: handlers.getFinancialReportDataHandler,
-    [IPC_CHANNELS.DB_GET_CUSTOM_PL_DATA]: handlers.getCustomPLDataHandler,
     [IPC_CHANNELS.DB_GET_SUMMARY_PL_DATA]: handlers.getSummaryPLDataHandler,
     [IPC_CHANNELS.DB_GET_F90_PL_DATA]: handlers.getF90PLDataHandler,
     [IPC_CHANNELS.DB_GET_STAGING_VS_BUDGET_DATA]: handlers.getStagingVsBudgetDataHandler,

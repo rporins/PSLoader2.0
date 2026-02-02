@@ -29,7 +29,6 @@ import Settings from "./routes/nestedPages/settings";
 import HelpSupport from "./routes/nestedPages/helpSupport";
 import Home from "./routes/nestedPages/home";
 import SignOffUpload from "./routes/nestedPages/signOffUpload";
-import CustomPL from "./routes/nestedPages/customPL";
 import SummaryPL from "./routes/nestedPages/summaryPL";
 import F90PL from "./routes/nestedPages/f90PL";
 import RoomSegmentReview from "./routes/nestedPages/roomSegmentReview";
@@ -113,11 +112,6 @@ const router = createHashRouter([
         path: "data-table",
         element: <DataTable />,
         handle: { title: "Upload Review" },
-      },
-      {
-        path: "custom-pl",
-        element: <CustomPL />,
-        handle: { title: "Custom P&L" },
       },
       {
         path: "summary-pl",
