@@ -715,6 +715,9 @@ async function migrateRemoveCountColumn() {
     if (financialColumnNames.includes('count')) {
       console.log("Migrating financial_data table to remove 'count' column");
 
+      // Temporarily disable foreign key checks for the migration
+      await client.execute({ sql: "PRAGMA foreign_keys = OFF", args: [] });
+
       await client.execute({
         sql: `
           CREATE TABLE IF NOT EXISTS financial_data_temp (
@@ -770,10 +773,19 @@ async function migrateRemoveCountColumn() {
         args: []
       });
 
+      // Re-enable foreign key checks
+      await client.execute({ sql: "PRAGMA foreign_keys = ON", args: [] });
+
       console.log("Successfully removed 'count' column from financial_data table");
     }
   } catch (error) {
     console.error("Error during count column removal migration:", error);
+    // Make sure foreign keys are re-enabled even if migration fails
+    try {
+      await client.execute({ sql: "PRAGMA foreign_keys = ON", args: [] });
+    } catch {
+      // Ignore if this fails
+    }
   }
 }
 
