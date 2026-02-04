@@ -61,7 +61,16 @@ const nativeModules = [
   'readable-stream',
   'saxes',
   'tmp',
-  'unzipper'
+  'unzipper',
+  // transitive dependencies
+  'setimmediate',
+  'immediate',
+  'core-util-is',
+  'inherits',
+  'util-deprecate',
+  'string_decoder',
+  'safe-buffer',
+  'process-nextick-args'
 ];
 
 export const external = [

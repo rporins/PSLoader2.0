@@ -75,6 +75,15 @@ const config: ForgeConfig = {
         'saxes',
         'tmp',
         'unzipper',
+        // transitive dependencies
+        'setimmediate',
+        'immediate',
+        'core-util-is',
+        'inherits',
+        'util-deprecate',
+        'string_decoder',
+        'safe-buffer',
+        'process-nextick-args',
       ];
 
       console.log('Copying dependencies from:', sourceNodeModules);
