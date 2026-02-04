@@ -65,6 +65,7 @@ const config: ForgeConfig = {
         'node-machine-id',
         'systeminformation',
         'electron-squirrel-startup',
+        'exceljs',
       ];
 
       console.log('Copying dependencies from:', sourceNodeModules);

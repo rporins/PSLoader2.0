@@ -51,7 +51,8 @@ const nativeModules = [
   'node-machine-id',
   'systeminformation',
   'nodejs-polars',
-  'better-sqlite3'
+  'better-sqlite3',
+  'exceljs'
 ];
 
 export const external = [
