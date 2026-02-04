@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import {
   DataGridPremium,
   GridColDef,
@@ -23,9 +23,12 @@ import {
   Stack,
   Paper,
   Divider,
+  Snackbar,
+  Alert,
 } from "@mui/material";
 import { styled, alpha } from "@mui/material/styles";
 import { useSettingsStore } from "../../store/settings";
+import dailyFinancialSyncService from "../../services/dailyFinancialSyncService";
 
 interface FinancialReportRow {
   id: number;
@@ -142,6 +145,14 @@ export default function Report() {
   const [settingsLoaded, setSettingsLoaded] = useState<boolean>(false);
   const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
 
+  // Daily sync check state
+  const [syncNotification, setSyncNotification] = useState<{
+    open: boolean;
+    message: string;
+    severity: 'info' | 'success';
+  } | null>(null);
+  const syncCheckPerformed = useRef<string | null>(null); // Track which OU we've checked
+
   const fetchReportData = async () => {
     setLoading(true);
     try {
@@ -226,6 +237,30 @@ export default function Report() {
       fetchReportData();
     }
   }, [selectedYear, startingMonth, settingsLoaded, selectedHotelOu]);
+
+  // Daily financial data sync check - runs once per OU per page visit
+  useEffect(() => {
+    if (settingsLoaded && selectedHotelOu && syncCheckPerformed.current !== selectedHotelOu) {
+      // Mark that we're checking this OU (prevents duplicate checks on re-renders)
+      syncCheckPerformed.current = selectedHotelOu;
+
+      dailyFinancialSyncService.performDailyCheck(selectedHotelOu)
+        .then(result => {
+          if (result.hasUpdates) {
+            setSyncNotification({
+              open: true,
+              message: `Financial data updated (${result.updatedPeriods.length} period${result.updatedPeriods.length !== 1 ? 's' : ''})`,
+              severity: 'success'
+            });
+            // Refresh the report data to show updated values
+            fetchReportData();
+          }
+        })
+        .catch(() => {
+          // Silent fail for background check - don't disrupt user
+        });
+    }
+  }, [settingsLoaded, selectedHotelOu]);
 
   const currencyFormatter = new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -587,6 +622,23 @@ export default function Report() {
           }}
         />
       </Paper>
+
+      {/* Daily sync notification */}
+      <Snackbar
+        open={syncNotification?.open ?? false}
+        autoHideDuration={5000}
+        onClose={() => setSyncNotification(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={() => setSyncNotification(null)}
+          severity={syncNotification?.severity ?? 'info'}
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {syncNotification?.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

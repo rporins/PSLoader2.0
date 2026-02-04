@@ -789,6 +789,33 @@ async function migrateRemoveCountColumn() {
   }
 }
 
+/**
+ * Migration: Create financial_data_sync_checks table for existing users
+ * This table tracks when financial data was last checked for updates per OU
+ */
+async function migrateFinancialDataSyncChecksTable() {
+  try {
+    const result = await client.execute({
+      sql: "SELECT name FROM sqlite_master WHERE type='table' AND name='financial_data_sync_checks'",
+      args: []
+    });
+
+    if (result.rows.length === 0) {
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS financial_data_sync_checks (
+            ou TEXT PRIMARY KEY,
+            last_check_date TEXT NOT NULL,
+            last_check_timestamp TEXT NOT NULL,
+            check_result TEXT
+        )
+      `);
+      console.log("Created financial_data_sync_checks table");
+    }
+  } catch (error) {
+    console.error("Error during financial_data_sync_checks migration:", error);
+  }
+}
+
 //------------------------------------------------------------------------------------------------------------------
 //--- INITIALIZE DATABASE ---------------------------------------------------------------------------------------
 //create database if it doesn't exist
@@ -1174,6 +1201,14 @@ export async function initializeDatabase() {
       `
         CREATE INDEX IF NOT EXISTS idx_validations_sequence ON validations(sequence)
         `,
+      `
+        CREATE TABLE IF NOT EXISTS financial_data_sync_checks (
+            ou TEXT PRIMARY KEY,
+            last_check_date TEXT NOT NULL,
+            last_check_timestamp TEXT NOT NULL,
+            check_result TEXT
+        )
+        `,
     ]);
 
     // console.log("All necessary tables have been created or already exist.");
@@ -1186,6 +1221,7 @@ export async function initializeDatabase() {
     await migrateDepartmentMapsTable();
     await migrateMappingsTable(); // Add approval workflow columns to existing mappings table
     await migrateRemoveCountColumn(); // Remove deprecated 'count' column - stats use amount column now
+    await migrateFinancialDataSyncChecksTable(); // Add table for tracking daily financial data sync checks
   } catch (error) {
     console.error("Error during database initialization:", error);
   }
@@ -5306,6 +5342,63 @@ export async function executeQuery(query: { sql: string; args: any[] }) {
     return await client.execute(query);
   } catch (error) {
     console.error('Error executing query:', error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//----------------- FINANCIAL DATA SYNC CHECK FUNCTIONS -----------------------------------------------------------
+
+/**
+ * Get the last successful sync check date for an OU
+ * @param ou The organizational unit
+ * @returns The last check date (YYYY-MM-DD) or null if never checked
+ */
+export async function getFinancialDataLastCheckDate(ou: string): Promise<string | null> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT last_check_date FROM financial_data_sync_checks WHERE ou = ?",
+      args: [ou]
+    });
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return result.rows[0].last_check_date as string;
+  } catch (error) {
+    console.error(`Error getting financial data last check date for OU ${ou}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Record a successful financial data sync check
+ * @param ou The organizational unit
+ * @param checkDate The date of the check (YYYY-MM-DD)
+ * @param checkTimestamp Full ISO timestamp of the check
+ * @param checkResult Result of the check ('up_to_date' or 'updated')
+ */
+export async function setFinancialDataSyncCheck(
+  ou: string,
+  checkDate: string,
+  checkTimestamp: string,
+  checkResult: string
+): Promise<void> {
+  try {
+    await client.execute({
+      sql: `
+        INSERT INTO financial_data_sync_checks (ou, last_check_date, last_check_timestamp, check_result)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(ou) DO UPDATE SET
+          last_check_date = excluded.last_check_date,
+          last_check_timestamp = excluded.last_check_timestamp,
+          check_result = excluded.check_result
+      `,
+      args: [ou, checkDate, checkTimestamp, checkResult]
+    });
+  } catch (error) {
+    console.error(`Error setting financial data sync check for OU ${ou}:`, error);
     throw error;
   }
 }

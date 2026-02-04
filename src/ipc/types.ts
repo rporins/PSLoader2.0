@@ -193,6 +193,10 @@ export const IPC_CHANNELS = {
 
   // Manual adjustments channel
   DB_INSERT_MANUAL_ADJUSTMENTS: 'db:insert-manual-adjustments',
+
+  // Financial data daily sync check channels
+  DB_GET_FINANCIAL_DATA_LAST_CHECK_DATE: 'db:get-financial-data-last-check-date',
+  DB_SET_FINANCIAL_DATA_SYNC_CHECK: 'db:set-financial-data-sync-check',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];

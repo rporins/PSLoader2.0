@@ -554,6 +554,30 @@ export class DatabaseHandlers {
     };
   };
 
+  // Financial data daily sync check handlers
+  getFinancialDataLastCheckDateHandler: IpcHandler = async (event, request) => {
+    const result = await db.getFinancialDataLastCheckDate(request.ou);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  setFinancialDataSyncCheckHandler: IpcHandler = async (event, request) => {
+    await db.setFinancialDataSyncCheck(
+      request.ou,
+      request.checkDate,
+      request.checkTimestamp,
+      request.checkResult
+    );
+    return {
+      success: true,
+      data: { message: 'Financial data sync check recorded successfully' },
+      timestamp: Date.now(),
+    };
+  };
+
   // Validation handlers
   storeValidationsHandler: IpcHandler = async (event, request) => {
     await db.storeValidations(request.ou, request.validations);
@@ -825,5 +849,7 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_SET_SELECTED_PERIOD_FOR_OU]: handlers.setSelectedPeriodForOUHandler,
     [IPC_CHANNELS.DB_RESET_ALL_COMPLETION_STATES]: handlers.resetAllCompletionStatesHandler,
     [IPC_CHANNELS.DB_INSERT_MANUAL_ADJUSTMENTS]: handlers.insertManualAdjustmentsHandler,
+    [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_LAST_CHECK_DATE]: handlers.getFinancialDataLastCheckDateHandler,
+    [IPC_CHANNELS.DB_SET_FINANCIAL_DATA_SYNC_CHECK]: handlers.setFinancialDataSyncCheckHandler,
   };
 }
