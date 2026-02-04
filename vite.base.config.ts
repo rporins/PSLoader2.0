@@ -52,7 +52,16 @@ const nativeModules = [
   'systeminformation',
   'nodejs-polars',
   'better-sqlite3',
-  'exceljs'
+  // exceljs and its dependencies
+  'exceljs',
+  'jszip',
+  'archiver',
+  'dayjs',
+  'fast-csv',
+  'readable-stream',
+  'saxes',
+  'tmp',
+  'unzipper'
 ];
 
 export const external = [

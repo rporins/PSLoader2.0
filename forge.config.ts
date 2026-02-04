@@ -65,7 +65,16 @@ const config: ForgeConfig = {
         'node-machine-id',
         'systeminformation',
         'electron-squirrel-startup',
+        // exceljs and its dependencies
         'exceljs',
+        'jszip',
+        'archiver',
+        'dayjs',
+        'fast-csv',
+        'readable-stream',
+        'saxes',
+        'tmp',
+        'unzipper',
       ];
 
       console.log('Copying dependencies from:', sourceNodeModules);
