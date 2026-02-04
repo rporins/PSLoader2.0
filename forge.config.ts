@@ -84,6 +84,7 @@ const config: ForgeConfig = {
         'string_decoder',
         'safe-buffer',
         'process-nextick-args',
+        'pako',
       ];
 
       console.log('Copying dependencies from:', sourceNodeModules);

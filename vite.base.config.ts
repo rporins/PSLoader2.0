@@ -70,7 +70,8 @@ const nativeModules = [
   'util-deprecate',
   'string_decoder',
   'safe-buffer',
-  'process-nextick-args'
+  'process-nextick-args',
+  'pako'
 ];
 
 export const external = [
