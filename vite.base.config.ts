@@ -64,7 +64,7 @@ const nativeModules = [
   'lodash.isplainobject', 'lodash.isundefined', 'lodash.union', 'lodash.uniq', 'minimatch', 'mkdirp',
   'normalize-path', 'once', 'pako', 'path-is-absolute', 'readdir-glob', 'rimraf', 'safe-buffer',
   'setimmediate', 'string_decoder', 'tar-stream', 'traverse', 'util-deprecate', 'wrappy',
-  'xmlchars', 'zip-stream'
+  'xmlchars', 'zip-stream', 'process-nextick-args', 'core-util-is', 'isarray'
 ];
 
 export const external = [
