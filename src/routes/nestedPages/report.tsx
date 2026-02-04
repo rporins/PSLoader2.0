@@ -27,8 +27,9 @@ import {
   Alert,
 } from "@mui/material";
 import { styled, alpha } from "@mui/material/styles";
-import { useSettingsStore } from "../../store/settings";
+import { useSettingsStore, useFinancialDataVersion } from "../../store/settings";
 import dailyFinancialSyncService from "../../services/dailyFinancialSyncService";
+import CheckForUpdatesButton from "../../components/CheckForUpdatesButton";
 
 interface FinancialReportRow {
   id: number;
@@ -144,6 +145,8 @@ export default function Report() {
   const [loading, setLoading] = useState<boolean>(false);
   const [settingsLoaded, setSettingsLoaded] = useState<boolean>(false);
   const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
+  const financialDataVersion = useFinancialDataVersion();
+  const setFinancialDataVersion = useSettingsStore((s) => s.setFinancialDataVersion);
 
   // Daily sync check state
   const [syncNotification, setSyncNotification] = useState<{
@@ -161,6 +164,7 @@ export default function Report() {
       const response = await window.ipcApi.sendIpcRequest("db:get-financial-report-data", {
         startPeriod,
         ou: selectedHotelOu,
+        version: financialDataVersion,
       });
 
       // console.log('[Report] Response:', response);
@@ -231,12 +235,12 @@ export default function Report() {
     loadSettings();
   }, []);
 
-  // Fetch data when settings are loaded and when year/month/OU changes
+  // Fetch data when settings are loaded and when year/month/OU/version changes
   useEffect(() => {
     if (settingsLoaded && selectedHotelOu) {
       fetchReportData();
     }
-  }, [selectedYear, startingMonth, settingsLoaded, selectedHotelOu]);
+  }, [selectedYear, startingMonth, settingsLoaded, selectedHotelOu, financialDataVersion]);
 
   // Daily financial data sync check - runs once per OU per page visit
   useEffect(() => {
@@ -462,9 +466,12 @@ export default function Report() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom sx={{ mb: 3 }}>
-        Financial Report Dashboard
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+        <Typography variant="h4">
+          Financial Report Dashboard
+        </Typography>
+        <CheckForUpdatesButton onDataUpdated={fetchReportData} />
+      </Box>
 
       <StyledCard>
         <CardContent>
@@ -539,6 +546,18 @@ export default function Report() {
                 {month}
               </MenuItem>
             ))}
+          </Select>
+        </FormControl>
+
+        <FormControl size="small" sx={{ minWidth: 180 }}>
+          <InputLabel>Data Version</InputLabel>
+          <Select
+            value={financialDataVersion || 'MAIN'}
+            label="Data Version"
+            onChange={(e) => setFinancialDataVersion(e.target.value as string)}
+          >
+            <MenuItem value="MAIN">Marriott Planning</MenuItem>
+            <MenuItem value="OWNR">Owner Planning</MenuItem>
           </Select>
         </FormControl>
 

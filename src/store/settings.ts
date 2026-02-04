@@ -17,6 +17,14 @@ type SettingsState = {
   currency: string;
   dateFormat: string;
   numberFormat: string;
+  financialDataVersion: string;
+  // Excel export settings
+  excelExportSelectedMonth: number;
+  excelExportSelectedYear: number;
+  excelExportYtdStartMonth: number;
+  excelExportYtdStartYear: number;
+  excelExportYtdEndMonth: number;
+  excelExportYtdEndYear: number;
 
   // Loading state
   loading: boolean;
@@ -36,6 +44,14 @@ type SettingsState = {
   setCurrency: (currency: string) => Promise<void>;
   setDateFormat: (format: string) => Promise<void>;
   setNumberFormat: (format: string) => Promise<void>;
+  setFinancialDataVersion: (version: string) => Promise<void>;
+  // Excel export setters
+  setExcelExportSelectedMonth: (month: number) => Promise<void>;
+  setExcelExportSelectedYear: (year: number) => Promise<void>;
+  setExcelExportYtdStartMonth: (month: number) => Promise<void>;
+  setExcelExportYtdStartYear: (year: number) => Promise<void>;
+  setExcelExportYtdEndMonth: (month: number) => Promise<void>;
+  setExcelExportYtdEndYear: (year: number) => Promise<void>;
   updateMultipleSettings: (settings: Partial<AppSettings>) => Promise<void>;
 
   // Load and save
@@ -58,6 +74,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   currency: "USD",
   dateFormat: "MM/DD/YYYY",
   numberFormat: "1,234.56",
+  financialDataVersion: "MAIN",
+  // Excel export defaults
+  excelExportSelectedMonth: new Date().getMonth() + 1,
+  excelExportSelectedYear: new Date().getFullYear(),
+  excelExportYtdStartMonth: 1,
+  excelExportYtdStartYear: new Date().getFullYear(),
+  excelExportYtdEndMonth: new Date().getMonth() + 1,
+  excelExportYtdEndYear: new Date().getFullYear(),
   loading: false,
   initialized: false,
 
@@ -238,6 +262,86 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
   },
 
+  // Financial data version setting (MAIN or OWNR)
+  setFinancialDataVersion: async (version) => {
+    const previous = get().financialDataVersion;
+    set({ financialDataVersion: version });
+
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.FINANCIAL_DATA_VERSION, version);
+    } catch (error) {
+      console.error("Failed to save financial data version:", error);
+      set({ financialDataVersion: previous });
+    }
+  },
+
+  // Excel export settings
+  setExcelExportSelectedMonth: async (month) => {
+    const previous = get().excelExportSelectedMonth;
+    set({ excelExportSelectedMonth: month });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.EXCEL_EXPORT_SELECTED_MONTH, month);
+    } catch (error) {
+      console.error("Failed to save excel export selected month:", error);
+      set({ excelExportSelectedMonth: previous });
+    }
+  },
+
+  setExcelExportSelectedYear: async (year) => {
+    const previous = get().excelExportSelectedYear;
+    set({ excelExportSelectedYear: year });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.EXCEL_EXPORT_SELECTED_YEAR, year);
+    } catch (error) {
+      console.error("Failed to save excel export selected year:", error);
+      set({ excelExportSelectedYear: previous });
+    }
+  },
+
+  setExcelExportYtdStartMonth: async (month) => {
+    const previous = get().excelExportYtdStartMonth;
+    set({ excelExportYtdStartMonth: month });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.EXCEL_EXPORT_YTD_START_MONTH, month);
+    } catch (error) {
+      console.error("Failed to save excel export YTD start month:", error);
+      set({ excelExportYtdStartMonth: previous });
+    }
+  },
+
+  setExcelExportYtdStartYear: async (year) => {
+    const previous = get().excelExportYtdStartYear;
+    set({ excelExportYtdStartYear: year });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.EXCEL_EXPORT_YTD_START_YEAR, year);
+    } catch (error) {
+      console.error("Failed to save excel export YTD start year:", error);
+      set({ excelExportYtdStartYear: previous });
+    }
+  },
+
+  setExcelExportYtdEndMonth: async (month) => {
+    const previous = get().excelExportYtdEndMonth;
+    set({ excelExportYtdEndMonth: month });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.EXCEL_EXPORT_YTD_END_MONTH, month);
+    } catch (error) {
+      console.error("Failed to save excel export YTD end month:", error);
+      set({ excelExportYtdEndMonth: previous });
+    }
+  },
+
+  setExcelExportYtdEndYear: async (year) => {
+    const previous = get().excelExportYtdEndYear;
+    set({ excelExportYtdEndYear: year });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.EXCEL_EXPORT_YTD_END_YEAR, year);
+    } catch (error) {
+      console.error("Failed to save excel export YTD end year:", error);
+      set({ excelExportYtdEndYear: previous });
+    }
+  },
+
   // Update multiple settings at once
   updateMultipleSettings: async (settings) => {
     // Store previous state for rollback
@@ -254,6 +358,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       currency: get().currency,
       dateFormat: get().dateFormat,
       numberFormat: get().numberFormat,
+      financialDataVersion: get().financialDataVersion,
     };
 
     // Update local state immediately
@@ -270,6 +375,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     if (SETTINGS_KEYS.CURRENCY in settings) updates.currency = settings[SETTINGS_KEYS.CURRENCY]!;
     if (SETTINGS_KEYS.DATE_FORMAT in settings) updates.dateFormat = settings[SETTINGS_KEYS.DATE_FORMAT]!;
     if (SETTINGS_KEYS.NUMBER_FORMAT in settings) updates.numberFormat = settings[SETTINGS_KEYS.NUMBER_FORMAT]!;
+    if (SETTINGS_KEYS.FINANCIAL_DATA_VERSION in settings) updates.financialDataVersion = settings[SETTINGS_KEYS.FINANCIAL_DATA_VERSION]!;
 
     set(updates);
 
@@ -312,6 +418,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         currency: settings[SETTINGS_KEYS.CURRENCY],
         dateFormat: settings[SETTINGS_KEYS.DATE_FORMAT],
         numberFormat: settings[SETTINGS_KEYS.NUMBER_FORMAT],
+        financialDataVersion: settings[SETTINGS_KEYS.FINANCIAL_DATA_VERSION],
+        // Excel export settings
+        excelExportSelectedMonth: settings[SETTINGS_KEYS.EXCEL_EXPORT_SELECTED_MONTH],
+        excelExportSelectedYear: settings[SETTINGS_KEYS.EXCEL_EXPORT_SELECTED_YEAR],
+        excelExportYtdStartMonth: settings[SETTINGS_KEYS.EXCEL_EXPORT_YTD_START_MONTH],
+        excelExportYtdStartYear: settings[SETTINGS_KEYS.EXCEL_EXPORT_YTD_START_YEAR],
+        excelExportYtdEndMonth: settings[SETTINGS_KEYS.EXCEL_EXPORT_YTD_END_MONTH],
+        excelExportYtdEndYear: settings[SETTINGS_KEYS.EXCEL_EXPORT_YTD_END_YEAR],
         initialized: true,
       });
 
@@ -342,6 +456,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         [SETTINGS_KEYS.CURRENCY]: state.currency,
         [SETTINGS_KEYS.DATE_FORMAT]: state.dateFormat,
         [SETTINGS_KEYS.NUMBER_FORMAT]: state.numberFormat,
+        [SETTINGS_KEYS.FINANCIAL_DATA_VERSION]: state.financialDataVersion,
       };
 
       await settingsService.setSettings(settings);
@@ -377,6 +492,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         currency: settings[SETTINGS_KEYS.CURRENCY],
         dateFormat: settings[SETTINGS_KEYS.DATE_FORMAT],
         numberFormat: settings[SETTINGS_KEYS.NUMBER_FORMAT],
+        financialDataVersion: settings[SETTINGS_KEYS.FINANCIAL_DATA_VERSION],
       });
 
       // console.log("All settings reset to defaults");
@@ -398,6 +514,7 @@ export const useSelectedPeriod = () => useSettingsStore((s) => s.selectedPeriod)
 export const useSelectedScenario = () => useSettingsStore((s) => s.selectedScenario);
 export const useAutoSave = () => useSettingsStore((s) => s.autoSave);
 export const useNotificationEnabled = () => useSettingsStore((s) => s.notificationEnabled);
+export const useFinancialDataVersion = () => useSettingsStore((s) => s.financialDataVersion);
 export const useLanguage = () => useSettingsStore((s) => s.language);
 export const useCurrency = () => useSettingsStore((s) => s.currency);
 export const useDateFormat = () => useSettingsStore((s) => s.dateFormat);

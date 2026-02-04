@@ -102,7 +102,8 @@ function getFilterValues(filter: MeasureFilter): any[] {
 export function buildScenarioQuery(
   scenario: ScenarioType,
   periods: string[],
-  ou?: string
+  ou?: string,
+  version: string = 'MAIN'
 ): QueryBuildResult {
   const subMeasureIds = Object.keys(SUB_MEASURES);
   const params: any[] = [];
@@ -126,6 +127,7 @@ export function buildScenarioQuery(
   // Push params in the order they appear in the SQL
   const latestStagingPeriod = periods[periods.length - 1];
   params.push(latestStagingPeriod);
+  params.push(version);
 
   periods.forEach(p => params.push(p));
   if (ou) {
@@ -154,7 +156,7 @@ export function buildScenarioQuery(
         AND fds.period_combo = ?
         AND fds.scenario = '${scenario}'
       WHERE fd.scenario = '${scenario}'
-        AND fd.version = 'MAIN'
+        AND fd.version = ?
         AND fd.period_combo IN (${periods.map(() => '?').join(', ')})
         ${ou ? 'AND fd.ou = ?' : ''}
 

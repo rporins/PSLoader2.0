@@ -7,6 +7,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import { useSettingsStore } from "../../store/settings";
 
 const StyledCard = styled(Card)(({ theme }) => ({
@@ -335,6 +336,40 @@ export default function Home() {
                 }}
               >
                 View Reports
+              </Button>
+            </Stack>
+          </CardContent>
+        </StyledCard>
+      </Box>
+
+      {/* Generate Excel Export Card */}
+      <Box sx={{ mt: 2 }}>
+        <StyledCard>
+          <CardContent sx={{ p: 3 }}>
+            <Stack direction="row" alignItems="center" justifyContent="space-between">
+              <Stack direction="row" alignItems="center" spacing={2}>
+                <FileDownloadIcon sx={{ fontSize: 40, color: "success.main" }} />
+                <Box>
+                  <Typography variant="h6" fontWeight={600}>
+                    Generate Excel Export
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Export F90 P&L, room segments, and department details to Excel
+                  </Typography>
+                </Box>
+              </Stack>
+              <Button
+                variant="outlined"
+                color="success"
+                endIcon={<ArrowForwardIcon />}
+                onClick={() => navigate("/signed-in-landing/excel-export")}
+                sx={{
+                  borderRadius: 2,
+                  textTransform: "none",
+                  fontWeight: 600,
+                }}
+              >
+                Generate Export
               </Button>
             </Stack>
           </CardContent>

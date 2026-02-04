@@ -19,9 +19,14 @@ import {
   Stack,
   Paper,
   Divider,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from "@mui/material";
 import { styled, alpha } from "@mui/material/styles";
-import { useSettingsStore } from "../../store/settings";
+import { useSettingsStore, useFinancialDataVersion } from "../../store/settings";
+import CheckForUpdatesButton from "../../components/CheckForUpdatesButton";
 
 interface StagingVsBudgetRow {
   id: number;
@@ -112,12 +117,15 @@ export default function DataTable() {
   const [loading, setLoading] = useState<boolean>(false);
   const [period, setPeriod] = useState<string>('');
   const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
+  const financialDataVersion = useFinancialDataVersion();
+  const setFinancialDataVersion = useSettingsStore((s) => s.setFinancialDataVersion);
 
   const fetchStagingData = async () => {
     setLoading(true);
     try {
       const response = await window.ipcApi.sendIpcRequest("db:get-staging-vs-budget-data", {
         ou: selectedHotelOu,
+        version: financialDataVersion,
       });
 
       // console.log('[DataTable] Response:', response);
@@ -144,12 +152,12 @@ export default function DataTable() {
     }
   };
 
-  // Fetch data when component mounts or OU changes
+  // Fetch data when component mounts or OU/version changes
   useEffect(() => {
     if (selectedHotelOu) {
       fetchStagingData();
     }
-  }, [selectedHotelOu]);
+  }, [selectedHotelOu, financialDataVersion]);
 
   const currencyFormatter = new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -259,9 +267,12 @@ export default function DataTable() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom sx={{ mb: 3 }}>
-        Upload Review
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+        <Typography variant="h4">
+          Upload Review
+        </Typography>
+        <CheckForUpdatesButton onDataUpdated={fetchStagingData} />
+      </Box>
 
       <StyledCard>
         <CardContent>
@@ -309,6 +320,18 @@ export default function DataTable() {
       </StyledCard>
 
       <Box sx={{ mb: 3, display: 'flex', gap: 2, alignItems: 'center' }}>
+        <FormControl size="small" sx={{ minWidth: 180 }}>
+          <InputLabel>Data Version</InputLabel>
+          <Select
+            value={financialDataVersion || 'MAIN'}
+            label="Data Version"
+            onChange={(e) => setFinancialDataVersion(e.target.value as string)}
+          >
+            <MenuItem value="MAIN">Marriott Planning</MenuItem>
+            <MenuItem value="OWNR">Owner Planning</MenuItem>
+          </Select>
+        </FormControl>
+
         <Button
           variant="outlined"
           onClick={fetchStagingData}

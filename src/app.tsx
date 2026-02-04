@@ -32,6 +32,7 @@ import SignOffUpload from "./routes/nestedPages/signOffUpload";
 import SummaryPL from "./routes/nestedPages/summaryPL";
 import F90PL from "./routes/nestedPages/f90PL";
 import RoomSegmentReview from "./routes/nestedPages/roomSegmentReview";
+import ExcelExport from "./routes/nestedPages/excelExport";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 // define the route
@@ -122,6 +123,11 @@ const router = createHashRouter([
         path: "f90-pl",
         element: <F90PL />,
         handle: { title: "F90 P&L" },
+      },
+      {
+        path: "excel-export",
+        element: <ExcelExport />,
+        handle: { title: "Excel Export" },
       },
       {
         path: "coa",

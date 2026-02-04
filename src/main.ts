@@ -21,10 +21,9 @@ dotenv.config();
 
 // ────────────────────────────────────────────────────────────
 // Configure electron-log for auto-updater debugging
-// Logs are saved dynamically to the user's documents directory
+// Logs are disabled in production
 // ────────────────────────────────────────────────────────────
-log.transports.file.resolvePathFn = () => path.join(app.getPath('documents'), 'PSLoader', 'updater.log');
-log.transports.file.level = "info";
+log.transports.file.level = false;
 
 /**
  * Vite's Electron plugin exposes these build-time globals.

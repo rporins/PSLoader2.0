@@ -48,6 +48,7 @@ import AssessmentIcon from "@mui/icons-material/Assessment";
 import DescriptionIcon from "@mui/icons-material/Description";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import MeetingRoomIcon from "@mui/icons-material/MeetingRoom";
+import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import ThemeToggle from "./customComponents/themeToggle";
 import { useSettingsStore } from "../store/settings";
 import authService, { Hotel } from "../services/auth";
@@ -820,6 +821,15 @@ const handleSignOut = useCallback(async () => {
                 <DescriptionIcon />
               </ListItemIcon>
               <ListItemText primary="F90 P&L" sx={listItemTextStyle} />
+            </ListItemButton>
+          </ListItem>
+
+          <ListItem key="excel-export" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/excel-export")}>
+              <ListItemIcon sx={listItemIconStyle}>
+                <FileDownloadIcon />
+              </ListItemIcon>
+              <ListItemText primary="Excel Export" sx={listItemTextStyle} />
             </ListItemButton>
           </ListItem>
 

@@ -303,517 +303,305 @@ interface AccountDepartmentCombo {
 }
 
 //------------------------------------------------------------------------------------------------------------------
-//--- MIGRATE DATABASE FOR NEW COLUMNS ---------------------------------------------------------------------------
+//--- SCHEMA VERSION & MIGRATIONS ---------------------------------------------------------------------------------
 
-async function migrateFinancialDataPrimaryKey() {
-  try {
-    // Check if migration is needed by looking at table structure
-    // We need to check if 'ou' is part of the primary key
-    const indexInfo = await client.execute({
-      sql: "SELECT sql FROM sqlite_master WHERE type='table' AND name='financial_data'",
-      args: []
-    });
+// Current schema version - increment this when adding new migrations
+const CURRENT_SCHEMA_VERSION = 1;
 
-    if (indexInfo.rows.length === 0) {
-      // Table doesn't exist yet, will be created with correct schema
-      return;
-    }
-
-    const createSql = indexInfo.rows[0].sql as string;
-
-    // Check if the primary key already includes 'ou'
-    if (createSql.includes('PRIMARY KEY (dep_acc_combo_id, period_combo, scenario, ou)')) {
-      // Already migrated
-      return;
-    }
-
-    console.log("Migrating financial_data table to add 'ou' to primary key...");
-
-    // SQLite doesn't support ALTER TABLE to change primary key, so we need to:
-    // 1. Create a new table with the correct schema
-    // 2. Copy data from old table
-    // 3. Drop old table
-    // 4. Rename new table
-
-    await client.execute("PRAGMA foreign_keys = OFF");
-
-    // Create new table with updated primary key
-    await client.execute(`
-      CREATE TABLE IF NOT EXISTS financial_data_new (
-        dep_acc_combo_id TEXT NOT NULL,
-        month INTEGER NOT NULL,
-        year INTEGER NOT NULL,
-        period_combo TEXT NOT NULL,
-        scenario TEXT NOT NULL,
-        amount REAL NOT NULL,
-        count REAL,
-        currency TEXT NOT NULL,
-        ou TEXT NOT NULL DEFAULT '',
-        department TEXT,
-        account TEXT,
-        version TEXT,
-        last_modified TEXT DEFAULT CURRENT_TIMESTAMP,
-        item_version INTEGER DEFAULT 1,
-        FOREIGN KEY(dep_acc_combo_id) REFERENCES department_accounts(dep_acc_combo_id),
-        PRIMARY KEY (dep_acc_combo_id, period_combo, scenario, ou)
-      )
-    `);
-
-    // Copy data from old table, handling potential NULL ou values
-    await client.execute(`
-      INSERT OR IGNORE INTO financial_data_new
-      SELECT
-        dep_acc_combo_id,
-        month,
-        year,
-        period_combo,
-        scenario,
-        amount,
-        count,
-        currency,
-        COALESCE(ou, '') as ou,
-        department,
-        account,
-        version,
-        last_modified,
-        item_version
-      FROM financial_data
-    `);
-
-    // Drop old table
-    await client.execute("DROP TABLE financial_data");
-
-    // Rename new table
-    await client.execute("ALTER TABLE financial_data_new RENAME TO financial_data");
-
-    await client.execute("PRAGMA foreign_keys = ON");
-
-    console.log("Successfully migrated financial_data table primary key to include 'ou'");
-  } catch (error) {
-    console.error("Error during financial_data primary key migration:", error);
-    // Try to re-enable foreign keys
-    try {
-      await client.execute("PRAGMA foreign_keys = ON");
-    } catch (e) {
-      // Ignore
-    }
-  }
+interface Migration {
+  version: number;
+  name: string;
+  up: () => Promise<void>;
 }
 
-async function migrateFinancialDataTable() {
+/**
+ * Get the current schema version from the database
+ * Returns 0 if schema_info table doesn't exist (legacy/new database)
+ */
+async function getSchemaVersion(): Promise<number> {
   try {
-    // Check if the new columns already exist
-    const tableInfo = await client.execute({
-      sql: "PRAGMA table_info(financial_data)",
+    const result = await client.execute({
+      sql: "SELECT value FROM schema_info WHERE key = 'version'",
       args: []
     });
-
-    const columnNames = tableInfo.rows.map(row => row.name as string);
-    const newColumns = ['ou', 'department', 'account', 'version'];
-    const columnsToAdd = newColumns.filter(col => !columnNames.includes(col));
-
-    if (columnsToAdd.length > 0) {
-      // console.log("Migrating financial_data table to add new columns:", columnsToAdd.join(', '));
-      // Add new columns one by one
-      const alterQueries = columnsToAdd.map(col => ({
-        sql: `ALTER TABLE financial_data ADD COLUMN ${col} TEXT`,
-        args: [] as any[]
-      }));
-
-      await client.batch(alterQueries);
-      // console.log("Successfully added new columns to financial_data table");
-    } else {
-      // console.log("Financial_data table already has all required columns");
+    if (result.rows.length > 0) {
+      return parseInt(result.rows[0].value as string, 10);
     }
-  } catch (error) {
-    console.error("Error during financial_data migration:", error);
-    // If table doesn't exist, it will be created with the new schema
-  }
-}
-
-async function migrateHotelsCacheTable() {
-  try {
-    // Check if the new columns already exist
-    const tableInfo = await client.execute({
-      sql: "PRAGMA table_info(hotels_cache)",
-      args: []
-    });
-
-    const columnNames = tableInfo.rows.map(row => row.name as string);
-    const newColumns = ['currency', 'country', 'city', 'local_id_1', 'local_id_2', 'local_id_3'];
-    const columnsToAdd = newColumns.filter(col => !columnNames.includes(col));
-
-    if (columnsToAdd.length > 0) {
-      // console.log("Migrating hotels_cache table to add new columns:", columnsToAdd.join(', '));
-      // Add new columns one by one
-      const alterQueries = columnsToAdd.map(col => ({
-        sql: `ALTER TABLE hotels_cache ADD COLUMN ${col} TEXT`,
-        args: [] as any[]
-      }));
-
-      await client.batch(alterQueries);
-      // console.log("Successfully added new columns to hotels_cache table");
-    } else {
-      // console.log("Hotels_cache table already has all required columns");
-    }
-  } catch (error) {
-    console.error("Error during hotels_cache migration:", error);
-    // If table doesn't exist, it will be created with the new schema
-  }
-}
-
-async function migrateFinancialDataStagingTable() {
-  try {
-    // Check if the new columns already exist
-    const tableInfo = await client.execute({
-      sql: "PRAGMA table_info(financial_data_staging)",
-      args: []
-    });
-
-    const columnNames = tableInfo.rows.map(row => row.name as string);
-    const newColumns = ['source_account', 'source_department', 'mapping_status', 'source_description', 'is_valid_combo'];
-    const columnsToAdd = newColumns.filter(col => !columnNames.includes(col));
-
-    if (columnsToAdd.length > 0) {
-      // console.log("Migrating financial_data_staging table to add new columns:", columnsToAdd.join(', '));
-      // Add new columns one by one
-      const alterQueries = columnsToAdd.map(col => {
-        // is_valid_combo is INTEGER with default 1, others are TEXT
-        if (col === 'is_valid_combo') {
-          return {
-            sql: `ALTER TABLE financial_data_staging ADD COLUMN ${col} INTEGER DEFAULT 1`,
-            args: [] as any[]
-          };
-        }
-        return {
-          sql: `ALTER TABLE financial_data_staging ADD COLUMN ${col} TEXT`,
-          args: [] as any[]
-        };
-      });
-
-      await client.batch(alterQueries);
-
-      // If we just added is_valid_combo, update existing rows to set the correct value
-      if (columnsToAdd.includes('is_valid_combo')) {
-        // Set is_valid_combo = 0 for rows where the combo doesn't exist in the master list
-        // Note: In account_department_combos table, columns are swapped - "account" has dept values, "department" has account values
-        await client.execute({
-          sql: `
-            UPDATE financial_data_staging
-            SET is_valid_combo = 0
-            WHERE dep_acc_combo_id NOT IN (
-              SELECT 'D' || account || '_A' || department
-              FROM account_department_combos
-            )
-          `,
-          args: []
-        });
-      }
-
-      // console.log("Successfully added new columns to financial_data_staging table");
-    } else {
-      // console.log("Financial_data_staging table already has all required columns");
-    }
-  } catch (error) {
-    console.error("Error during financial_data_staging migration:", error);
-    // If table doesn't exist, it will be created with the new schema
-  }
-}
-
-async function migrateAccountMapsTable() {
-  try {
-    // Check if the account_description_detail_level_max column exists
-    const tableInfo = await client.execute({
-      sql: "PRAGMA table_info(account_maps)",
-      args: []
-    });
-
-    const columnNames = tableInfo.rows.map(row => row.name as string);
-
-    if (!columnNames.includes('account_description_detail_level_max')) {
-      // console.log("Migrating account_maps table to add account_description_detail_level_max column");
-      await client.execute({
-        sql: `ALTER TABLE account_maps ADD COLUMN account_description_detail_level_max TEXT`,
-        args: []
-      });
-
-      // console.log("Successfully added account_description_detail_level_max column to account_maps table");
-    } else {
-      // console.log("Account_maps table already has account_description_detail_level_max column");
-    }
-  } catch (error) {
-    console.error("Error during account_maps migration:", error);
-    // If table doesn't exist, it will be created with the new schema
-  }
-}
-
-async function migrateMappingsTable() {
-  try {
-    // Check if the approval_status column exists
-    const tableInfo = await client.execute({
-      sql: "PRAGMA table_info(mappings)",
-      args: []
-    });
-
-    const columnNames = tableInfo.rows.map(row => row.name as string);
-
-    if (!columnNames.includes('approval_status')) {
-      // console.log("Migrating mappings table to add approval workflow columns");
-
-      // Add approval_status column with default 'APPROVED' for existing records
-      await client.execute({
-        sql: `ALTER TABLE mappings ADD COLUMN approval_status TEXT NOT NULL DEFAULT 'APPROVED'`,
-        args: []
-      });
-
-      // Add approved_by column
-      await client.execute({
-        sql: `ALTER TABLE mappings ADD COLUMN approved_by TEXT`,
-        args: []
-      });
-
-      // Add approved_at column
-      await client.execute({
-        sql: `ALTER TABLE mappings ADD COLUMN approved_at TEXT`,
-        args: []
-      });
-
-      // console.log("Successfully added approval workflow columns to mappings table");
-    } else {
-      // console.log("Mappings table already has approval workflow columns");
-    }
-  } catch (error) {
-    console.error("Error during mappings migration:", error);
-    // If table doesn't exist, it will be created with the new schema
-  }
-}
-
-async function migrateDepartmentMapsTable() {
-  try {
-    // Check if the department_description_detail_level_max column exists
-    const tableInfo = await client.execute({
-      sql: "PRAGMA table_info(department_maps)",
-      args: []
-    });
-
-    const columnNames = tableInfo.rows.map(row => row.name as string);
-
-    if (!columnNames.includes('department_description_detail_level_max')) {
-      // console.log("Migrating department_maps table to add department_description_detail_level_max column");
-      await client.execute({
-        sql: `ALTER TABLE department_maps ADD COLUMN department_description_detail_level_max TEXT`,
-        args: []
-      });
-
-      // console.log("Successfully added department_description_detail_level_max column to department_maps table");
-    } else {
-      // console.log("Department_maps table already has department_description_detail_level_max column");
-    }
-  } catch (error) {
-    console.error("Error during department_maps migration:", error);
-    // If table doesn't exist, it will be created with the new schema
-  }
-}
-
-// Migration to remove 'count' column from financial_data_staging table
-// Count data is no longer used - stats are identified by account codes (stat accounts)
-// and stat values are stored in the 'amount' column
-async function migrateRemoveCountColumn() {
-  try {
-    // Check if the count column exists in financial_data_staging
-    const stagingTableInfo = await client.execute({
-      sql: "PRAGMA table_info(financial_data_staging)",
-      args: []
-    });
-
-    const stagingColumnNames = stagingTableInfo.rows.map(row => row.name as string);
-
-    if (stagingColumnNames.includes('count')) {
-      console.log("Migrating financial_data_staging table to remove 'count' column");
-
-      // SQLite doesn't support DROP COLUMN directly in older versions
-      // Need to recreate the table without the count column
-      await client.execute({
-        sql: `
-          CREATE TABLE IF NOT EXISTS financial_data_staging_new (
-            dep_acc_combo_id TEXT NOT NULL,
-            month INTEGER NOT NULL,
-            year INTEGER NOT NULL,
-            period_combo TEXT NOT NULL,
-            scenario TEXT NOT NULL,
-            amount REAL NOT NULL,
-            currency TEXT NOT NULL,
-            ou TEXT,
-            department TEXT,
-            account TEXT,
-            version TEXT,
-            source_account TEXT,
-            source_department TEXT,
-            source_description TEXT,
-            mapping_status TEXT,
-            import_batch_id TEXT,
-            last_modified TEXT DEFAULT CURRENT_TIMESTAMP,
-            item_version INTEGER DEFAULT 1,
-            is_valid_combo INTEGER DEFAULT 1
-          )
-        `,
-        args: []
-      });
-
-      // Copy data from old table (excluding count column)
-      await client.execute({
-        sql: `
-          INSERT INTO financial_data_staging_new
-          SELECT
-            dep_acc_combo_id,
-            month,
-            year,
-            period_combo,
-            scenario,
-            amount,
-            currency,
-            ou,
-            department,
-            account,
-            version,
-            source_account,
-            source_department,
-            source_description,
-            mapping_status,
-            import_batch_id,
-            last_modified,
-            item_version,
-            is_valid_combo
-          FROM financial_data_staging
-        `,
-        args: []
-      });
-
-      // Drop old table
-      await client.execute({
-        sql: "DROP TABLE financial_data_staging",
-        args: []
-      });
-
-      // Rename new table
-      await client.execute({
-        sql: "ALTER TABLE financial_data_staging_new RENAME TO financial_data_staging",
-        args: []
-      });
-
-      console.log("Successfully removed 'count' column from financial_data_staging table");
-    }
-
-    // Also check and remove from financial_data table if it exists
-    const financialTableInfo = await client.execute({
-      sql: "PRAGMA table_info(financial_data)",
-      args: []
-    });
-
-    const financialColumnNames = financialTableInfo.rows.map(row => row.name as string);
-
-    if (financialColumnNames.includes('count')) {
-      console.log("Migrating financial_data table to remove 'count' column");
-
-      // Temporarily disable foreign key checks for the migration
-      await client.execute({ sql: "PRAGMA foreign_keys = OFF", args: [] });
-
-      await client.execute({
-        sql: `
-          CREATE TABLE IF NOT EXISTS financial_data_temp (
-            dep_acc_combo_id TEXT NOT NULL,
-            month INTEGER NOT NULL,
-            year INTEGER NOT NULL,
-            period_combo TEXT NOT NULL,
-            scenario TEXT NOT NULL,
-            amount REAL NOT NULL,
-            currency TEXT NOT NULL,
-            ou TEXT NOT NULL DEFAULT '',
-            department TEXT,
-            account TEXT,
-            version TEXT,
-            last_modified TEXT DEFAULT CURRENT_TIMESTAMP,
-            item_version INTEGER DEFAULT 1,
-            FOREIGN KEY(dep_acc_combo_id) REFERENCES department_accounts(dep_acc_combo_id),
-            PRIMARY KEY (dep_acc_combo_id, period_combo, scenario, ou)
-          )
-        `,
-        args: []
-      });
-
-      await client.execute({
-        sql: `
-          INSERT OR IGNORE INTO financial_data_temp
-          SELECT
-            dep_acc_combo_id,
-            month,
-            year,
-            period_combo,
-            scenario,
-            amount,
-            currency,
-            COALESCE(ou, '') as ou,
-            department,
-            account,
-            version,
-            last_modified,
-            item_version
-          FROM financial_data
-        `,
-        args: []
-      });
-
-      await client.execute({
-        sql: "DROP TABLE financial_data",
-        args: []
-      });
-
-      await client.execute({
-        sql: "ALTER TABLE financial_data_temp RENAME TO financial_data",
-        args: []
-      });
-
-      // Re-enable foreign key checks
-      await client.execute({ sql: "PRAGMA foreign_keys = ON", args: [] });
-
-      console.log("Successfully removed 'count' column from financial_data table");
-    }
-  } catch (error) {
-    console.error("Error during count column removal migration:", error);
-    // Make sure foreign keys are re-enabled even if migration fails
-    try {
-      await client.execute({ sql: "PRAGMA foreign_keys = ON", args: [] });
-    } catch {
-      // Ignore if this fails
-    }
+    return 0;
+  } catch {
+    // Table doesn't exist yet
+    return 0;
   }
 }
 
 /**
- * Migration: Create financial_data_sync_checks table for existing users
- * This table tracks when financial data was last checked for updates per OU
+ * Set the schema version in the database
  */
-async function migrateFinancialDataSyncChecksTable() {
+async function setSchemaVersion(version: number): Promise<void> {
+  await client.execute({
+    sql: `INSERT INTO schema_info (key, value, updated_at)
+          VALUES ('version', ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+    args: [version.toString()]
+  });
+}
+
+/**
+ * Check if a table exists in the database
+ */
+async function tableExists(tableName: string): Promise<boolean> {
+  const result = await client.execute({
+    sql: "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+    args: [tableName]
+  });
+  return result.rows.length > 0;
+}
+
+/**
+ * Check if a column exists in a table
+ */
+async function columnExists(tableName: string, columnName: string): Promise<boolean> {
   try {
     const result = await client.execute({
-      sql: "SELECT name FROM sqlite_master WHERE type='table' AND name='financial_data_sync_checks'",
+      sql: `PRAGMA table_info(${tableName})`,
       args: []
     });
-
-    if (result.rows.length === 0) {
-      await client.execute(`
-        CREATE TABLE IF NOT EXISTS financial_data_sync_checks (
-            ou TEXT PRIMARY KEY,
-            last_check_date TEXT NOT NULL,
-            last_check_timestamp TEXT NOT NULL,
-            check_result TEXT
-        )
-      `);
-      console.log("Created financial_data_sync_checks table");
-    }
-  } catch (error) {
-    console.error("Error during financial_data_sync_checks migration:", error);
+    return result.rows.some(row => row.name === columnName);
+  } catch {
+    return false;
   }
+}
+
+/**
+ * Get the CREATE statement for a table to inspect its structure
+ */
+async function getTableSchema(tableName: string): Promise<string | null> {
+  const result = await client.execute({
+    sql: "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+    args: [tableName]
+  });
+  if (result.rows.length > 0) {
+    return result.rows[0].sql as string;
+  }
+  return null;
+}
+
+// ============================================================================
+// MIGRATIONS - Add new migrations here
+// ============================================================================
+
+const migrations: Migration[] = [
+  {
+    version: 1,
+    name: 'consolidate_to_current_schema',
+    up: async () => {
+      // This migration brings any existing database to the current schema
+      // It handles all legacy cases and preserves existing data
+
+      // --- financial_data table ---
+      if (await tableExists('financial_data')) {
+        const schema = await getTableSchema('financial_data');
+        const needsRebuild = schema && !schema.includes('PRIMARY KEY (dep_acc_combo_id, period_combo, scenario, version, ou)');
+
+        if (needsRebuild) {
+          console.log('[Migration v1] Rebuilding financial_data table with correct schema...');
+
+          await client.execute("PRAGMA foreign_keys = OFF");
+
+          // Create new table with correct schema
+          await client.execute(`
+            CREATE TABLE IF NOT EXISTS financial_data_new (
+              dep_acc_combo_id TEXT NOT NULL,
+              month INTEGER NOT NULL,
+              year INTEGER NOT NULL,
+              period_combo TEXT NOT NULL,
+              scenario TEXT NOT NULL,
+              amount REAL NOT NULL,
+              currency TEXT NOT NULL,
+              ou TEXT NOT NULL DEFAULT '',
+              department TEXT,
+              account TEXT,
+              version TEXT NOT NULL DEFAULT 'MAIN',
+              last_modified TEXT DEFAULT CURRENT_TIMESTAMP,
+              item_version INTEGER DEFAULT 1,
+              FOREIGN KEY(dep_acc_combo_id) REFERENCES department_accounts(dep_acc_combo_id),
+              PRIMARY KEY (dep_acc_combo_id, period_combo, scenario, version, ou)
+            )
+          `);
+
+          // Copy data, handling potential missing/null columns
+          const hasOu = await columnExists('financial_data', 'ou');
+          const hasVersion = await columnExists('financial_data', 'version');
+          const hasDepartment = await columnExists('financial_data', 'department');
+          const hasAccount = await columnExists('financial_data', 'account');
+
+          await client.execute(`
+            INSERT OR IGNORE INTO financial_data_new (
+              dep_acc_combo_id, month, year, period_combo, scenario, amount, currency,
+              ou, department, account, version, last_modified, item_version
+            )
+            SELECT
+              dep_acc_combo_id,
+              month,
+              year,
+              period_combo,
+              scenario,
+              amount,
+              currency,
+              ${hasOu ? "COALESCE(ou, '')" : "''"} as ou,
+              ${hasDepartment ? 'department' : 'NULL'} as department,
+              ${hasAccount ? 'account' : 'NULL'} as account,
+              ${hasVersion ? "COALESCE(version, 'MAIN')" : "'MAIN'"} as version,
+              last_modified,
+              item_version
+            FROM financial_data
+          `);
+
+          await client.execute("DROP TABLE financial_data");
+          await client.execute("ALTER TABLE financial_data_new RENAME TO financial_data");
+          await client.execute("PRAGMA foreign_keys = ON");
+
+          console.log('[Migration v1] financial_data table rebuilt successfully');
+        }
+      }
+
+      // --- financial_data_staging table ---
+      if (await tableExists('financial_data_staging')) {
+        // Check for count column (should be removed) or missing columns
+        const hasCount = await columnExists('financial_data_staging', 'count');
+        const hasSourceAccount = await columnExists('financial_data_staging', 'source_account');
+        const hasIsValidCombo = await columnExists('financial_data_staging', 'is_valid_combo');
+
+        if (hasCount || !hasSourceAccount || !hasIsValidCombo) {
+          console.log('[Migration v1] Rebuilding financial_data_staging table...');
+
+          await client.execute(`
+            CREATE TABLE IF NOT EXISTS financial_data_staging_new (
+              dep_acc_combo_id TEXT NOT NULL,
+              month INTEGER NOT NULL,
+              year INTEGER NOT NULL,
+              period_combo TEXT NOT NULL,
+              scenario TEXT NOT NULL,
+              amount REAL NOT NULL,
+              currency TEXT NOT NULL,
+              ou TEXT,
+              department TEXT,
+              account TEXT,
+              version TEXT DEFAULT 'MAIN',
+              source_account TEXT,
+              source_department TEXT,
+              source_description TEXT,
+              mapping_status TEXT,
+              import_batch_id TEXT,
+              last_modified TEXT DEFAULT CURRENT_TIMESTAMP,
+              item_version INTEGER DEFAULT 1,
+              is_valid_combo INTEGER DEFAULT 1
+            )
+          `);
+
+          // Build column list based on what exists
+          const cols = ['dep_acc_combo_id', 'month', 'year', 'period_combo', 'scenario', 'amount', 'currency', 'ou', 'department', 'account', 'version'];
+          if (hasSourceAccount) cols.push('source_account', 'source_department', 'source_description', 'mapping_status');
+          cols.push('import_batch_id', 'last_modified', 'item_version');
+          if (hasIsValidCombo) cols.push('is_valid_combo');
+
+          const selectCols = cols.join(', ');
+          const insertCols = hasIsValidCombo ? selectCols : selectCols + ', is_valid_combo';
+          const selectExpr = hasIsValidCombo ? selectCols : selectCols + ', 1';
+
+          await client.execute(`INSERT INTO financial_data_staging_new (${insertCols}) SELECT ${selectExpr} FROM financial_data_staging`);
+          await client.execute("DROP TABLE financial_data_staging");
+          await client.execute("ALTER TABLE financial_data_staging_new RENAME TO financial_data_staging");
+
+          console.log('[Migration v1] financial_data_staging table rebuilt successfully');
+        }
+      }
+
+      // --- hotels_cache table - add missing columns ---
+      if (await tableExists('hotels_cache')) {
+        const missingCols = [];
+        for (const col of ['currency', 'country', 'city', 'local_id_1', 'local_id_2', 'local_id_3']) {
+          if (!(await columnExists('hotels_cache', col))) {
+            missingCols.push(col);
+          }
+        }
+        if (missingCols.length > 0) {
+          console.log(`[Migration v1] Adding columns to hotels_cache: ${missingCols.join(', ')}`);
+          for (const col of missingCols) {
+            await client.execute({ sql: `ALTER TABLE hotels_cache ADD COLUMN ${col} TEXT`, args: [] });
+          }
+        }
+      }
+
+      // --- account_maps table - add missing column ---
+      if (await tableExists('account_maps')) {
+        if (!(await columnExists('account_maps', 'account_description_detail_level_max'))) {
+          console.log('[Migration v1] Adding account_description_detail_level_max to account_maps');
+          await client.execute({ sql: `ALTER TABLE account_maps ADD COLUMN account_description_detail_level_max TEXT`, args: [] });
+        }
+      }
+
+      // --- department_maps table - add missing column ---
+      if (await tableExists('department_maps')) {
+        if (!(await columnExists('department_maps', 'department_description_detail_level_max'))) {
+          console.log('[Migration v1] Adding department_description_detail_level_max to department_maps');
+          await client.execute({ sql: `ALTER TABLE department_maps ADD COLUMN department_description_detail_level_max TEXT`, args: [] });
+        }
+      }
+
+      // --- mappings table - add approval workflow columns ---
+      if (await tableExists('mappings')) {
+        if (!(await columnExists('mappings', 'approval_status'))) {
+          console.log('[Migration v1] Adding approval workflow columns to mappings');
+          await client.execute({ sql: `ALTER TABLE mappings ADD COLUMN approval_status TEXT NOT NULL DEFAULT 'APPROVED'`, args: [] });
+          await client.execute({ sql: `ALTER TABLE mappings ADD COLUMN approved_by TEXT`, args: [] });
+          await client.execute({ sql: `ALTER TABLE mappings ADD COLUMN approved_at TEXT`, args: [] });
+        }
+      }
+
+      console.log('[Migration v1] Schema consolidation complete');
+    }
+  },
+
+  // ============================================================================
+  // ADD NEW MIGRATIONS BELOW - Example:
+  // ============================================================================
+  // {
+  //   version: 2,
+  //   name: 'add_new_feature_table',
+  //   up: async () => {
+  //     await client.execute(`CREATE TABLE IF NOT EXISTS new_feature (...)`);
+  //   }
+  // },
+];
+
+/**
+ * Run all pending migrations
+ */
+async function runMigrations(): Promise<void> {
+  const currentVersion = await getSchemaVersion();
+  const pendingMigrations = migrations.filter(m => m.version > currentVersion);
+
+  if (pendingMigrations.length === 0) {
+    // console.log(`Database schema is up to date (v${currentVersion})`);
+    return;
+  }
+
+  console.log(`Running ${pendingMigrations.length} migration(s) from v${currentVersion} to v${CURRENT_SCHEMA_VERSION}...`);
+
+  for (const migration of pendingMigrations.sort((a, b) => a.version - b.version)) {
+    console.log(`Running migration v${migration.version}: ${migration.name}`);
+    try {
+      await migration.up();
+      await setSchemaVersion(migration.version);
+      console.log(`Migration v${migration.version} completed successfully`);
+    } catch (error) {
+      console.error(`Migration v${migration.version} failed:`, error);
+      throw error; // Stop on failure
+    }
+  }
+
+  console.log(`All migrations completed. Database is now at v${CURRENT_SCHEMA_VERSION}`);
 }
 
 //------------------------------------------------------------------------------------------------------------------
@@ -832,6 +620,13 @@ export async function initializeDatabase() {
 
     // Create necessary tables
     await client.batch([
+      `
+        CREATE TABLE IF NOT EXISTS schema_info (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        `,
       `
         CREATE TABLE IF NOT EXISTS user_settings (
             key TEXT PRIMARY KEY,
@@ -946,16 +741,15 @@ export async function initializeDatabase() {
             period_combo TEXT NOT NULL,
             scenario TEXT NOT NULL,
             amount REAL NOT NULL,
-            count REAL,
             currency TEXT NOT NULL,
             ou TEXT NOT NULL,
             department TEXT,
             account TEXT,
-            version TEXT,
+            version TEXT NOT NULL DEFAULT 'MAIN',
             last_modified TEXT DEFAULT CURRENT_TIMESTAMP,
             item_version INTEGER DEFAULT 1,
             FOREIGN KEY(dep_acc_combo_id) REFERENCES department_accounts(dep_acc_combo_id),
-            PRIMARY KEY (dep_acc_combo_id, period_combo, scenario, ou)
+            PRIMARY KEY (dep_acc_combo_id, period_combo, scenario, version, ou)
         )
         `,
       `
@@ -970,7 +764,7 @@ export async function initializeDatabase() {
             ou TEXT,
             department TEXT,
             account TEXT,
-            version TEXT,
+            version TEXT DEFAULT 'MAIN',
             source_account TEXT,
             source_department TEXT,
             source_description TEXT,
@@ -1211,17 +1005,17 @@ export async function initializeDatabase() {
         `,
     ]);
 
-    // console.log("All necessary tables have been created or already exist.");
-    // Run migration to add new columns to existing databases
-    await migrateFinancialDataTable();
-    await migrateFinancialDataPrimaryKey(); // Must run after migrateFinancialDataTable to ensure columns exist
-    await migrateHotelsCacheTable();
-    await migrateFinancialDataStagingTable();
-    await migrateAccountMapsTable();
-    await migrateDepartmentMapsTable();
-    await migrateMappingsTable(); // Add approval workflow columns to existing mappings table
-    await migrateRemoveCountColumn(); // Remove deprecated 'count' column - stats use amount column now
-    await migrateFinancialDataSyncChecksTable(); // Add table for tracking daily financial data sync checks
+    // Run migrations for existing databases
+    // Fresh installs: tables created with correct schema, migrations detect no changes needed
+    // Existing installs: migrations bring schema up to date
+    await runMigrations();
+
+    // Mark fresh databases as current version (no migrations needed)
+    const currentVersion = await getSchemaVersion();
+    if (currentVersion === 0) {
+      await setSchemaVersion(CURRENT_SCHEMA_VERSION);
+      console.log(`Fresh database initialized at schema v${CURRENT_SCHEMA_VERSION}`);
+    }
   } catch (error) {
     console.error("Error during database initialization:", error);
   }
@@ -1356,14 +1150,13 @@ export async function update12Periods(...args: unknown[]): Promise<string> {
 
   const upsertQuery = `
       INSERT INTO financial_data (
-        dep_acc_combo_id, month, year, period_combo, scenario, amount, count, currency,
+        dep_acc_combo_id, month, year, period_combo, scenario, amount, currency,
         ou, department, account, version, last_modified, item_version
-      ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'USD', ?, ?, ?, ?, CURRENT_TIMESTAMP, 1)
-      ON CONFLICT (dep_acc_combo_id, period_combo, scenario, ou) DO UPDATE SET
+      ) VALUES (?, ?, ?, ?, ?, ?, 'USD', ?, ?, ?, ?, CURRENT_TIMESTAMP, 1)
+      ON CONFLICT (dep_acc_combo_id, period_combo, scenario, version, ou) DO UPDATE SET
         amount = excluded.amount,
         department = excluded.department,
         account = excluded.account,
-        version = excluded.version,
         last_modified = CURRENT_TIMESTAMP,
         item_version = financial_data.item_version + 1;
     `;
@@ -1416,7 +1209,8 @@ export async function update12Periods(...args: unknown[]): Promise<string> {
 // Returns data with account and department mapping levels included
 export async function getFinancialReportData(
   startPeriod: string,
-  ou?: string
+  ou?: string,
+  version: string = 'MAIN'
 ): Promise<string> {
   const periodRegex = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -1445,7 +1239,7 @@ export async function getFinancialReportData(
           AND fds.period_combo = ?
           AND fds.scenario = 'ACT'
         WHERE fd.scenario = 'ACT'
-          AND fd.version = 'MAIN'
+          AND fd.version = ?
           AND fd.period_combo IN (${periods.map(() => '?').join(', ')})
           ${ou ? 'AND fd.ou = ?' : ''}
 
@@ -1481,7 +1275,7 @@ export async function getFinancialReportData(
           AND fds.period_combo = ?
           AND fds.scenario = 'BUD'
         WHERE fd.scenario = 'BUD'
-          AND fd.version = 'MAIN'
+          AND fd.version = ?
           AND fd.period_combo IN (${periods.map(() => '?').join(', ')})
           ${ou ? 'AND fd.ou = ?' : ''}
 
@@ -1542,13 +1336,14 @@ export async function getFinancialReportData(
     `;
 
     // Build params array
-    // Order: latestPeriod, periods for ACT WHERE, ou?, periods for ACT UNION, ou?,
-    //        latestPeriod, periods for BUD WHERE, ou?, periods for BUD UNION, ou?,
+    // Order: latestPeriod, version, periods for ACT WHERE, ou?, periods for ACT UNION, ou?,
+    //        latestPeriod, version, periods for BUD WHERE, ou?, periods for BUD UNION, ou?,
     //        periods for actuals CASE, periods for budget CASE
     const params: any[] = [];
 
     // combined_actuals CTE params
     params.push(latestPeriod);           // LEFT JOIN condition
+    params.push(version);                 // version filter
     params.push(...periods);              // WHERE clause
     if (ou) params.push(ou);
     params.push(...periods);              // UNION ALL WHERE clause
@@ -1556,6 +1351,7 @@ export async function getFinancialReportData(
 
     // combined_budget CTE params
     params.push(latestPeriod);           // LEFT JOIN condition
+    params.push(version);                 // version filter
     params.push(...periods);              // WHERE clause
     if (ou) params.push(ou);
     params.push(...periods);              // UNION ALL WHERE clause
@@ -1605,7 +1401,8 @@ export async function getSummaryPLData(
   startYear: number,
   endMonth: number,
   endYear: number,
-  ou?: string
+  ou?: string,
+  version: string = 'MAIN'
 ): Promise<string> {
   try {
     const {
@@ -1619,9 +1416,9 @@ export async function getSummaryPLData(
     const periods = generatePeriods(periodRange);
     const lyPeriods = generateLYPeriods(periods);
 
-    const actualsQuery = buildScenarioQuery('ACT', periods, ou);
-    const budgetQuery = buildScenarioQuery('BUD', periods, ou);
-    const lyQuery = buildScenarioQuery('ACT', lyPeriods, ou);
+    const actualsQuery = buildScenarioQuery('ACT', periods, ou, version);
+    const budgetQuery = buildScenarioQuery('BUD', periods, ou, version);
+    const lyQuery = buildScenarioQuery('ACT', lyPeriods, ou, version);
 
     const [actualsResult, budgetResult, lyResult] = await Promise.all([
       client.execute({ sql: actualsQuery.sql, args: actualsQuery.params }),
@@ -1649,7 +1446,8 @@ export async function getF90PLData(
   startYear: number,
   endMonth: number,
   endYear: number,
-  ou?: string
+  ou?: string,
+  version: string = 'MAIN'
 ): Promise<string> {
   try {
     const {
@@ -1663,9 +1461,9 @@ export async function getF90PLData(
     const periods = generatePeriods(periodRange);
     const lyPeriods = generateLYPeriods(periods);
 
-    const actualsQuery = buildScenarioQuery('ACT', periods, ou);
-    const budgetQuery = buildScenarioQuery('BUD', periods, ou);
-    const lyQuery = buildScenarioQuery('ACT', lyPeriods, ou);
+    const actualsQuery = buildScenarioQuery('ACT', periods, ou, version);
+    const budgetQuery = buildScenarioQuery('BUD', periods, ou, version);
+    const lyQuery = buildScenarioQuery('ACT', lyPeriods, ou, version);
 
     const [actualsResult, budgetResult, lyResult] = await Promise.all([
       client.execute({ sql: actualsQuery.sql, args: actualsQuery.params }),
@@ -1688,7 +1486,7 @@ export async function getF90PLData(
 
 //------------------------------------------------------------------------------------------------------------------
 //--- GET STAGING VS BUDGET DATA TABLE ---------------------------------------------------------------------------------
-export async function getStagingVsBudgetData(ou?: string): Promise<string> {
+export async function getStagingVsBudgetData(ou?: string, version: string = 'MAIN'): Promise<string> {
   try {
     // First, detect the period from staging table
     const periodQuery = `
@@ -1727,7 +1525,7 @@ export async function getStagingVsBudgetData(ou?: string): Promise<string> {
           SUM(fd.amount) AS budget_amount
         FROM financial_data fd
         WHERE fd.scenario = 'BUD'
-          AND fd.version = 'MAIN'
+          AND fd.version = ?
           AND fd.period_combo = ?
           ${ou ? 'AND fd.ou = ?' : ''}
         GROUP BY fd.dep_acc_combo_id
@@ -1755,7 +1553,7 @@ export async function getStagingVsBudgetData(ou?: string): Promise<string> {
     `;
 
     // Build params array
-    const budgetParams = ou ? [period, ou] : [period];
+    const budgetParams = ou ? [version, period, ou] : [version, period];
     const params = ou ? [ou, ...budgetParams] : budgetParams;
 
     const resultSet = await client.execute({ sql: query, args: params });
@@ -2266,10 +2064,20 @@ export async function getPermanentSalt(): Promise<string> {
     });
 
     if (result.rows.length > 0) {
-      const salt = result.rows[0].value as string;
+      let salt = result.rows[0].value as string;
       // ALWAYS return existing salt, even if it appears invalid
       // Changing the salt would break device authentication
       if (salt) {
+        // Handle case where salt was stored JSON-stringified (with quotes)
+        // This ensures consistency regardless of how it was stored
+        try {
+          const parsed = JSON.parse(salt);
+          if (typeof parsed === 'string') {
+            salt = parsed;
+          }
+        } catch {
+          // Not JSON, use as-is
+        }
         return salt;
       }
     }
@@ -4949,20 +4757,22 @@ export async function storeFinancialData(ou: string, records: any[]) {
       const dep_acc_combo_id = `${record.department}_${record.account}`;
 
       // Insert query with ON CONFLICT to handle duplicate records in the incoming data
+      // Use load_date from API if provided, otherwise fall back to current timestamp
+      const lastModified = record.load_date || new Date().toISOString();
+
       const insertQuery = `
         INSERT INTO financial_data (
           dep_acc_combo_id, month, year, period_combo, scenario,
           amount, currency, ou, department, account, version, last_modified
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT (dep_acc_combo_id, period_combo, scenario, ou) DO UPDATE SET
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (dep_acc_combo_id, period_combo, scenario, version, ou) DO UPDATE SET
           amount = excluded.amount,
           currency = excluded.currency,
           month = excluded.month,
           year = excluded.year,
           department = excluded.department,
           account = excluded.account,
-          version = excluded.version,
-          last_modified = CURRENT_TIMESTAMP
+          last_modified = excluded.last_modified
       `;
 
       batchQueries.push({
@@ -4978,7 +4788,8 @@ export async function storeFinancialData(ou: string, records: any[]) {
           ou,
           record.department,
           record.account,
-          record.version
+          record.version,
+          lastModified
         ]
       });
     }
@@ -5106,20 +4917,22 @@ export async function storeFinancialDataForPeriods(
       const month = parseInt(monthStr);
       const dep_acc_combo_id = `${record.department}_${record.account}`;
 
+      // Use load_date from API if provided, otherwise fall back to current timestamp
+      const lastModified = record.load_date || new Date().toISOString();
+
       const insertQuery = `
         INSERT INTO financial_data (
           dep_acc_combo_id, month, year, period_combo, scenario,
           amount, currency, ou, department, account, version, last_modified
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT (dep_acc_combo_id, period_combo, scenario, ou) DO UPDATE SET
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (dep_acc_combo_id, period_combo, scenario, version, ou) DO UPDATE SET
           amount = excluded.amount,
           currency = excluded.currency,
           month = excluded.month,
           year = excluded.year,
           department = excluded.department,
           account = excluded.account,
-          version = excluded.version,
-          last_modified = CURRENT_TIMESTAMP
+          last_modified = excluded.last_modified
       `;
 
       batchQueries.push({
@@ -5135,7 +4948,8 @@ export async function storeFinancialDataForPeriods(
           ou,
           record.department,
           record.account,
-          record.version
+          record.version,
+          lastModified
         ]
       });
     }
@@ -5373,6 +5187,28 @@ export async function getFinancialDataLastCheckDate(ou: string): Promise<string 
 }
 
 /**
+ * Get the last check timestamp for an OU (full ISO timestamp)
+ * Used for cooldown enforcement
+ */
+export async function getFinancialDataLastCheckTimestamp(ou: string): Promise<string | null> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT last_check_timestamp FROM financial_data_sync_checks WHERE ou = ?",
+      args: [ou]
+    });
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return result.rows[0].last_check_timestamp as string;
+  } catch (error) {
+    console.error(`Error getting financial data last check timestamp for OU ${ou}:`, error);
+    return null;
+  }
+}
+
+/**
  * Record a successful financial data sync check
  * @param ou The organizational unit
  * @param checkDate The date of the check (YYYY-MM-DD)
@@ -5399,6 +5235,494 @@ export async function setFinancialDataSyncCheck(
     });
   } catch (error) {
     console.error(`Error setting financial data sync check for OU ${ou}:`, error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
+//--- EXCEL EXPORT QUERIES ----------------------------------------------------------------------------------------
+
+/**
+ * Get list of departments that have financial data for a specific OU
+ * Captures departments across all scenarios (ACT, BUD) for the selected version
+ * Also checks financial_data_staging for current period actuals
+ * Only includes departments where level_2 = 'Lodging Operations'
+ * Uses department_description_detail_level_max for the display name
+ * Departments with no data rows are automatically excluded (JOIN behavior)
+ */
+export async function getDepartmentsWithDataForOU(
+  ou: string,
+  version: string = 'MAIN'
+): Promise<Array<{ baseDepartment: string; departmentName: string }>> {
+  try {
+    const query = `
+      SELECT DISTINCT
+        dm.base_department,
+        dm.department_description_detail_level_max as department_name
+      FROM financial_data fd
+      JOIN department_maps dm ON fd.department = dm.base_department
+      WHERE fd.ou = ?
+        AND fd.version = ?
+        AND fd.scenario IN ('ACT', 'BUD')
+        AND dm.level_2 = 'Lodging Operations'
+      UNION
+      SELECT DISTINCT
+        dm.base_department,
+        dm.department_description_detail_level_max as department_name
+      FROM financial_data_staging fds
+      JOIN department_maps dm ON fds.department = dm.base_department
+      WHERE fds.ou = ?
+        AND fds.scenario IN ('ACT', 'BUD')
+        AND dm.level_2 = 'Lodging Operations'
+      ORDER BY department_name
+    `;
+
+    const result = await client.execute({ sql: query, args: [ou, version, ou] });
+
+    return result.rows.map(row => ({
+      baseDepartment: row.base_department as string,
+      departmentName: row.department_name as string || row.base_department as string
+    }));
+  } catch (error) {
+    console.error(`Error getting departments with data for OU ${ou}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Interface for department detail row data
+ */
+export interface DepartmentDetailRow {
+  account: string;
+  accountName: string;
+  category: string;
+  actuals: number;
+  budget: number;
+  vsBud: number;
+  ly: number;
+  vsLy: number;
+}
+
+/**
+ * Get account-level detail data for a specific department for Excel export
+ * Groups accounts by category using account_maps levels
+ */
+export async function getDepartmentDetailData(
+  ou: string,
+  department: string,
+  startMonth: number,
+  startYear: number,
+  endMonth: number,
+  endYear: number,
+  version: string = 'MAIN'
+): Promise<DepartmentDetailRow[]> {
+  try {
+    const {
+      generatePeriods,
+      generateLYPeriods
+    } = await import('./services/reports/plCalculationEngine');
+
+    const periodRange = { startMonth, startYear, endMonth, endYear };
+    const periods = generatePeriods(periodRange);
+    const lyPeriods = generateLYPeriods(periods);
+    const latestStagingPeriod = periods[periods.length - 1];
+
+    // Build periods placeholders
+    const periodPlaceholders = periods.map(() => '?').join(', ');
+    const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
+
+    const query = `
+      WITH combined_actuals AS (
+        SELECT
+          COALESCE(fds.account, fd.account) AS account,
+          SUM(COALESCE(
+            CASE WHEN fds.period_combo = ? THEN fds.amount ELSE NULL END,
+            fd.amount
+          )) AS amount
+        FROM financial_data fd
+        LEFT JOIN financial_data_staging fds
+          ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
+          AND fd.period_combo = fds.period_combo
+          AND fds.scenario = 'ACT'
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department = ?
+          AND fd.period_combo IN (${periodPlaceholders})
+        GROUP BY COALESCE(fds.account, fd.account)
+        UNION ALL
+        SELECT
+          fds.account,
+          SUM(fds.amount) AS amount
+        FROM financial_data_staging fds
+        LEFT JOIN financial_data fd
+          ON fds.dep_acc_combo_id = fd.dep_acc_combo_id
+          AND fds.period_combo = fd.period_combo
+          AND fd.scenario = 'ACT'
+          AND fd.version = ?
+        WHERE fds.scenario = 'ACT'
+          AND fds.ou = ?
+          AND fds.department = ?
+          AND fd.dep_acc_combo_id IS NULL
+        GROUP BY fds.account
+      ),
+      actuals_totals AS (
+        SELECT account, SUM(amount) AS actuals FROM combined_actuals GROUP BY account
+      ),
+      budget_totals AS (
+        SELECT
+          fd.account,
+          SUM(fd.amount) AS budget
+        FROM financial_data fd
+        WHERE fd.scenario = 'BUD'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department = ?
+          AND fd.period_combo IN (${periodPlaceholders})
+        GROUP BY fd.account
+      ),
+      ly_totals AS (
+        SELECT
+          fd.account,
+          SUM(fd.amount) AS ly
+        FROM financial_data fd
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department = ?
+          AND fd.period_combo IN (${lyPeriodPlaceholders})
+        GROUP BY fd.account
+      )
+      SELECT
+        COALESCE(a.account, b.account, l.account) AS account,
+        am.account_description_detail_level_max AS account_name,
+        CASE
+          WHEN am.level_6 = 'Revenue' THEN 'Revenue'
+          WHEN am.level_9 = 'Cost Of Sales' THEN 'Cost of Sales'
+          WHEN am.level_9 = 'Total Payroll' THEN 'Payroll'
+          WHEN am.level_1 = 'STAT' OR am.base_account LIKE 'A9%' THEN 'Stats'
+          WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 'Controllables'
+          ELSE 'Other'
+        END AS category,
+        COALESCE(a.actuals, 0) AS actuals,
+        COALESCE(b.budget, 0) AS budget,
+        COALESCE(a.actuals, 0) - COALESCE(b.budget, 0) AS vs_bud,
+        COALESCE(l.ly, 0) AS ly,
+        COALESCE(a.actuals, 0) - COALESCE(l.ly, 0) AS vs_ly
+      FROM actuals_totals a
+      FULL OUTER JOIN budget_totals b ON a.account = b.account
+      FULL OUTER JOIN ly_totals l ON COALESCE(a.account, b.account) = l.account
+      LEFT JOIN account_maps am ON COALESCE(a.account, b.account, l.account) = am.base_account
+      WHERE COALESCE(a.account, b.account, l.account) IS NOT NULL
+      ORDER BY
+        CASE
+          WHEN am.level_6 = 'Revenue' THEN 1
+          WHEN am.level_9 = 'Cost Of Sales' THEN 2
+          WHEN am.level_9 = 'Total Payroll' THEN 3
+          WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 4
+          WHEN am.level_1 = 'STAT' OR am.base_account LIKE 'A9%' THEN 6
+          ELSE 5
+        END,
+        am.base_account
+    `;
+
+    // Build params array in order they appear in the query
+    const params: any[] = [
+      latestStagingPeriod,  // For COALESCE staging check
+      ou, version, department, // First combined_actuals WHERE
+      ...periods,  // First IN clause
+      version,     // For LEFT JOIN check
+      ou, department,  // Second combined_actuals (staging-only)
+      ou, version, department,  // budget_totals
+      ...periods,  // Budget periods
+      ou, version, department,  // ly_totals
+      ...lyPeriods  // LY periods
+    ];
+
+    const result = await client.execute({ sql: query, args: params });
+
+    return result.rows.map(row => ({
+      account: row.account as string,
+      accountName: (row.account_name as string) || (row.account as string),
+      category: row.category as string,
+      actuals: Number(row.actuals) || 0,
+      budget: Number(row.budget) || 0,
+      vsBud: Number(row.vs_bud) || 0,
+      ly: Number(row.ly) || 0,
+      vsLy: Number(row.vs_ly) || 0
+    }));
+  } catch (error) {
+    console.error(`Error getting department detail data for ${department}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Interface for room segment export row
+ */
+export interface RoomSegmentExportRow {
+  description: string;
+  category: string;
+  revenueActuals: number;
+  revenueBudget: number;
+  revenueLy: number;
+  nightsActuals: number;
+  nightsBudget: number;
+  nightsLy: number;
+}
+
+/**
+ * Get room segment data for Excel export
+ * Uses the SEGMENTS_CONFIG account mappings
+ */
+export async function getRoomSegmentExportData(
+  ou: string,
+  startMonth: number,
+  startYear: number,
+  endMonth: number,
+  endYear: number,
+  version: string = 'MAIN'
+): Promise<RoomSegmentExportRow[]> {
+  try {
+    const {
+      generatePeriods,
+      generateLYPeriods
+    } = await import('./services/reports/plCalculationEngine');
+
+    const periodRange = { startMonth, startYear, endMonth, endYear };
+    const periods = generatePeriods(periodRange);
+    const lyPeriods = generateLYPeriods(periods);
+    const latestStagingPeriod = periods[periods.length - 1];
+
+    // Room segment account configurations
+    const SEGMENTS_CONFIG = [
+      { revenueAccount: "A361010", statAccount: "A961010", description: "Premium Retail Sun-Thur", category: "Sun-Thur" },
+      { revenueAccount: "A361011", statAccount: "A961011", description: "Regular Sun-Thur", category: "Sun-Thur" },
+      { revenueAccount: "A361012", statAccount: "A961012", description: "Standard Retail Sun-Thur", category: "Sun-Thur" },
+      { revenueAccount: "A361013", statAccount: "A961013", description: "Spec Corp Sun-Thur", category: "Sun-Thur" },
+      { revenueAccount: "A361014", statAccount: "A961014", description: "Stay For Breakfast Sun-Thurs", category: "Sun-Thur" },
+      { revenueAccount: "A361015", statAccount: "A961015", description: "Oth Disc Sun-Thur", category: "Sun-Thur" },
+      { revenueAccount: "A361016", statAccount: "A961016", description: "Adv Purch Sun-Thu", category: "Sun-Thur" },
+      { revenueAccount: "A361017", statAccount: "A961017", description: "Wholesalr Sun-Thu", category: "Sun-Thur" },
+      { revenueAccount: "A361018", statAccount: "A961018", description: "Packages Sun-Thu", category: "Sun-Thur" },
+      { revenueAccount: "A361019", statAccount: "A961019", description: "Leisure Sun-Thu", category: "Sun-Thur" },
+      { revenueAccount: "A361020", statAccount: "A961020", description: "Weekend Sun-Thu", category: "Sun-Thur" },
+      { revenueAccount: "A361021", statAccount: "A961021", description: "Aaa Sun-Thurs", category: "Sun-Thur" },
+      { revenueAccount: "A361026", statAccount: "A961026", description: "Govt / Military Sun-Thur", category: "Sun-Thur" },
+      { revenueAccount: "A361027", statAccount: "A961027", description: "Senior Discount Sun-Thurs", category: "Sun-Thur" },
+      { revenueAccount: "A361028", statAccount: "A961028", description: "Travel Industry Sun-Thu", category: "Sun-Thur" },
+      { revenueAccount: "A361029", statAccount: "A961029", description: "Associate Leisure Sun-Thur", category: "Sun-Thur" },
+      { revenueAccount: "A361030", statAccount: "A961030", description: "Echannel Retail Sun-Thur", category: "Sun-Thur" },
+      { revenueAccount: "A361031", statAccount: "A961031", description: "Reward Redem/Upgrades Sun-Thur", category: "Sun-Thur" },
+      { revenueAccount: "A361032", statAccount: "A961032", description: "Natl Rooms Rev Sun-Thur", category: "Sun-Thur" },
+      { revenueAccount: "A361033", statAccount: "A961033", description: "Volume Rms Rev Sun Thurs", category: "Sun-Thur" },
+      { revenueAccount: "A361318", statAccount: "A961318", description: "Contract Sun-Thur", category: "Sun-Thur" },
+      { revenueAccount: "A361334", statAccount: "A961334", description: "Corp Grp Sun-Thur", category: "Groups" },
+      { revenueAccount: "A361335", statAccount: "A961335", description: "Assoc Grp Sun-Thur", category: "Groups" },
+      { revenueAccount: "A361336", statAccount: "A961336", description: "Other Grp Sun-Thur", category: "Groups" },
+      { revenueAccount: "A361337", statAccount: "A961337", description: "Tour Wholesale Grp Sun Thur", category: "Groups" },
+      { revenueAccount: "A361338", statAccount: "A961338", description: "Government Grp Sun Thurs", category: "Groups" },
+      { revenueAccount: "A361510", statAccount: "A961510", description: "Premium Retail Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361511", statAccount: "A961511", description: "Regular Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361512", statAccount: "A961512", description: "Standard Retail Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361513", statAccount: "A961513", description: "Spec Corp Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361514", statAccount: "A961514", description: "Stay For Breakfast Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361515", statAccount: "A961515", description: "Oth Disc Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361516", statAccount: "A961516", description: "Adv Purch Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361517", statAccount: "A961517", description: "Wholesaler Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361518", statAccount: "A961518", description: "Packages Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361519", statAccount: "A961519", description: "Leisure Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361520", statAccount: "A961520", description: "Weekend Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361521", statAccount: "A961521", description: "Aaa Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361526", statAccount: "A961526", description: "Govt / Military Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361527", statAccount: "A961527", description: "Senior Discount Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361528", statAccount: "A961528", description: "Travel Industry Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361529", statAccount: "A961529", description: "Associate Leisure Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361530", statAccount: "A961530", description: "Echannel Retail Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361531", statAccount: "A961531", description: "Reward Redem/Upgrades Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361533", statAccount: "A961533", description: "Volume Rms Rev Fri Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361601", statAccount: "A961601", description: "Assoc CMP Sun-Thu", category: "Complimentary" },
+      { revenueAccount: "A361602", statAccount: "A961602", description: "Assoc CMP Fri-Sat", category: "Complimentary" },
+      { revenueAccount: "A361603", statAccount: "A961603", description: "Corp CMP Sun-Thu", category: "Complimentary" },
+      { revenueAccount: "A361604", statAccount: "A961604", description: "Corp CMP Fri-Sat", category: "Complimentary" },
+      { revenueAccount: "A361607", statAccount: "A961607", description: "Other CMP Sun-Thu", category: "Complimentary" },
+      { revenueAccount: "A361608", statAccount: "A961608", description: "Other Cmp Fri-Sat", category: "Complimentary" },
+      { revenueAccount: "A361734", statAccount: "A961734", description: "Corp Grp Fri-Sat", category: "Groups" },
+      { revenueAccount: "A361735", statAccount: "A961735", description: "Assoc Grp Fri-Sat", category: "Groups" },
+      { revenueAccount: "A361736", statAccount: "A961736", description: "Other Grp Fri-Sat", category: "Groups" },
+      { revenueAccount: "A361737", statAccount: "A961737", description: "Tour Wholesales Grp Fri Sat", category: "Groups" },
+      { revenueAccount: "A361738", statAccount: "A961738", description: "Government Grp Fri Sat", category: "Groups" },
+      { revenueAccount: "A361818", statAccount: "A961818", description: "Contract Fri-Sat", category: "Fri-Sat" },
+      { revenueAccount: "A361532", statAccount: "A961532", description: "Natl Rooms Rev Fri-Sat", category: "Fri-Sat" },
+    ];
+
+    // Get all unique accounts we need
+    const revenueAccounts = SEGMENTS_CONFIG.map(s => s.revenueAccount);
+    const statAccounts = SEGMENTS_CONFIG.filter(s => s.statAccount).map(s => s.statAccount);
+    const allAccounts = [...revenueAccounts, ...statAccounts];
+
+    const accountPlaceholders = allAccounts.map(() => '?').join(', ');
+    const periodPlaceholders = periods.map(() => '?').join(', ');
+    const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
+
+    // Query for actuals (with staging overlay), budget, and LY
+    const query = `
+      WITH actuals AS (
+        SELECT
+          COALESCE(fds.account, fd.account) AS account,
+          SUM(COALESCE(
+            CASE WHEN fds.period_combo = ? THEN fds.amount ELSE NULL END,
+            fd.amount
+          )) AS amount
+        FROM financial_data fd
+        LEFT JOIN financial_data_staging fds
+          ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
+          AND fd.period_combo = fds.period_combo
+          AND fds.scenario = 'ACT'
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.account IN (${accountPlaceholders})
+          AND fd.period_combo IN (${periodPlaceholders})
+        GROUP BY COALESCE(fds.account, fd.account)
+      ),
+      budget AS (
+        SELECT account, SUM(amount) AS amount
+        FROM financial_data
+        WHERE scenario = 'BUD'
+          AND ou = ?
+          AND version = ?
+          AND account IN (${accountPlaceholders})
+          AND period_combo IN (${periodPlaceholders})
+        GROUP BY account
+      ),
+      ly AS (
+        SELECT account, SUM(amount) AS amount
+        FROM financial_data
+        WHERE scenario = 'ACT'
+          AND ou = ?
+          AND version = ?
+          AND account IN (${accountPlaceholders})
+          AND period_combo IN (${lyPeriodPlaceholders})
+        GROUP BY account
+      )
+      SELECT
+        a.account,
+        COALESCE(act.amount, 0) AS actuals,
+        COALESCE(bud.amount, 0) AS budget,
+        COALESCE(l.amount, 0) AS ly
+      FROM (SELECT ? AS account) a
+      LEFT JOIN actuals act ON a.account = act.account
+      LEFT JOIN budget bud ON a.account = bud.account
+      LEFT JOIN ly l ON a.account = l.account
+    `;
+
+    // We need to query each account individually to map them properly
+    const results: RoomSegmentExportRow[] = [];
+
+    for (const segment of SEGMENTS_CONFIG) {
+      const revenueParams = [
+        latestStagingPeriod,
+        ou, version,
+        segment.revenueAccount,
+        ...periods,
+        ou, version,
+        segment.revenueAccount,
+        ...periods,
+        ou, version,
+        segment.revenueAccount,
+        ...lyPeriods,
+        segment.revenueAccount
+      ];
+
+      const revenueQuery = `
+        WITH actuals AS (
+          SELECT
+            COALESCE(fds.account, fd.account) AS account,
+            SUM(COALESCE(
+              CASE WHEN fds.period_combo = ? THEN fds.amount ELSE NULL END,
+              fd.amount
+            )) AS amount
+          FROM financial_data fd
+          LEFT JOIN financial_data_staging fds
+            ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
+            AND fd.period_combo = fds.period_combo
+            AND fds.scenario = 'ACT'
+          WHERE fd.scenario = 'ACT'
+            AND fd.ou = ?
+            AND fd.version = ?
+            AND fd.account = ?
+            AND fd.period_combo IN (${periodPlaceholders})
+          GROUP BY COALESCE(fds.account, fd.account)
+        ),
+        budget AS (
+          SELECT account, SUM(amount) AS amount
+          FROM financial_data
+          WHERE scenario = 'BUD'
+            AND ou = ?
+            AND version = ?
+            AND account = ?
+            AND period_combo IN (${periodPlaceholders})
+          GROUP BY account
+        ),
+        ly AS (
+          SELECT account, SUM(amount) AS amount
+          FROM financial_data
+          WHERE scenario = 'ACT'
+            AND ou = ?
+            AND version = ?
+            AND account = ?
+            AND period_combo IN (${lyPeriodPlaceholders})
+          GROUP BY account
+        )
+        SELECT
+          COALESCE(act.amount, 0) AS actuals,
+          COALESCE(bud.amount, 0) AS budget,
+          COALESCE(l.amount, 0) AS ly
+        FROM (SELECT 1) dummy
+        LEFT JOIN actuals act ON 1=1
+        LEFT JOIN budget bud ON 1=1
+        LEFT JOIN ly l ON 1=1
+      `;
+
+      const revenueResult = await client.execute({ sql: revenueQuery, args: revenueParams });
+      const revenueData = revenueResult.rows[0] || { actuals: 0, budget: 0, ly: 0 };
+
+      let nightsData = { actuals: 0, budget: 0, ly: 0 };
+
+      if (segment.statAccount) {
+        const nightsParams = [
+          latestStagingPeriod,
+          ou, version,
+          segment.statAccount,
+          ...periods,
+          ou, version,
+          segment.statAccount,
+          ...periods,
+          ou, version,
+          segment.statAccount,
+          ...lyPeriods
+        ];
+
+        const nightsResult = await client.execute({ sql: revenueQuery, args: nightsParams });
+        nightsData = nightsResult.rows[0] as any || { actuals: 0, budget: 0, ly: 0 };
+      }
+
+      results.push({
+        description: segment.description,
+        category: segment.category,
+        revenueActuals: Number(revenueData.actuals) || 0,
+        revenueBudget: Number(revenueData.budget) || 0,
+        revenueLy: Number(revenueData.ly) || 0,
+        nightsActuals: Number(nightsData.actuals) || 0,
+        nightsBudget: Number(nightsData.budget) || 0,
+        nightsLy: Number(nightsData.ly) || 0
+      });
+    }
+
+    return results;
+  } catch (error) {
+    console.error(`Error getting room segment export data for OU ${ou}:`, error);
     throw error;
   }
 }

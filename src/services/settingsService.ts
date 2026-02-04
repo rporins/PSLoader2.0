@@ -20,6 +20,14 @@ export const SETTINGS_KEYS = {
   CURRENCY: 'currency',
   DATE_FORMAT: 'dateFormat',
   NUMBER_FORMAT: 'numberFormat',
+  FINANCIAL_DATA_VERSION: 'financialDataVersion',
+  // Excel export settings
+  EXCEL_EXPORT_SELECTED_MONTH: 'excelExportSelectedMonth',
+  EXCEL_EXPORT_SELECTED_YEAR: 'excelExportSelectedYear',
+  EXCEL_EXPORT_YTD_START_MONTH: 'excelExportYtdStartMonth',
+  EXCEL_EXPORT_YTD_START_YEAR: 'excelExportYtdStartYear',
+  EXCEL_EXPORT_YTD_END_MONTH: 'excelExportYtdEndMonth',
+  EXCEL_EXPORT_YTD_END_YEAR: 'excelExportYtdEndYear',
   // Add more settings keys as needed
 } as const;
 
@@ -39,10 +47,21 @@ export interface AppSettings {
   [SETTINGS_KEYS.CURRENCY]: string;
   [SETTINGS_KEYS.DATE_FORMAT]: string;
   [SETTINGS_KEYS.NUMBER_FORMAT]: string;
+  [SETTINGS_KEYS.FINANCIAL_DATA_VERSION]: string;
+  // Excel export settings
+  [SETTINGS_KEYS.EXCEL_EXPORT_SELECTED_MONTH]: number;
+  [SETTINGS_KEYS.EXCEL_EXPORT_SELECTED_YEAR]: number;
+  [SETTINGS_KEYS.EXCEL_EXPORT_YTD_START_MONTH]: number;
+  [SETTINGS_KEYS.EXCEL_EXPORT_YTD_START_YEAR]: number;
+  [SETTINGS_KEYS.EXCEL_EXPORT_YTD_END_MONTH]: number;
+  [SETTINGS_KEYS.EXCEL_EXPORT_YTD_END_YEAR]: number;
   // Add more settings types as needed
 }
 
 // Default values for all settings
+const currentYear = new Date().getFullYear();
+const currentMonth = new Date().getMonth() + 1;
+
 export const DEFAULT_SETTINGS: AppSettings = {
   [SETTINGS_KEYS.THEME_MODE]: "light",
   [SETTINGS_KEYS.SELECTED_HOTEL_OU]: null,
@@ -56,6 +75,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   [SETTINGS_KEYS.CURRENCY]: "USD",
   [SETTINGS_KEYS.DATE_FORMAT]: "MM/DD/YYYY",
   [SETTINGS_KEYS.NUMBER_FORMAT]: "1,234.56",
+  [SETTINGS_KEYS.FINANCIAL_DATA_VERSION]: "MAIN",
+  // Excel export defaults
+  [SETTINGS_KEYS.EXCEL_EXPORT_SELECTED_MONTH]: currentMonth,
+  [SETTINGS_KEYS.EXCEL_EXPORT_SELECTED_YEAR]: currentYear,
+  [SETTINGS_KEYS.EXCEL_EXPORT_YTD_START_MONTH]: 1,
+  [SETTINGS_KEYS.EXCEL_EXPORT_YTD_START_YEAR]: currentYear,
+  [SETTINGS_KEYS.EXCEL_EXPORT_YTD_END_MONTH]: currentMonth,
+  [SETTINGS_KEYS.EXCEL_EXPORT_YTD_END_YEAR]: currentYear,
 };
 
 // Type-safe partial settings for updates

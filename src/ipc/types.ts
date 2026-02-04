@@ -196,7 +196,12 @@ export const IPC_CHANNELS = {
 
   // Financial data daily sync check channels
   DB_GET_FINANCIAL_DATA_LAST_CHECK_DATE: 'db:get-financial-data-last-check-date',
+  DB_GET_FINANCIAL_DATA_LAST_CHECK_TIMESTAMP: 'db:get-financial-data-last-check-timestamp',
   DB_SET_FINANCIAL_DATA_SYNC_CHECK: 'db:set-financial-data-sync-check',
+
+  // Excel export channels
+  EXCEL_GENERATE_REPORT: 'excel:generate-report',
+  EXCEL_GET_DEPARTMENTS_FOR_OU: 'excel:get-departments-for-ou',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];

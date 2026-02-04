@@ -25,7 +25,8 @@ import {
 } from "@mui/material";
 import { styled, alpha } from "@mui/material/styles";
 import { PLCalculationResult } from "../../types/plReportTypes";
-import { useSettingsStore } from "../../store/settings";
+import { useSettingsStore, useFinancialDataVersion } from "../../store/settings";
+import CheckForUpdatesButton from "../../components/CheckForUpdatesButton";
 
 interface F90PLRow extends PLCalculationResult {
   id: number;
@@ -106,6 +107,8 @@ export default function F90PL() {
   const [loading, setLoading] = useState<boolean>(false);
   const [settingsLoaded, setSettingsLoaded] = useState<boolean>(false);
   const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
+  const financialDataVersion = useFinancialDataVersion();
+  const setFinancialDataVersion = useSettingsStore((s) => s.setFinancialDataVersion);
 
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
@@ -124,6 +127,7 @@ export default function F90PL() {
         endMonth,
         endYear,
         ou: selectedHotelOu,
+        version: financialDataVersion,
       });
 
       if (response.success && response.data) {
@@ -227,7 +231,7 @@ export default function F90PL() {
     if (settingsLoaded && selectedHotelOu) {
       fetchPLData();
     }
-  }, [startMonth, startYear, endMonth, endYear, settingsLoaded, selectedHotelOu]);
+  }, [startMonth, startYear, endMonth, endYear, settingsLoaded, selectedHotelOu, financialDataVersion]);
 
   const numberFormatter = new Intl.NumberFormat('en-US', {
     minimumFractionDigits: 1,
@@ -389,9 +393,12 @@ export default function F90PL() {
 
   return (
     <Box sx={{ p: 3, display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Typography variant="h4" gutterBottom sx={{ fontWeight: 700, mb: 3 }}>
-        F90 P&L Report
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+        <Typography variant="h4" sx={{ fontWeight: 700 }}>
+          F90 P&L Report
+        </Typography>
+        <CheckForUpdatesButton onDataUpdated={fetchPLData} />
+      </Box>
 
       <StyledCard>
         <CardContent>
@@ -459,6 +466,20 @@ export default function F90PL() {
                     {year}
                   </MenuItem>
                 ))}
+              </Select>
+            </FormControl>
+
+            <Divider orientation="vertical" flexItem sx={{ mx: 2 }} />
+
+            <FormControl sx={{ minWidth: 180 }}>
+              <InputLabel>Data Version</InputLabel>
+              <Select
+                value={financialDataVersion || 'MAIN'}
+                label="Data Version"
+                onChange={(e) => setFinancialDataVersion(e.target.value as string)}
+              >
+                <MenuItem value="MAIN">Marriott Planning</MenuItem>
+                <MenuItem value="OWNR">Owner Planning</MenuItem>
               </Select>
             </FormControl>
 

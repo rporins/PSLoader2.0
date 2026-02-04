@@ -479,7 +479,8 @@ export class DatabaseHandlers {
   };
 
   getFinancialReportDataHandler: IpcHandler = async (event, request) => {
-    const result = await db.getFinancialReportData(request.startPeriod, request.ou);
+    const version = request.version || 'MAIN';
+    const result = await db.getFinancialReportData(request.startPeriod, request.ou, version);
     return {
       success: true,
       data: result,
@@ -488,12 +489,14 @@ export class DatabaseHandlers {
   };
 
   getSummaryPLDataHandler: IpcHandler = async (event, request) => {
+    const version = request.version || 'MAIN';
     const result = await db.getSummaryPLData(
       request.startMonth,
       request.startYear,
       request.endMonth,
       request.endYear,
-      request.ou
+      request.ou,
+      version
     );
     return {
       success: true,
@@ -503,12 +506,14 @@ export class DatabaseHandlers {
   };
 
   getF90PLDataHandler: IpcHandler = async (event, request) => {
+    const version = request.version || 'MAIN';
     const result = await db.getF90PLData(
       request.startMonth,
       request.startYear,
       request.endMonth,
       request.endYear,
-      request.ou
+      request.ou,
+      version
     );
     return {
       success: true,
@@ -518,7 +523,8 @@ export class DatabaseHandlers {
   };
 
   getStagingVsBudgetDataHandler: IpcHandler = async (event, request) => {
-    const result = await db.getStagingVsBudgetData(request.ou);
+    const version = request.version || 'MAIN';
+    const result = await db.getStagingVsBudgetData(request.ou, version);
     return {
       success: true,
       data: result,
@@ -557,6 +563,15 @@ export class DatabaseHandlers {
   // Financial data daily sync check handlers
   getFinancialDataLastCheckDateHandler: IpcHandler = async (event, request) => {
     const result = await db.getFinancialDataLastCheckDate(request.ou);
+    return {
+      success: true,
+      data: result,
+      timestamp: Date.now(),
+    };
+  };
+
+  getFinancialDataLastCheckTimestampHandler: IpcHandler = async (event, request) => {
+    const result = await db.getFinancialDataLastCheckTimestamp(request.ou);
     return {
       success: true,
       data: result,
@@ -850,6 +865,7 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_RESET_ALL_COMPLETION_STATES]: handlers.resetAllCompletionStatesHandler,
     [IPC_CHANNELS.DB_INSERT_MANUAL_ADJUSTMENTS]: handlers.insertManualAdjustmentsHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_LAST_CHECK_DATE]: handlers.getFinancialDataLastCheckDateHandler,
+    [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_LAST_CHECK_TIMESTAMP]: handlers.getFinancialDataLastCheckTimestampHandler,
     [IPC_CHANNELS.DB_SET_FINANCIAL_DATA_SYNC_CHECK]: handlers.setFinancialDataSyncCheckHandler,
   };
 }
