@@ -270,20 +270,20 @@ class ExcelExportService {
         });
       }
 
-      // Color variance cells (red for negative, green for positive)
+      // Color variance cells (green for positive only)
       const vsBudCell = excelRow.getCell(4);
       const vsLyCell = excelRow.getCell(7);
 
-      if (typeof row.vs_bud === 'number') {
+      if (typeof row.vs_bud === 'number' && row.vs_bud > 0) {
         vsBudCell.font = {
           ...vsBudCell.font,
-          color: { argb: row.vs_bud < 0 ? 'FFCC0000' : 'FF008800' }
+          color: { argb: 'FF008800' }
         };
       }
-      if (typeof row.vs_ly === 'number') {
+      if (typeof row.vs_ly === 'number' && row.vs_ly > 0) {
         vsLyCell.font = {
           ...vsLyCell.font,
-          color: { argb: row.vs_ly < 0 ? 'FFCC0000' : 'FF008800' }
+          color: { argb: 'FF008800' }
         };
       }
     }
@@ -382,20 +382,20 @@ class ExcelExportService {
             }
           });
 
-          // Color variance cells
+          // Color variance cells (green for positive only)
           const vsBudCell = excelRow.getCell(4);
           const vsLyCell = excelRow.getCell(6);
 
-          if (row.vsBud !== 0) {
+          if (row.vsBud > 0) {
             vsBudCell.font = {
               ...vsBudCell.font,
-              color: { argb: row.vsBud < 0 ? 'FFCC0000' : 'FF008800' }
+              color: { argb: 'FF008800' }
             };
           }
-          if (row.vsLy !== 0) {
+          if (row.vsLy > 0) {
             vsLyCell.font = {
               ...vsLyCell.font,
-              color: { argb: row.vsLy < 0 ? 'FFCC0000' : 'FF008800' }
+              color: { argb: 'FF008800' }
             };
           }
         }

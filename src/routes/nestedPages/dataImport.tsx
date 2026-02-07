@@ -40,7 +40,7 @@ import {
   TaskAlt as TaskAltIcon,
   Lock as LockIcon,
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useBlocker } from 'react-router-dom';
 import ImportCard from '../../components/dataImport/ImportCard';
 import { ImportFile, ImportStatus } from '../../types/dataImport';
 import importConfigService, { ImportGroup } from '../../services/importConfigService';
@@ -130,6 +130,12 @@ const DataImport: React.FC = () => {
 
   // Cache status state
   const [dataFreshness, setDataFreshness] = useState<'cached' | 'fresh' | 'fetching'>('cached');
+
+  // Block navigation only when data has actually been written to staging (processing/complete)
+  // but hasn't been finalized yet. Users just browsing or who already completed can leave freely.
+  const hasUnsavedImportWork = !importCompleted &&
+    importFiles.some(f => f.status === ImportStatus.Complete || f.status === ImportStatus.Processing);
+  const blocker = useBlocker(hasUnsavedImportWork);
 
   // Check if imports are already completed for this OU
   // refreshKey is included to re-run this effect after a reset
@@ -312,43 +318,33 @@ const DataImport: React.FC = () => {
       try {
         setLoading(true);
 
-        // Get hotels for local_id lookup (hotel selection is managed by the header)
+        // Load from cache first and unblock the page immediately
         try {
-          // First get from cache
           // @ts-ignore
           const cachedResult = await window.ipcApi.sendIpcRequest('db:get-cached-hotels');
 
-          let hotelsList = [];
           if (cachedResult?.success && cachedResult.data) {
-            hotelsList = JSON.parse(cachedResult.data);
-            setHotels(hotelsList);
-          }
-
-          // Then fetch fresh from API
-          const freshHotels = await authService.getHotels();
-          if (freshHotels.length > 0) {
-            setHotels(freshHotels);
-          } else if (hotelsList.length > 0) {
-            // Use cached hotels if API fails
+            const hotelsList = JSON.parse(cachedResult.data);
             setHotels(hotelsList);
           }
         } catch (error) {
-          console.error('Failed to fetch hotels:', error);
-          // Try to use cached hotels
-          try {
-            // @ts-ignore
-            const cachedResult = await window.ipcApi.sendIpcRequest('db:get-cached-hotels');
-            if (cachedResult?.success && cachedResult.data) {
-              const hotelsList = JSON.parse(cachedResult.data);
-              setHotels(hotelsList);
-            }
-          } catch (cacheError) {
-            console.error('Failed to get cached hotels:', cacheError);
+          console.error('Failed to get cached hotels:', error);
+        }
+
+        // Unblock the page now — everything below refreshes in the background
+        setLoading(false);
+
+        // Refresh hotels from API silently in the background
+        try {
+          const freshHotels = await authService.getHotels();
+          if (freshHotels.length > 0) {
+            setHotels(freshHotels);
           }
+        } catch (error) {
+          console.error('Failed to fetch fresh hotels:', error);
         }
       } catch (error) {
         console.error('Failed to load initial data:', error);
-      } finally {
         setLoading(false);
       }
     };
@@ -580,7 +576,7 @@ const DataImport: React.FC = () => {
   const canStartImport =
     importFiles.filter((f) => f.required).every((f) => f.fileName) &&
     !importSessionStarted;
-  const canValidateImport = allImportsComplete && !importCompleted;
+  const canCompleteImport = allImportsComplete && !importCompleted;
 
   if (loading) {
     return (
@@ -1002,9 +998,9 @@ const DataImport: React.FC = () => {
 
           <Button
             variant="contained"
-            startIcon={allImportsComplete ? <CheckCircleIcon /> : (importSessionStarted ? <RefreshIcon /> : <TaskAltIcon />)}
+            startIcon={allImportsComplete ? <CheckCircleIcon /> : <TaskAltIcon />}
             onClick={handleStartImport}
-            disabled={(!canStartImport && !canValidateImport) || isProcessing}
+            disabled={(!canStartImport && !canCompleteImport) || isProcessing}
             fullWidth={isMobile}
             sx={{
               borderRadius: 2,
@@ -1017,7 +1013,7 @@ const DataImport: React.FC = () => {
               },
             }}
           >
-            {allImportsComplete ? 'Validate Import' : (importSessionStarted ? 'Import in Progress...' : 'Start Import Session')}
+            Complete Import
           </Button>
         </Stack>
       ) : (
@@ -1169,6 +1165,60 @@ const DataImport: React.FC = () => {
             }}
           >
             Yes, Reset All Stages
+          </Button>
+        </DialogActions>
+      </Dialog>
+      {/* Leave Page Confirmation Dialog */}
+      <Dialog
+        open={blocker.state === 'blocked'}
+        onClose={() => blocker.reset?.()}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600, color: 'warning.main' }}>
+          Leave Import Page?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            <Typography variant="body1" color="text.secondary" mb={2}>
+              You have an import session in progress that hasn't been validated yet.
+              Leaving now will reset your import progress to prevent duplicate data.
+            </Typography>
+            <Typography variant="body2" color="text.secondary" component="ul" sx={{ pl: 2 }}>
+              <li>All imported data in the staging table will be cleared</li>
+              <li>You will need to re-import your files when you return</li>
+            </Typography>
+            <Typography variant="body2" color="error.main" mt={2} fontWeight={600}>
+              To keep your progress, stay on this page and click "Complete Import" after all imports finish.
+            </Typography>
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button
+            variant="contained"
+            onClick={() => blocker.reset?.()}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Stay on Page
+          </Button>
+          <Button
+            variant="outlined"
+            color="warning"
+            onClick={async () => {
+              await handleRestart();
+              blocker.proceed?.();
+            }}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Leave & Reset
           </Button>
         </DialogActions>
       </Dialog>
