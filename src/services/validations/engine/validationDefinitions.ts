@@ -1202,6 +1202,82 @@ export const validationDefinitions: Record<string, ValidationFn> = {
   },
 
   // ─────────────────────────────────────────────────────────────────────────
+  // NON-STATS ACCOUNTS BALANCE TO ZERO
+  // All accounts that do NOT start with A9 (i.e. non-stats / financial accounts)
+  // should net to zero when summed. This validates that the uploaded trial balance
+  // and balance sheet are in balance (debits = credits).
+  // ─────────────────────────────────────────────────────────────────────────
+
+  non_stats_balance_zero: async (db, options) => {
+    // Sum all non-stats accounts (accounts not starting with A9) per month
+    const result = await db.execute({
+      sql: `
+        SELECT
+          month,
+          SUM(amount) as month_total,
+          COUNT(*) as line_count
+        FROM financial_data_staging
+        WHERE ou = ?
+          AND account NOT LIKE 'A9%'
+        GROUP BY month
+        ORDER BY month
+      `,
+      args: [options.ou]
+    });
+
+    const rows = result.rows || [];
+    const errors: string[] = [];
+    const errorDetails: any[] = [];
+    let totalRecords = 0;
+    let overallTotal = 0;
+    const TOLERANCE = 0.01;
+
+    for (const row of rows) {
+      totalRecords += (row.line_count as number) || 0;
+      const monthTotal = row.month_total as number || 0;
+      overallTotal += monthTotal;
+
+      if (Math.abs(monthTotal) > TOLERANCE) {
+        errors.push(`Month ${row.month}: non-stats accounts are out of balance by ${monthTotal.toFixed(2)}`);
+        errorDetails.push({
+          type: 'MONTH_OUT_OF_BALANCE',
+          message: `Non-stats accounts do not net to zero for month ${row.month}`,
+          month: row.month,
+          imbalance: monthTotal,
+          lineCount: row.line_count
+        });
+      }
+    }
+
+    if (rows.length === 0) {
+      return {
+        success: false,
+        recordCount: 0,
+        errors: ['No non-stats financial data found in staging']
+      };
+    }
+
+    // Summary error if overall total is also out of balance
+    if (errors.length > 0 && Math.abs(overallTotal) > TOLERANCE) {
+      errors.unshift(`Overall non-stats accounts are out of balance by ${overallTotal.toFixed(2)} across all months`);
+    }
+
+    return {
+      success: errors.length === 0,
+      recordCount: totalRecords,
+      errors: errors.length > 0 ? errors : undefined,
+      info: errors.length === 0
+        ? [`All non-stats accounts balance to zero across ${rows.length} month(s) (${totalRecords} lines checked)`]
+        : undefined,
+      errorDetails: errorDetails.length > 0 ? errorDetails : undefined,
+      stats: {
+        recordsChecked: totalRecords,
+        issuesFound: errors.length
+      }
+    };
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
   // TEST VALIDATION (for development/testing)
   // ─────────────────────────────────────────────────────────────────────────
 

@@ -129,6 +129,31 @@ function sanitizeSheetName(name: string): string {
   return sanitized.substring(0, 31) || 'Sheet';
 }
 
+function getRangeLabel(
+  startMonth: number,
+  startYear: number,
+  endMonth: number,
+  endYear: number
+): string {
+  // Single month: start and end are identical
+  if (startMonth === endMonth && startYear === endYear) {
+    return `Period: ${MONTH_NAMES[startMonth - 1]} ${startYear}`;
+  }
+
+  // Jan through Dec of the same year = full year
+  if (startMonth === 1 && endMonth === 12 && startYear === endYear) {
+    return `Full Year: ${startYear}`;
+  }
+
+  // Jan through some month of the same year = year to date
+  if (startMonth === 1 && startYear === endYear) {
+    return `Year to Date: ${MONTH_NAMES[startMonth - 1]} ${startYear} - ${MONTH_NAMES[endMonth - 1]} ${endYear}`;
+  }
+
+  // Everything else is a custom range
+  return `Custom Range: ${MONTH_NAMES[startMonth - 1]} ${startYear} - ${MONTH_NAMES[endMonth - 1]} ${endYear}`;
+}
+
 // ============================================================================
 // EXCEL EXPORT SERVICE CLASS
 // ============================================================================
@@ -219,10 +244,11 @@ class ExcelExportService {
     // Add blank row
     sheet.addRow([]);
 
-    // Add YTD section header
-    const ytdHeaderText = config.ytdStartMonth === config.ytdEndMonth && config.ytdStartYear === config.ytdEndYear
-      ? `Period: ${MONTH_NAMES[config.ytdStartMonth - 1]} ${config.ytdStartYear}`
-      : `YTD: ${MONTH_NAMES[config.ytdStartMonth - 1]} ${config.ytdStartYear} - ${MONTH_NAMES[config.ytdEndMonth - 1]} ${config.ytdEndYear}`;
+    // Add range section header
+    const ytdHeaderText = getRangeLabel(
+      config.ytdStartMonth, config.ytdStartYear,
+      config.ytdEndMonth, config.ytdEndYear
+    );
 
     const ytdHeader = sheet.addRow([ytdHeaderText, '', '', '', '', '', '', '', '']);
     applySectionHeaderStyle(ytdHeader);
@@ -303,8 +329,19 @@ class ExcelExportService {
     const usedSheetNames = new Set<string>();
 
     for (const dept of departments) {
-      // Get department detail data first to check if there's any data
-      const detailData = await db.getDepartmentDetailData(
+      // Fetch single-month data
+      const monthDetailData = await db.getDepartmentDetailData(
+        config.ou,
+        dept.baseDepartment,
+        config.selectedMonth,
+        config.selectedYear,
+        config.selectedMonth,
+        config.selectedYear,
+        config.version
+      );
+
+      // Fetch range data
+      const rangeDetailData = await db.getDepartmentDetailData(
         config.ou,
         dept.baseDepartment,
         config.ytdStartMonth,
@@ -314,8 +351,8 @@ class ExcelExportService {
         config.version
       );
 
-      // Skip creating worksheet if no data exists for this department in the requested period
-      if (detailData.length === 0) {
+      // Skip creating worksheet if no data exists for either period
+      if (rangeDetailData.length === 0 && monthDetailData.length === 0) {
         continue;
       }
 
@@ -348,64 +385,91 @@ class ExcelExportService {
       // Style header row
       applyHeaderStyle(sheet.getRow(1));
 
-      // Group by category
-      const categories = ['Revenue', 'Cost of Sales', 'Payroll', 'Controllables', 'Other', 'Stats'];
+      // --- Selected Month Section ---
+      const monthSectionHeader = sheet.addRow([
+        `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`,
+        '', '', '', '', '', ''
+      ]);
+      applySectionHeaderStyle(monthSectionHeader);
+      sheet.mergeCells(monthSectionHeader.number, 1, monthSectionHeader.number, 7);
 
-      for (const category of categories) {
-        const categoryRows = detailData.filter(r => r.category === category);
-        if (categoryRows.length === 0) continue;
+      this.addDepartmentDataSection(sheet, monthDetailData);
 
-        // Add category header
-        const catHeader = sheet.addRow([category, '', '', '', '', '', '']);
-        applyCategoryHeaderStyle(catHeader);
-        sheet.mergeCells(catHeader.number, 1, catHeader.number, 7);
+      // Blank separator row
+      sheet.addRow([]);
 
-        // Add account rows
-        for (const row of categoryRows) {
-          const excelRow = sheet.addRow({
-            account: row.accountName || row.account,
-            actuals: formatNumber(row.actuals),
-            budget: formatNumber(row.budget),
-            vsBud: formatNumber(row.vsBud),
-            ly: formatNumber(row.ly),
-            vsLy: formatNumber(row.vsLy),
-            comments: ''
-          });
+      // --- Range Section ---
+      const rangeSectionHeader = sheet.addRow([
+        getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear),
+        '', '', '', '', '', ''
+      ]);
+      applySectionHeaderStyle(rangeSectionHeader);
+      sheet.mergeCells(rangeSectionHeader.number, 1, rangeSectionHeader.number, 7);
 
-          applyDataRowStyle(excelRow);
-
-          // Apply number formatting
-          [2, 3, 4, 5, 6].forEach(col => {
-            const cell = excelRow.getCell(col);
-            if (typeof cell.value === 'number') {
-              cell.numFmt = '#,##0';
-            }
-          });
-
-          // Color variance cells (green for positive only)
-          const vsBudCell = excelRow.getCell(4);
-          const vsLyCell = excelRow.getCell(6);
-
-          if (row.vsBud > 0) {
-            vsBudCell.font = {
-              ...vsBudCell.font,
-              color: { argb: 'FF008800' }
-            };
-          }
-          if (row.vsLy > 0) {
-            vsLyCell.font = {
-              ...vsLyCell.font,
-              color: { argb: 'FF008800' }
-            };
-          }
-        }
-
-        // Add blank row after category
-        sheet.addRow([]);
-      }
+      this.addDepartmentDataSection(sheet, rangeDetailData);
 
       // Freeze panes
       sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 1 }];
+    }
+  }
+
+  /**
+   * Helper to add department data rows grouped by category
+   */
+  private addDepartmentDataSection(sheet: ExcelJS.Worksheet, data: any[]): void {
+    const categories = ['Revenue', 'Cost of Sales', 'Payroll', 'Controllables', 'Other', 'Stats'];
+
+    for (const category of categories) {
+      const categoryRows = data.filter(r => r.category === category);
+      if (categoryRows.length === 0) continue;
+
+      // Add category header
+      const catHeader = sheet.addRow([category, '', '', '', '', '', '']);
+      applyCategoryHeaderStyle(catHeader);
+      sheet.mergeCells(catHeader.number, 1, catHeader.number, 7);
+
+      // Add account rows
+      for (const row of categoryRows) {
+        const excelRow = sheet.addRow({
+          account: row.accountName || row.account,
+          actuals: formatNumber(row.actuals),
+          budget: formatNumber(row.budget),
+          vsBud: formatNumber(row.vsBud),
+          ly: formatNumber(row.ly),
+          vsLy: formatNumber(row.vsLy),
+          comments: ''
+        });
+
+        applyDataRowStyle(excelRow);
+
+        // Apply number formatting
+        [2, 3, 4, 5, 6].forEach(col => {
+          const cell = excelRow.getCell(col);
+          if (typeof cell.value === 'number') {
+            cell.numFmt = '#,##0';
+          }
+        });
+
+        // Color variance cells (green for positive only)
+        const vsBudCell = excelRow.getCell(4);
+        const vsLyCell = excelRow.getCell(6);
+
+        if (row.vsBud > 0) {
+          vsBudCell.font = {
+            ...vsBudCell.font,
+            color: { argb: 'FF008800' }
+          };
+        }
+        if (row.vsLy > 0) {
+          vsLyCell.font = {
+            ...vsLyCell.font,
+            color: { argb: 'FF008800' }
+          };
+        }
+      }
+
+      // Add blank row after category
+      sheet.addRow([]);
     }
   }
 
@@ -434,8 +498,18 @@ class ExcelExportService {
     // Style header row
     applyHeaderStyle(sheet.getRow(1));
 
-    // Get room segment data
-    const segmentData = await db.getRoomSegmentExportData(
+    // Fetch single-month data
+    const monthSegmentData = await db.getRoomSegmentExportData(
+      config.ou,
+      config.selectedMonth,
+      config.selectedYear,
+      config.selectedMonth,
+      config.selectedYear,
+      config.version
+    );
+
+    // Fetch range data
+    const rangeSegmentData = await db.getRoomSegmentExportData(
       config.ou,
       config.ytdStartMonth,
       config.ytdStartYear,
@@ -444,11 +518,41 @@ class ExcelExportService {
       config.version
     );
 
-    // Group by category
+    // --- Selected Month Section ---
+    const monthSectionHeader = sheet.addRow([
+      `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`,
+      '', '', '', '', '', '', '', ''
+    ]);
+    applySectionHeaderStyle(monthSectionHeader);
+    sheet.mergeCells(monthSectionHeader.number, 1, monthSectionHeader.number, 9);
+
+    this.addRoomSegmentDataSection(sheet, monthSegmentData);
+
+    // Blank separator row
+    sheet.addRow([]);
+
+    // --- Range Section ---
+    const rangeSectionHeader = sheet.addRow([
+      getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear),
+      '', '', '', '', '', '', '', ''
+    ]);
+    applySectionHeaderStyle(rangeSectionHeader);
+    sheet.mergeCells(rangeSectionHeader.number, 1, rangeSectionHeader.number, 9);
+
+    this.addRoomSegmentDataSection(sheet, rangeSegmentData);
+
+    // Freeze panes
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 1 }];
+  }
+
+  /**
+   * Helper to add room segment data rows grouped by category
+   */
+  private addRoomSegmentDataSection(sheet: ExcelJS.Worksheet, data: any[]): void {
     const categories = ['Sun-Thur', 'Fri-Sat', 'Groups', 'Complimentary'];
 
     for (const category of categories) {
-      const categoryRows = segmentData.filter(r => r.category === category);
+      const categoryRows = data.filter(r => r.category === category);
       if (categoryRows.length === 0) continue;
 
       // Add category header
@@ -490,9 +594,6 @@ class ExcelExportService {
       // Add blank row after category
       sheet.addRow([]);
     }
-
-    // Freeze panes
-    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 1 }];
   }
 }
 

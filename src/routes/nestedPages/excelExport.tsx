@@ -181,7 +181,7 @@ export default function ExcelExport() {
               Selected Month
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              The F90 Report will include a section showing data for this single month.
+              All report tabs will include a section showing data for this single month.
             </Typography>
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
@@ -227,7 +227,7 @@ export default function ExcelExport() {
               Year-to-Date / Custom Range
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              The F90 Report will also include a YTD section, and Department tabs will use this date range.
+              All report tabs will include a second section for this date range.
               Select the start and end periods for this section.
             </Typography>
 
@@ -330,13 +330,13 @@ export default function ExcelExport() {
             </Typography>
             <Box component="ul" sx={{ m: 0, pl: 3 }}>
               <Typography component="li" variant="body2" sx={{ mb: 0.5 }}>
-                <strong>F90 Report</strong> - Full P&L with Selected Month and YTD sections
+                <strong>F90 Report</strong> - Full P&L with Selected Month and period range sections
               </Typography>
               <Typography component="li" variant="body2" sx={{ mb: 0.5 }}>
-                <strong>Department Tabs</strong> - One worksheet per department with account-level detail
+                <strong>Room Segments</strong> - Room revenue breakdown with Selected Month and period range sections
               </Typography>
               <Typography component="li" variant="body2" sx={{ mb: 0.5 }}>
-                <strong>Room Segments</strong> - Room revenue breakdown by segment category
+                <strong>Department Tabs</strong> - Account-level detail with Selected Month and period range sections
               </Typography>
               <Typography component="li" variant="body2">
                 <strong>Comments Column</strong> - Empty column on each sheet for your notes

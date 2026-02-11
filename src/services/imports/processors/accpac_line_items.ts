@@ -489,6 +489,11 @@ export class AccpacLineItemsProcessor extends BaseImportProcessor {
         continue; // Skip rows with zero activity
       }
 
+      // Skip rooms revenue accounts (5xxxRS) — imported via Opera instead
+      if (/^5\d+RS$/.test(sourceAccount)) {
+        continue;
+      }
+
       // Lookup mapping
       const mapping = mappingLookup.get(sourceAccount);
 
