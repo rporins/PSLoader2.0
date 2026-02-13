@@ -500,13 +500,14 @@ export class OperaRoomSegImportProcessor extends BaseImportProcessor {
       totalNights += nightsValue;
 
       // Process ROOM_REVENUE with _REV suffix
+      // Negate revenue: Opera sends positive values, but GL convention stores revenue as negative (credit balance)
       if (revenueValue !== 0) {
         const revKey = this.buildMappingKey(marketCode, parsedDate, 'REV');
         this.addToAggregation(
           aggregationMap,
           mappingLookup,
           revKey,
-          revenueValue,
+          -revenueValue,
           year,
           month,
           periodCombo,
