@@ -70,6 +70,9 @@ export default function Settings() {
   const [financialDataCount, setFinancialDataCount] = useState<number | null>(null);
   const [lastImportDate, setLastImportDate] = useState<string | null>(null);
 
+  // Template download state
+  const [templateMessage, setTemplateMessage] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
   // App version
   const [appVersion, setAppVersion] = useState<string>('');
 
@@ -340,6 +343,38 @@ export default function Settings() {
       }
     } finally {
       setImportingFinancialData(false);
+    }
+  };
+
+  const handleDownloadTemplate = async (templateId: string) => {
+    setTemplateMessage(null);
+    try {
+      if (!window.ipcApi) {
+        setTemplateMessage({ type: 'error', message: 'IPC not available' });
+        return;
+      }
+
+      const response = await window.ipcApi.sendIpcRequest('template:download-csv', { templateId });
+
+      if (response.success && response.data?.filePath) {
+        setTemplateMessage({
+          type: 'success',
+          message: `Template saved to: ${response.data.filePath}`
+        });
+        setTimeout(() => setTemplateMessage(null), 5000);
+      } else if (response.error === 'Save cancelled by user') {
+        // Don't show error for user cancel
+      } else {
+        setTemplateMessage({
+          type: 'error',
+          message: response.error || 'Failed to save template'
+        });
+      }
+    } catch (err: any) {
+      setTemplateMessage({
+        type: 'error',
+        message: err.message || 'An error occurred'
+      });
     }
   };
 
@@ -716,6 +751,54 @@ export default function Settings() {
                 Please select a hotel first
               </Typography>
             )}
+          </Box>
+        </CardContent>
+      </Card>
+
+      <Card variant="outlined" sx={{ mt: 2, borderRadius: 2, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+        <CardContent>
+          <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+            Import Templates
+          </Typography>
+          <Divider sx={{ mb: 3 }} />
+
+          {templateMessage && (
+            <Alert severity={templateMessage.type} sx={{ mb: 2 }} onClose={() => setTemplateMessage(null)}>
+              {templateMessage.message}
+            </Alert>
+          )}
+
+          <Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Download blank CSV templates for manual data entry. Open the file, populate your data, and import it through the Data Import page.
+            </Typography>
+
+            <Stack direction="row" spacing={2}>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={() => handleDownloadTemplate('line_items')}
+                sx={{
+                  borderRadius: 1,
+                  textTransform: 'none',
+                }}
+              >
+                Line Items Template
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={() => handleDownloadTemplate('worksheet_line_items')}
+                sx={{
+                  borderRadius: 1,
+                  textTransform: 'none',
+                }}
+              >
+                Worksheet Template
+              </Button>
+            </Stack>
           </Box>
         </CardContent>
       </Card>

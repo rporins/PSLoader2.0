@@ -12,6 +12,7 @@ export * from "./imports";
 export * from "./validations";
 export * from "./app";
 export * from "./excelExport";
+export * from "./templateExport";
 
 // You can add more handler modules here as your application grows:
 // export * from "./file-system";

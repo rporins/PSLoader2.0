@@ -71,8 +71,9 @@ interface FormData {
 }
 
 const StyledCard = styled(Card)(({ theme }) => ({
-  marginBottom: theme.spacing(3),
+  marginBottom: theme.spacing(2),
   boxShadow: theme.shadows[3],
+  flexShrink: 0,
 }));
 
 const CustomToolbar = () => {
@@ -693,87 +694,74 @@ export default function StagingDataReview() {
   }, [rows]);
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom sx={{ mb: 3 }}>
-        Staging Data Review
-      </Typography>
-
+    <Box sx={{ p: 3, display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', overflow: 'hidden', boxSizing: 'border-box' }}>
       <StyledCard>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Import Summary
-          </Typography>
-          <Stack direction="row" spacing={3}>
-            <Box>
-              <Typography variant="body2" color="text.secondary">
-                Total Records
-              </Typography>
-              <Typography variant="h6" color="primary.main">
-                {summary.recordCount}
-              </Typography>
+        <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
+          {/* Row 1: Actions left, stats right */}
+          <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={fetchStagingData}
+                disabled={loading}
+              >
+                {loading ? 'Loading...' : 'Refresh Data'}
+              </Button>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={handleOpenAddDialog}
+                disabled={!importsExist || loading}
+                title={!importsExist ? 'Import data first to enable adding new rows' : ''}
+              >
+                Add New
+              </Button>
+            </Stack>
+            <Stack direction="row" spacing={2.5} alignItems="center">
+              <Box sx={{ textAlign: 'right' }}>
+                <Typography variant="caption" color="text.secondary">Records</Typography>
+                <Typography variant="subtitle2" color="primary.main" fontWeight={600}>
+                  {summary.recordCount}
+                </Typography>
+              </Box>
+              <Box sx={{ textAlign: 'right' }}>
+                <Typography variant="caption" color="text.secondary">Amount</Typography>
+                <Typography variant="subtitle2" fontWeight={600}>
+                  {numberFormatter.format(summary.totalAmount)}
+                </Typography>
+              </Box>
+              <Box sx={{ textAlign: 'right' }}>
+                <Typography variant="caption" color="text.secondary">Periods</Typography>
+                <Typography variant="subtitle2" fontWeight={600}>
+                  {summary.periodCount}
+                </Typography>
+              </Box>
+              <Box sx={{ textAlign: 'right' }}>
+                <Typography variant="caption" color="text.secondary">Batches</Typography>
+                <Typography variant="subtitle2" fontWeight={600}>
+                  {summary.batchCount}
+                </Typography>
+              </Box>
+            </Stack>
+          </Stack>
+          {/* Row 2: Legend */}
+          <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 1 }}>
+            <Typography variant="caption" color="text.secondary">Legend:</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Box sx={{ width: 12, height: 12, borderRadius: 0.5, bgcolor: (theme) => alpha(theme.palette.warning.main, 0.3) }} />
+              <Typography variant="caption">Unmapped</Typography>
             </Box>
-            <Box>
-              <Typography variant="body2" color="text.secondary">
-                Total Amount
-              </Typography>
-              <Typography variant="h6">
-                {numberFormatter.format(summary.totalAmount)}
-              </Typography>
-            </Box>
-            <Box>
-              <Typography variant="body2" color="text.secondary">
-                Periods
-              </Typography>
-              <Typography variant="h6">
-                {summary.periodCount}
-              </Typography>
-            </Box>
-            <Box>
-              <Typography variant="body2" color="text.secondary">
-                Import Batches
-              </Typography>
-              <Typography variant="h6">
-                {summary.batchCount}
-              </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Box sx={{ width: 12, height: 12, borderRadius: 0.5, bgcolor: (theme) => alpha(theme.palette.error.main, 0.3) }} />
+              <Typography variant="caption">Invalid Combo</Typography>
             </Box>
           </Stack>
         </CardContent>
       </StyledCard>
 
-      <Box sx={{ mb: 3, display: 'flex', gap: 2, alignItems: 'center', justifyContent: 'space-between' }}>
-        <Stack direction="row" spacing={2}>
-          <Button
-            variant="outlined"
-            onClick={fetchStagingData}
-            disabled={loading}
-          >
-            {loading ? 'Loading...' : 'Refresh Data'}
-          </Button>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={handleOpenAddDialog}
-            disabled={!importsExist || loading}
-            title={!importsExist ? 'Import data first to enable adding new rows' : ''}
-          >
-            Add New
-          </Button>
-        </Stack>
-
-        <Stack direction="row" spacing={2} alignItems="center">
-          <Typography variant="body2" color="text.secondary">Legend:</Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <Box sx={{ width: 16, height: 16, borderRadius: 0.5, bgcolor: (theme) => alpha(theme.palette.warning.main, 0.3) }} />
-            <Typography variant="body2">Unmapped</Typography>
-          </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <Box sx={{ width: 16, height: 16, borderRadius: 0.5, bgcolor: (theme) => alpha(theme.palette.error.main, 0.3) }} />
-            <Typography variant="body2">Invalid Combo</Typography>
-          </Box>
-        </Stack>
-      </Box>
-
-      <Paper sx={{ height: 700, width: '100%' }}>
+      <Paper sx={{ flex: 1, minHeight: 0, width: '100%' }}>
         <DataGridPremium
           key={gridKey}
           rows={rows}

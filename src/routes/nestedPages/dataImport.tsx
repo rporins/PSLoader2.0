@@ -318,6 +318,8 @@ const DataImport: React.FC = () => {
       try {
         setLoading(true);
 
+        let hasCachedHotels = false;
+
         // Load from cache first and unblock the page immediately
         try {
           // @ts-ignore
@@ -325,16 +327,21 @@ const DataImport: React.FC = () => {
 
           if (cachedResult?.success && cachedResult.data) {
             const hotelsList = JSON.parse(cachedResult.data);
-            setHotels(hotelsList);
+            if (hotelsList.length > 0) {
+              setHotels(hotelsList);
+              hasCachedHotels = true;
+            }
           }
         } catch (error) {
           console.error('Failed to get cached hotels:', error);
         }
 
-        // Unblock the page now — everything below refreshes in the background
-        setLoading(false);
+        // If cache had hotels, unblock the page now and refresh in the background
+        if (hasCachedHotels) {
+          setLoading(false);
+        }
 
-        // Refresh hotels from API silently in the background
+        // Refresh hotels from API (blocking on fresh install, background otherwise)
         try {
           const freshHotels = await authService.getHotels();
           if (freshHotels.length > 0) {
@@ -343,6 +350,9 @@ const DataImport: React.FC = () => {
         } catch (error) {
           console.error('Failed to fetch fresh hotels:', error);
         }
+
+        // Always unblock after API attempt completes
+        setLoading(false);
       } catch (error) {
         console.error('Failed to load initial data:', error);
         setLoading(false);

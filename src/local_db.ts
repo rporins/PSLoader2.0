@@ -4783,7 +4783,7 @@ export async function storeFinancialData(ou: string, records: any[]) {
           year,
           record.period,
           record.scenario,
-          record.amount / 100, // Convert from cents to currency units
+          record.amount,
           record.currency,
           ou,
           record.department,
@@ -4943,7 +4943,7 @@ export async function storeFinancialDataForPeriods(
           year,
           record.period,
           record.scenario,
-          record.amount / 100,
+          record.amount,
           record.currency,
           ou,
           record.department,

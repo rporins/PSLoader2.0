@@ -210,6 +210,7 @@ interface ImportCardProps {
     ou?: string;
     year?: number;
     month?: number;
+    localId1?: string;
   };
 }
 
@@ -342,7 +343,8 @@ const ImportCard: React.FC<ImportCardProps> = ({
                 custom: {
                   ou: importOptions?.ou,
                   year: importOptions?.year,
-                  month: importOptions?.month
+                  month: importOptions?.month,
+                  localId1: importOptions?.localId1
                 }
               }
             );

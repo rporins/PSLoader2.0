@@ -186,8 +186,8 @@ const Header = styled(Card)(({ theme }) => ({
     ? `0 8px 32px ${alpha("#000000", 0.3)}`
     : `0 8px 32px ${alpha("#6366f1", 0.08)}`,
   flexShrink: 0,
-  marginBottom: theme.spacing(2),
-  padding: theme.spacing(2.5),
+  marginBottom: theme.spacing(1.5),
+  padding: theme.spacing(1.5),
 }));
 
 const StatsChip = styled(Chip)(({ theme }) => ({
@@ -679,16 +679,11 @@ export default function RoomSegmentReview() {
       {/* Header */}
       <Header>
         <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
-          <Box>
-            <Typography variant="h5" fontWeight={600} gutterBottom>
-              Room Segment Review
-            </Typography>
-            <Stack direction="row" spacing={1} flexWrap="wrap">
-              <Chip label={`Dept: ${DEPARTMENT}`} size="small" variant="outlined" />
-              {periodCombo && <Chip label={`Period: ${periodCombo}`} size="small" variant="outlined" />}
-              {selectedHotelOu && <Chip label={`OU: ${selectedHotelOu}`} size="small" variant="outlined" />}
-            </Stack>
-          </Box>
+          <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
+            <Chip label={`Dept: ${DEPARTMENT}`} size="small" variant="outlined" />
+            {periodCombo && <Chip label={`Period: ${periodCombo}`} size="small" variant="outlined" />}
+            {selectedHotelOu && <Chip label={`OU: ${selectedHotelOu}`} size="small" variant="outlined" />}
+          </Stack>
           <Stack direction="row" spacing={2} alignItems="center">
             <StatsChip label={`Revenue: ${numberFormatter.format(summary.totalRevenue)}`} color="primary" />
             <StatsChip label={`Room Nights: ${intFormatter.format(summary.totalStats)}`} color="secondary" />
@@ -702,11 +697,13 @@ export default function RoomSegmentReview() {
       </Header>
 
       {/* Success Alert */}
-      <Fade in={submitSuccess}>
-        <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 2 }} onClose={() => setSubmitSuccess(false)}>
-          Adjustments submitted successfully!
-        </Alert>
-      </Fade>
+      {submitSuccess && (
+        <Fade in={submitSuccess}>
+          <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 1.5 }} onClose={() => setSubmitSuccess(false)}>
+            Adjustments submitted successfully!
+          </Alert>
+        </Fade>
+      )}
 
       {/* Pending Adjustments */}
       {pendingAdjustments.length > 0 && (
@@ -764,7 +761,7 @@ export default function RoomSegmentReview() {
       )}
 
       {/* Room Stats Section - Compact at top */}
-      <SectionCard sx={{ mb: 2, flexShrink: 0 }}>
+      <SectionCard sx={{ mb: 1.5, flexShrink: 0 }}>
         <SectionTitle>
           <Typography variant="subtitle2" fontWeight={600} color="text.secondary">
             Room Stats
@@ -787,7 +784,7 @@ export default function RoomSegmentReview() {
       </SectionCard>
 
       {/* Revenue Segments Section - Takes remaining space */}
-      <SectionCard sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <SectionCard sx={{ flex: 1, minHeight: 300, display: "flex", flexDirection: "column" }}>
         <SectionTitle>
           <Stack direction="row" alignItems="center" justifyContent="space-between">
             <Typography variant="subtitle2" fontWeight={600} color="text.secondary">
