@@ -40,7 +40,7 @@ import {
   TaskAlt as TaskAltIcon,
   Lock as LockIcon,
 } from '@mui/icons-material';
-import { useNavigate, useBlocker } from 'react-router-dom';
+import { useBlocker } from 'react-router-dom';
 import ImportCard from '../../components/dataImport/ImportCard';
 import { ImportFile, ImportStatus } from '../../types/dataImport';
 import importConfigService, { ImportGroup } from '../../services/importConfigService';
@@ -92,7 +92,6 @@ const HeaderCard = styled(Card)(({ theme }) => ({
 const DataImport: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const navigate = useNavigate();
 
   // State
   const [loading, setLoading] = useState(true);
@@ -546,16 +545,13 @@ const DataImport: React.FC = () => {
     const allComplete = importFiles.every(f => f.status === ImportStatus.Complete);
 
     if (allComplete && !importCompleted) {
-      // Mark imports as completed and navigate to validations
+      // Mark imports as completed and show locked state
       if (selectedOU) {
         try {
           // @ts-ignore
           await window.ipcApi.sendIpcRequest('db:set-import-completed-state', { ou: selectedOU, completed: true });
-          // console.log('Import marked as completed');
           setImportCompleted(true);
           setShowLockedMessage(true);
-          // Navigate to validations page
-          navigate('/signed-in-landing/validations');
         } catch (error) {
           console.error('Failed to set import completed state:', error);
         }
@@ -573,7 +569,7 @@ const DataImport: React.FC = () => {
         setCurrentActiveIndex(0);
       }
     }
-  }, [importFiles, importCompleted, selectedOU, navigate]);
+  }, [importFiles, importCompleted, selectedOU]);
 
   // Stats calculation
   const stats = {
