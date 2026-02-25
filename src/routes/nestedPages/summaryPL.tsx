@@ -253,12 +253,16 @@ export default function SummaryPL() {
     return numberFormatter.format(value);
   };
 
-  const getVarianceClass = (value: number | null) => {
+  const getVarianceClass = (value: number | null, invertVariance = false) => {
     if (value === null) return '';
-    if (value > 0) return 'positive-variance';
-    if (value < 0) return 'negative-variance';
+    if (value > 0) return invertVariance ? 'negative-variance' : 'positive-variance';
+    if (value < 0) return invertVariance ? 'positive-variance' : 'negative-variance';
     return '';
   };
+
+  // Expense rows (UOE, payroll, cost %) have invertVariance:true set by the engine.
+  // A positive variance on an expense means over-spend (bad) → colour red.
+  const shouldInvertVariance = (row: SummaryPLRow) => !!row.invertVariance;
 
 
   const columns: GridColDef<SummaryPLRow>[] = [
@@ -321,7 +325,7 @@ export default function SummaryPL() {
       },
       cellClassName: (params) => {
         if (!params.row.label) return ''; // Empty spacing rows
-        return getVarianceClass(params.value);
+        return getVarianceClass(params.value, shouldInvertVariance(params.row));
       },
     },
     {
@@ -338,7 +342,7 @@ export default function SummaryPL() {
       },
       cellClassName: (params) => {
         if (!params.row.label) return ''; // Empty spacing rows
-        return getVarianceClass(params.value);
+        return getVarianceClass(params.value, shouldInvertVariance(params.row));
       },
     },
     {
@@ -367,7 +371,7 @@ export default function SummaryPL() {
       },
       cellClassName: (params) => {
         if (!params.row.label) return ''; // Empty spacing rows
-        return getVarianceClass(params.value);
+        return getVarianceClass(params.value, shouldInvertVariance(params.row));
       },
     },
     {
@@ -384,7 +388,7 @@ export default function SummaryPL() {
       },
       cellClassName: (params) => {
         if (!params.row.label) return ''; // Empty spacing rows
-        return getVarianceClass(params.value);
+        return getVarianceClass(params.value, shouldInvertVariance(params.row));
       },
     },
   ];

@@ -37,6 +37,7 @@ export interface PLRow {
   measureId?: string;
   indentLevel?: number;
   formatting?: FormattingType;
+  invertSign?: boolean;
 }
 
 export interface PeriodRange {
@@ -59,6 +60,7 @@ export interface PLCalculationResult {
   vs_ly: number | null;
   vs_ly_pct: number | null;
   formatting: FormattingType;
+  invertVariance?: boolean;
 }
 
 export interface BaseQueryResult {

@@ -253,13 +253,18 @@ export default function F90PL() {
     return numberFormatter.format(value);
   };
 
-  const getVarianceClass = (value: number | null) => {
+  const getVarianceClass = (value: number | null, invertVariance = false) => {
     if (value === null) return '';
-    if (value > 0) return 'positive-variance';
-    if (value < 0) return 'negative-variance';
+    // For expense rows (invertVariance=true) and COS % rows: higher value = worse = red.
+    // For revenue/profit rows: higher value = better = green.
+    if (value > 0) return invertVariance ? 'negative-variance' : 'positive-variance';
+    if (value < 0) return invertVariance ? 'positive-variance' : 'negative-variance';
     return '';
   };
 
+  // COS percentage rows: a higher cost % vs budget/LY is bad (red), lower is good (green).
+  const shouldInvertVariance = (row: F90PLRow) =>
+    !!row.invertVariance || row.label.includes('COS');
 
   const columns: GridColDef<F90PLRow>[] = [
     {
@@ -321,7 +326,7 @@ export default function F90PL() {
       },
       cellClassName: (params) => {
         if (!params.row.label) return ''; // Empty spacing rows
-        return getVarianceClass(params.value);
+        return getVarianceClass(params.value, shouldInvertVariance(params.row));
       },
     },
     {
@@ -338,7 +343,7 @@ export default function F90PL() {
       },
       cellClassName: (params) => {
         if (!params.row.label) return ''; // Empty spacing rows
-        return getVarianceClass(params.value);
+        return getVarianceClass(params.value, shouldInvertVariance(params.row));
       },
     },
     {
@@ -367,7 +372,7 @@ export default function F90PL() {
       },
       cellClassName: (params) => {
         if (!params.row.label) return ''; // Empty spacing rows
-        return getVarianceClass(params.value);
+        return getVarianceClass(params.value, shouldInvertVariance(params.row));
       },
     },
     {
@@ -384,7 +389,7 @@ export default function F90PL() {
       },
       cellClassName: (params) => {
         if (!params.row.label) return ''; // Empty spacing rows
-        return getVarianceClass(params.value);
+        return getVarianceClass(params.value, shouldInvertVariance(params.row));
       },
     },
   ];

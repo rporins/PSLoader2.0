@@ -46,12 +46,13 @@ const HEADER_FONT: Partial<ExcelJS.Font> = {
 const SECTION_HEADER_FILL: ExcelJS.Fill = {
   type: 'pattern',
   pattern: 'solid',
-  fgColor: { argb: 'FFE8E8E8' }  // Light gray
+  fgColor: { argb: 'FF4A4A4A' }  // Dark charcoal gray
 };
 
 const SECTION_HEADER_FONT: Partial<ExcelJS.Font> = {
   bold: true,
-  size: 11
+  size: 11,
+  color: { argb: 'FFFFFFFF' }  // White
 };
 
 const CATEGORY_HEADER_FILL: ExcelJS.Fill = {
@@ -63,6 +64,63 @@ const CATEGORY_HEADER_FILL: ExcelJS.Fill = {
 const CATEGORY_HEADER_FONT: Partial<ExcelJS.Font> = {
   bold: true,
   size: 10
+};
+
+const SEPARATOR_FILL: ExcelJS.Fill = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FF8899AA' }  // Blue-gray separator
+};
+
+const SUBTOTAL_FILL: ExcelJS.Fill = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FFDCE6F0' }  // Light blue for subtotals
+};
+
+// level_12 group header - slightly indented, subtle background
+const GROUP_HEADER_FILL: ExcelJS.Fill = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FFF5F7FA' }  // Very subtle blue-gray, lighter than category
+};
+
+const GROUP_HEADER_FONT: Partial<ExcelJS.Font> = {
+  bold: true,
+  size: 10,
+  color: { argb: 'FF4A5568' }  // Dark gray
+};
+
+// level_12 group subtotal - subtle distinction from category subtotal
+const GROUP_SUBTOTAL_FILL: ExcelJS.Fill = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FFEDF2F7' }  // Light blue-gray
+};
+
+const GROUP_SUBTOTAL_FONT: Partial<ExcelJS.Font> = {
+  bold: true,
+  size: 10
+};
+
+// Category total header - medium navy with white text, strong visual separator
+const CATEGORY_TOTAL_FILL: ExcelJS.Fill = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FF2D5F8A' }  // Medium navy
+};
+
+const CATEGORY_TOTAL_FONT: Partial<ExcelJS.Font> = {
+  bold: true,
+  size: 10,
+  color: { argb: 'FFFFFFFF' }  // White
+};
+
+const CATEGORY_TOTAL_BORDER: Partial<ExcelJS.Borders> = {
+  top: { style: 'medium', color: { argb: 'FF1E3A5F' } },
+  left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+  bottom: { style: 'thin', color: { argb: 'FF1E3A5F' } },
+  right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
 };
 
 const DATA_FONT: Partial<ExcelJS.Font> = {
@@ -77,7 +135,7 @@ const BORDER_STYLE: Partial<ExcelJS.Borders> = {
 };
 
 function applyHeaderStyle(row: ExcelJS.Row): void {
-  row.eachCell((cell) => {
+  row.eachCell({ includeEmpty: true }, (cell) => {
     cell.fill = HEADER_FILL;
     cell.font = HEADER_FONT;
     cell.border = BORDER_STYLE;
@@ -87,16 +145,17 @@ function applyHeaderStyle(row: ExcelJS.Row): void {
 }
 
 function applySectionHeaderStyle(row: ExcelJS.Row): void {
-  row.eachCell((cell) => {
+  row.eachCell({ includeEmpty: true }, (cell) => {
     cell.fill = SECTION_HEADER_FILL;
     cell.font = SECTION_HEADER_FONT;
     cell.border = BORDER_STYLE;
+    cell.alignment = { vertical: 'middle' };
   });
-  row.height = 22;
+  row.height = 28;
 }
 
 function applyCategoryHeaderStyle(row: ExcelJS.Row): void {
-  row.eachCell((cell) => {
+  row.eachCell({ includeEmpty: true }, (cell) => {
     cell.fill = CATEGORY_HEADER_FILL;
     cell.font = CATEGORY_HEADER_FONT;
     cell.border = BORDER_STYLE;
@@ -105,11 +164,41 @@ function applyCategoryHeaderStyle(row: ExcelJS.Row): void {
 }
 
 function applyDataRowStyle(row: ExcelJS.Row, isHeader: boolean = false): void {
-  row.eachCell((cell) => {
+  row.eachCell({ includeEmpty: true }, (cell) => {
     cell.font = isHeader ? { ...DATA_FONT, bold: true } : DATA_FONT;
     cell.border = BORDER_STYLE;
     cell.alignment = { vertical: 'middle' };
   });
+}
+
+function applyGroupHeaderStyle(row: ExcelJS.Row): void {
+  row.eachCell({ includeEmpty: true }, (cell) => {
+    cell.fill = GROUP_HEADER_FILL;
+    cell.font = GROUP_HEADER_FONT;
+    cell.border = BORDER_STYLE;
+    cell.alignment = { vertical: 'middle' };
+  });
+  row.height = 18;
+}
+
+function applyGroupSubtotalStyle(row: ExcelJS.Row): void {
+  row.eachCell({ includeEmpty: true }, (cell) => {
+    cell.fill = GROUP_SUBTOTAL_FILL;
+    cell.font = GROUP_SUBTOTAL_FONT;
+    cell.border = BORDER_STYLE;
+    cell.alignment = { vertical: 'middle' };
+  });
+  row.height = 18;
+}
+
+function applyCategorySubtotalStyle(row: ExcelJS.Row): void {
+  row.eachCell({ includeEmpty: true }, (cell) => {
+    cell.fill = CATEGORY_TOTAL_FILL;
+    cell.font = CATEGORY_TOTAL_FONT;
+    cell.border = CATEGORY_TOTAL_BORDER;
+    cell.alignment = { vertical: 'middle' };
+  });
+  row.height = 22;
 }
 
 function formatNumber(value: number | null, decimals: number = 0): number | string {
@@ -119,7 +208,8 @@ function formatNumber(value: number | null, decimals: number = 0): number | stri
 
 function formatPercentage(value: number | null): string {
   if (value === null || value === undefined) return '';
-  return `${(value * 100).toFixed(1)}%`;
+  // Values from the engine are already in 0-100 scale (e.g. 72.5 for 72.5%)
+  return `${value.toFixed(1)}%`;
 }
 
 function sanitizeSheetName(name: string): string {
@@ -159,6 +249,8 @@ function getRangeLabel(
 // ============================================================================
 
 class ExcelExportService {
+  private accpacDescriptions: Map<string, string[]> = new Map();
+
   /**
    * Main entry point - generates the complete Excel report
    * Sheet order: F90 Report -> Room Segments -> Department tabs
@@ -170,13 +262,30 @@ class ExcelExportService {
     workbook.created = new Date();
     workbook.modified = new Date();
 
+    // Build AccPac description lookup once (used by Hotel Total and all department sheets)
+    this.accpacDescriptions.clear();
+    const mappings = await db.getMappings(10);
+    for (const m of mappings) {
+      if (m.target_account && m.source_department && m.is_active) {
+        const existing = this.accpacDescriptions.get(m.target_account);
+        if (!existing) {
+          this.accpacDescriptions.set(m.target_account, [m.source_department]);
+        } else if (!existing.includes(m.source_department)) {
+          existing.push(m.source_department);
+        }
+      }
+    }
+
     // 1. Create F90 Report worksheet (first tab)
     await this.createF90Worksheet(workbook, config);
 
     // 2. Create Room Segments worksheet (second tab)
     await this.createRoomSegmentWorksheet(workbook, config);
 
-    // 3. Create Department worksheets (remaining tabs)
+    // 3. Create Hotel Total worksheet (third tab, all departments aggregated)
+    await this.createHotelTotalWorksheet(workbook, config);
+
+    // 4. Create Department worksheets (remaining tabs)
     await this.createDepartmentWorksheets(workbook, config);
 
     // Save the workbook
@@ -242,7 +351,7 @@ class ExcelExportService {
     this.addF90DataRows(sheet, monthData);
 
     // Add blank row
-    sheet.addRow([]);
+    this.addBlankSeparatorRow(sheet, 9, 'f90');
 
     // Add range section header
     const ytdHeaderText = getRangeLabel(
@@ -296,207 +405,804 @@ class ExcelExportService {
         });
       }
 
-      // Color variance cells (green for positive only)
-      const vsBudCell = excelRow.getCell(4);
-      const vsLyCell = excelRow.getCell(7);
-
-      if (typeof row.vs_bud === 'number' && row.vs_bud > 0) {
-        vsBudCell.font = {
-          ...vsBudCell.font,
-          color: { argb: 'FF008800' }
-        };
-      }
-      if (typeof row.vs_ly === 'number' && row.vs_ly > 0) {
-        vsLyCell.font = {
-          ...vsLyCell.font,
-          color: { argb: 'FF008800' }
-        };
-      }
     }
   }
 
   /**
-   * Creates one worksheet per department with account-level detail
+   * Creates the Hotel Total worksheet aggregating all lodging operations departments.
+   * Appears before individual department sheets as a hotel-wide summary.
+   */
+  private async createHotelTotalWorksheet(
+    workbook: ExcelJS.Workbook,
+    config: ExcelExportConfig
+  ): Promise<void> {
+    // Fetch hotel-wide totals for month and range
+    const [monthDetailData, rangeDetailData] = await Promise.all([
+      db.getAllDepartmentDetailData(
+        config.ou,
+        config.selectedMonth, config.selectedYear,
+        config.selectedMonth, config.selectedYear,
+        config.version
+      ),
+      db.getAllDepartmentDetailData(
+        config.ou,
+        config.ytdStartMonth, config.ytdStartYear,
+        config.ytdEndMonth, config.ytdEndYear,
+        config.version
+      )
+    ]);
+
+    if (rangeDetailData.length === 0 && monthDetailData.length === 0) return;
+
+    // Use rooms sold as per-unit denominator (hotel-level metric)
+    const [monthDenom, rangeDenom] = await Promise.all([
+      db.getRoomsSoldForPeriod(
+        config.ou, config.selectedMonth, config.selectedYear,
+        config.selectedMonth, config.selectedYear, config.version
+      ),
+      db.getRoomsSoldForPeriod(
+        config.ou, config.ytdStartMonth, config.ytdStartYear,
+        config.ytdEndMonth, config.ytdEndYear, config.version
+      )
+    ]);
+
+    const sheet = workbook.addWorksheet('HOTEL TOTAL');
+    const totalCols = 13;
+
+    sheet.columns = [
+      { key: 'account', width: 45 },
+      { key: 'actuals', width: 14 },
+      { key: 'budget', width: 14 },
+      { key: 'vsBud', width: 14 },
+      { key: 'ly', width: 14 },
+      { key: 'vsLy', width: 14 },
+      { key: 'sep', width: 2 },
+      { key: 'puAct', width: 14 },
+      { key: 'puBud', width: 14 },
+      { key: 'puVsBud', width: 14 },
+      { key: 'puLy', width: 14 },
+      { key: 'puVsLy', width: 14 },
+      { key: 'comments', width: 35 },
+    ];
+
+    // Row 1: Section group headers
+    const groupRow = sheet.addRow(new Array(totalCols).fill(''));
+    groupRow.getCell(2).value = 'Amounts';
+    groupRow.getCell(8).value = 'Per Room';
+    sheet.mergeCells(1, 2, 1, 6);
+    sheet.mergeCells(1, 8, 1, 12);
+    applyHeaderStyle(groupRow);
+    this.styleDeptSeparator(groupRow);
+
+    // Row 2: Column sub-headers
+    const headerRow = sheet.addRow([
+      'Account',
+      'Actuals', 'Budget', 'vs Bud', 'LY', 'vs LY',
+      '',
+      'Actuals', 'Budget', 'vs Bud', 'LY', 'vs LY',
+      'Comments'
+    ]);
+    applyHeaderStyle(headerRow);
+    this.styleDeptSeparator(headerRow);
+
+    // --- Selected Month Section ---
+    const monthSectionHeader = sheet.addRow(new Array(totalCols).fill(''));
+    monthSectionHeader.getCell(1).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
+    applySectionHeaderStyle(monthSectionHeader);
+    sheet.mergeCells(monthSectionHeader.number, 1, monthSectionHeader.number, totalCols);
+
+    this.addDepartmentDataSection(sheet, monthDetailData, monthDenom, totalCols);
+
+    this.addBlankSeparatorRow(sheet, totalCols);
+
+    // --- Range Section ---
+    const rangeSectionHeader = sheet.addRow(new Array(totalCols).fill(''));
+    rangeSectionHeader.getCell(1).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
+    applySectionHeaderStyle(rangeSectionHeader);
+    sheet.mergeCells(rangeSectionHeader.number, 1, rangeSectionHeader.number, totalCols);
+
+    this.addDepartmentDataSection(sheet, rangeDetailData, rangeDenom, totalCols);
+
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 2 }];
+  }
+
+  /**
+   * Creates department worksheets grouped by level_7.
+   * Multi-department groups get a summary sheet followed by individual detail sheets.
+   * Single-department groups get only their detail sheet.
    */
   private async createDepartmentWorksheets(
     workbook: ExcelJS.Workbook,
     config: ExcelExportConfig
   ): Promise<void> {
-    // Get departments that have data for this OU
+    // Get departments with level_7 grouping info (pre-sorted by level_7_group, department_name)
     const departments = await db.getDepartmentsWithDataForOU(config.ou, config.version);
+
+    // Group departments by level_7
+    const groupMap = new Map<string, typeof departments>();
+    for (const dept of departments) {
+      const groupKey = dept.level7Group || dept.baseDepartment;
+      if (!groupMap.has(groupKey)) {
+        groupMap.set(groupKey, []);
+      }
+      groupMap.get(groupKey)!.push(dept);
+    }
+
+    // Fetch rooms sold once (used as denominator for all non-F&B departments)
+    const [monthRoomsSold, rangeRoomsSold] = await Promise.all([
+      db.getRoomsSoldForPeriod(
+        config.ou, config.selectedMonth, config.selectedYear,
+        config.selectedMonth, config.selectedYear, config.version
+      ),
+      db.getRoomsSoldForPeriod(
+        config.ou, config.ytdStartMonth, config.ytdStartYear,
+        config.ytdEndMonth, config.ytdEndYear, config.version
+      )
+    ]);
 
     // Track used sheet names to avoid duplicates
     const usedSheetNames = new Set<string>();
 
-    for (const dept of departments) {
-      // Fetch single-month data
-      const monthDetailData = await db.getDepartmentDetailData(
-        config.ou,
-        dept.baseDepartment,
-        config.selectedMonth,
-        config.selectedYear,
-        config.selectedMonth,
-        config.selectedYear,
-        config.version
-      );
+    // Iterate groups: summary sheet first (if multi-dept), then individual sheets
+    for (const [groupName, groupDepts] of groupMap) {
+      const isMultiDeptGroup = groupDepts.length > 1;
+      const isFnB = groupName === 'Total Food & Beverage';
+      const perUnitLabel = isFnB ? 'Per Cover' : 'Per Room';
 
-      // Fetch range data
-      const rangeDetailData = await db.getDepartmentDetailData(
-        config.ou,
-        dept.baseDepartment,
-        config.ytdStartMonth,
-        config.ytdStartYear,
-        config.ytdEndMonth,
-        config.ytdEndYear,
-        config.version
-      );
+      // Determine per-unit denominators
+      let monthDenom: db.PerUnitDenominator;
+      let rangeDenom: db.PerUnitDenominator;
 
-      // Skip creating worksheet if no data exists for either period
-      if (rangeDetailData.length === 0 && monthDetailData.length === 0) {
-        continue;
+      if (isFnB) {
+        // F&B group: fetch department volume (covers) for all departments in the group
+        const allFnBDeptIds = groupDepts.map(d => d.baseDepartment);
+        [monthDenom, rangeDenom] = await Promise.all([
+          db.getDepartmentVolumeForPeriod(
+            config.ou, allFnBDeptIds,
+            config.selectedMonth, config.selectedYear,
+            config.selectedMonth, config.selectedYear, config.version
+          ),
+          db.getDepartmentVolumeForPeriod(
+            config.ou, allFnBDeptIds,
+            config.ytdStartMonth, config.ytdStartYear,
+            config.ytdEndMonth, config.ytdEndYear, config.version
+          )
+        ]);
+      } else {
+        monthDenom = monthRoomsSold;
+        rangeDenom = rangeRoomsSold;
       }
 
-      // department_description_detail_level_max already contains name + ID (e.g., "Rooms D0010")
-      let sheetName = sanitizeSheetName(dept.departmentName || dept.baseDepartment);
-
-      // Handle any remaining duplicates by adding a suffix
-      let finalName = sheetName;
-      let counter = 1;
-      while (usedSheetNames.has(finalName.toLowerCase())) {
-        const suffix = ` (${counter})`;
-        finalName = sheetName.substring(0, 31 - suffix.length) + suffix;
-        counter++;
+      // Create group summary sheet for multi-department groups
+      if (isMultiDeptGroup) {
+        await this.createGroupSummaryWorksheet(
+          workbook, config, groupName, groupDepts, usedSheetNames,
+          perUnitLabel, monthDenom, rangeDenom
+        );
       }
-      usedSheetNames.add(finalName.toLowerCase());
 
-      const sheet = workbook.addWorksheet(finalName);
+      // Create individual department detail sheets
+      for (const dept of groupDepts) {
+        // For individual F&B departments, use that department's own volume
+        // Kitchen departments (D019*) don't generate covers — use total F&B volume instead
+        let deptMonthDenom = monthDenom;
+        let deptRangeDenom = rangeDenom;
 
-      // Set column widths
-      sheet.columns = [
-        { header: 'Account', key: 'account', width: 45 },
-        { header: 'Actuals', key: 'actuals', width: 14 },
-        { header: 'Budget', key: 'budget', width: 14 },
-        { header: 'vs Bud', key: 'vsBud', width: 14 },
-        { header: 'LY', key: 'ly', width: 14 },
-        { header: 'vs LY', key: 'vsLy', width: 14 },
-        { header: 'Comments', key: 'comments', width: 35 },
-      ];
+        if (isFnB && !dept.baseDepartment.startsWith('D019')) {
+          [deptMonthDenom, deptRangeDenom] = await Promise.all([
+            db.getDepartmentVolumeForPeriod(
+              config.ou, [dept.baseDepartment],
+              config.selectedMonth, config.selectedYear,
+              config.selectedMonth, config.selectedYear, config.version
+            ),
+            db.getDepartmentVolumeForPeriod(
+              config.ou, [dept.baseDepartment],
+              config.ytdStartMonth, config.ytdStartYear,
+              config.ytdEndMonth, config.ytdEndYear, config.version
+            )
+          ]);
+        }
 
-      // Style header row
-      applyHeaderStyle(sheet.getRow(1));
-
-      // --- Selected Month Section ---
-      const monthSectionHeader = sheet.addRow([
-        `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`,
-        '', '', '', '', '', ''
-      ]);
-      applySectionHeaderStyle(monthSectionHeader);
-      sheet.mergeCells(monthSectionHeader.number, 1, monthSectionHeader.number, 7);
-
-      this.addDepartmentDataSection(sheet, monthDetailData);
-
-      // Blank separator row
-      sheet.addRow([]);
-
-      // --- Range Section ---
-      const rangeSectionHeader = sheet.addRow([
-        getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear),
-        '', '', '', '', '', ''
-      ]);
-      applySectionHeaderStyle(rangeSectionHeader);
-      sheet.mergeCells(rangeSectionHeader.number, 1, rangeSectionHeader.number, 7);
-
-      this.addDepartmentDataSection(sheet, rangeDetailData);
-
-      // Freeze panes
-      sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 1 }];
+        await this.createSingleDepartmentWorksheet(
+          workbook, config, dept, usedSheetNames,
+          perUnitLabel, deptMonthDenom, deptRangeDenom
+        );
+      }
     }
   }
 
   /**
-   * Helper to add department data rows grouped by category
+   * Creates a summary worksheet that aggregates data across all departments in a group
    */
-  private addDepartmentDataSection(sheet: ExcelJS.Worksheet, data: any[]): void {
+  private async createGroupSummaryWorksheet(
+    workbook: ExcelJS.Workbook,
+    config: ExcelExportConfig,
+    groupName: string,
+    groupDepts: Array<{ baseDepartment: string; departmentName: string; level7Group: string | null }>,
+    usedSheetNames: Set<string>,
+    perUnitLabel: string,
+    monthDenom: db.PerUnitDenominator,
+    rangeDenom: db.PerUnitDenominator
+  ): Promise<void> {
+    const deptIds = groupDepts.map(d => d.baseDepartment);
+
+    // Fetch aggregated data for the group
+    const monthDetailData = await db.getGroupDepartmentDetailData(
+      config.ou,
+      deptIds,
+      config.selectedMonth,
+      config.selectedYear,
+      config.selectedMonth,
+      config.selectedYear,
+      config.version
+    );
+
+    const rangeDetailData = await db.getGroupDepartmentDetailData(
+      config.ou,
+      deptIds,
+      config.ytdStartMonth,
+      config.ytdStartYear,
+      config.ytdEndMonth,
+      config.ytdEndYear,
+      config.version
+    );
+
+    if (rangeDetailData.length === 0 && monthDetailData.length === 0) {
+      return;
+    }
+
+    let sheetName = sanitizeSheetName(`${groupName} Summary`.toUpperCase());
+    let finalName = sheetName;
+    let counter = 1;
+    while (usedSheetNames.has(finalName.toLowerCase())) {
+      const suffix = ` (${counter})`;
+      finalName = sheetName.substring(0, 31 - suffix.length) + suffix;
+      counter++;
+    }
+    usedSheetNames.add(finalName.toLowerCase());
+
+    const sheet = workbook.addWorksheet(finalName);
+    const totalCols = 13;
+
+    sheet.columns = [
+      { key: 'account', width: 45 },
+      { key: 'actuals', width: 14 },
+      { key: 'budget', width: 14 },
+      { key: 'vsBud', width: 14 },
+      { key: 'ly', width: 14 },
+      { key: 'vsLy', width: 14 },
+      { key: 'sep', width: 2 },
+      { key: 'puAct', width: 14 },
+      { key: 'puBud', width: 14 },
+      { key: 'puVsBud', width: 14 },
+      { key: 'puLy', width: 14 },
+      { key: 'puVsLy', width: 14 },
+      { key: 'comments', width: 35 },
+    ];
+
+    // Row 1: Section group headers
+    const groupRow = sheet.addRow(new Array(totalCols).fill(''));
+    groupRow.getCell(2).value = 'Amounts';
+    groupRow.getCell(8).value = perUnitLabel;
+    sheet.mergeCells(1, 2, 1, 6);
+    sheet.mergeCells(1, 8, 1, 12);
+    applyHeaderStyle(groupRow);
+    this.styleDeptSeparator(groupRow);
+
+    // Row 2: Column sub-headers
+    const headerRow = sheet.addRow([
+      'Account',
+      'Actuals', 'Budget', 'vs Bud', 'LY', 'vs LY',
+      '',
+      'Actuals', 'Budget', 'vs Bud', 'LY', 'vs LY',
+      'Comments'
+    ]);
+    applyHeaderStyle(headerRow);
+    this.styleDeptSeparator(headerRow);
+
+    // --- Selected Month Section ---
+    const monthSectionHeader = sheet.addRow(new Array(totalCols).fill(''));
+    monthSectionHeader.getCell(1).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
+    applySectionHeaderStyle(monthSectionHeader);
+    sheet.mergeCells(monthSectionHeader.number, 1, monthSectionHeader.number, totalCols);
+
+    this.addDepartmentDataSection(sheet, monthDetailData, monthDenom, totalCols);
+
+    this.addBlankSeparatorRow(sheet, totalCols);
+
+    // --- Range Section ---
+    const rangeSectionHeader = sheet.addRow(new Array(totalCols).fill(''));
+    rangeSectionHeader.getCell(1).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
+    applySectionHeaderStyle(rangeSectionHeader);
+    sheet.mergeCells(rangeSectionHeader.number, 1, rangeSectionHeader.number, totalCols);
+
+    this.addDepartmentDataSection(sheet, rangeDetailData, rangeDenom, totalCols);
+
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 2 }];
+  }
+
+  /**
+   * Creates a single department detail worksheet with account-level data
+   */
+  private async createSingleDepartmentWorksheet(
+    workbook: ExcelJS.Workbook,
+    config: ExcelExportConfig,
+    dept: { baseDepartment: string; departmentName: string; level7Group: string | null },
+    usedSheetNames: Set<string>,
+    perUnitLabel: string,
+    monthDenom: db.PerUnitDenominator,
+    rangeDenom: db.PerUnitDenominator
+  ): Promise<void> {
+    const monthDetailData = await db.getDepartmentDetailData(
+      config.ou,
+      dept.baseDepartment,
+      config.selectedMonth,
+      config.selectedYear,
+      config.selectedMonth,
+      config.selectedYear,
+      config.version
+    );
+
+    const rangeDetailData = await db.getDepartmentDetailData(
+      config.ou,
+      dept.baseDepartment,
+      config.ytdStartMonth,
+      config.ytdStartYear,
+      config.ytdEndMonth,
+      config.ytdEndYear,
+      config.version
+    );
+
+    if (rangeDetailData.length === 0 && monthDetailData.length === 0) {
+      return;
+    }
+
+    let sheetName = sanitizeSheetName(dept.departmentName || dept.baseDepartment);
+    let finalName = sheetName;
+    let counter = 1;
+    while (usedSheetNames.has(finalName.toLowerCase())) {
+      const suffix = ` (${counter})`;
+      finalName = sheetName.substring(0, 31 - suffix.length) + suffix;
+      counter++;
+    }
+    usedSheetNames.add(finalName.toLowerCase());
+
+    const sheet = workbook.addWorksheet(finalName);
+    const totalCols = 13;
+
+    sheet.columns = [
+      { key: 'account', width: 45 },
+      { key: 'actuals', width: 14 },
+      { key: 'budget', width: 14 },
+      { key: 'vsBud', width: 14 },
+      { key: 'ly', width: 14 },
+      { key: 'vsLy', width: 14 },
+      { key: 'sep', width: 2 },
+      { key: 'puAct', width: 14 },
+      { key: 'puBud', width: 14 },
+      { key: 'puVsBud', width: 14 },
+      { key: 'puLy', width: 14 },
+      { key: 'puVsLy', width: 14 },
+      { key: 'comments', width: 35 },
+    ];
+
+    // Row 1: Section group headers
+    const groupRow = sheet.addRow(new Array(totalCols).fill(''));
+    groupRow.getCell(2).value = 'Amounts';
+    groupRow.getCell(8).value = perUnitLabel;
+    sheet.mergeCells(1, 2, 1, 6);
+    sheet.mergeCells(1, 8, 1, 12);
+    applyHeaderStyle(groupRow);
+    this.styleDeptSeparator(groupRow);
+
+    // Row 2: Column sub-headers
+    const headerRow = sheet.addRow([
+      'Account',
+      'Actuals', 'Budget', 'vs Bud', 'LY', 'vs LY',
+      '',
+      'Actuals', 'Budget', 'vs Bud', 'LY', 'vs LY',
+      'Comments'
+    ]);
+    applyHeaderStyle(headerRow);
+    this.styleDeptSeparator(headerRow);
+
+    // --- Selected Month Section ---
+    const monthSectionHeader = sheet.addRow(new Array(totalCols).fill(''));
+    monthSectionHeader.getCell(1).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
+    applySectionHeaderStyle(monthSectionHeader);
+    sheet.mergeCells(monthSectionHeader.number, 1, monthSectionHeader.number, totalCols);
+
+    this.addDepartmentDataSection(sheet, monthDetailData, monthDenom, totalCols);
+
+    this.addBlankSeparatorRow(sheet, totalCols);
+
+    // --- Range Section ---
+    const rangeSectionHeader = sheet.addRow(new Array(totalCols).fill(''));
+    rangeSectionHeader.getCell(1).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
+    applySectionHeaderStyle(rangeSectionHeader);
+    sheet.mergeCells(rangeSectionHeader.number, 1, rangeSectionHeader.number, totalCols);
+
+    this.addDepartmentDataSection(sheet, rangeDetailData, rangeDenom, totalCols);
+
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 2 }];
+  }
+
+  /**
+   * Returns a rich text value with the AccPac description in light grey brackets,
+   * or a plain string if no AccPac description exists.
+   */
+  private buildAccountLabel(displayName: string, accountCode: string): string | ExcelJS.CellRichTextValue {
+    const descriptions = this.accpacDescriptions.get(accountCode);
+    if (descriptions && descriptions.length > 0) {
+      return {
+        richText: [
+          { font: { size: 10 }, text: displayName },
+          { font: { size: 10, color: { argb: 'FF999999' } }, text: ` [${descriptions.join(', ')}]` },
+        ]
+      };
+    }
+    return displayName;
+  }
+
+  /**
+   * Adds a blank separator row with consistent formatting (borders, font, separator column).
+   * Ensures the grid looks continuous even on empty rows.
+   */
+  private addBlankSeparatorRow(sheet: ExcelJS.Worksheet, totalCols: number, separatorType: 'dept' | 'roomSeg' | 'f90' = 'dept'): void {
+    const blankRow = sheet.addRow(new Array(totalCols).fill(''));
+    blankRow.eachCell((cell) => {
+      cell.border = BORDER_STYLE;
+      cell.font = DATA_FONT;
+    });
+    if (separatorType === 'dept') {
+      this.styleDeptSeparator(blankRow);
+    } else if (separatorType === 'roomSeg') {
+      this.styleRoomSegSeparators(blankRow);
+    }
+  }
+
+  /**
+   * Helper to add department data rows grouped by category with level_12 sub-grouping.
+   * Totals are embedded in the header rows (category and group headers carry the values).
+   * Blank rows create visual separation between sub-sections.
+   *
+   * Layout:
+   *   Total Revenue          ACT  BUD  ...   ← category header WITH totals
+   *     Total Room Revenue   ACT  BUD  ...   ← level_12 group header WITH totals
+   *       Account 1          ACT  BUD  ...   ← detail row
+   *       Account 2          ACT  BUD  ...   ← detail row
+   *                                          ← blank separator
+   *     Total Other Revenue  ACT  BUD  ...   ← next group header
+   *       Account 3          ACT  BUD  ...
+   *                                          ← blank separator
+   *                                          ← blank separator (end of category)
+   */
+  private addDepartmentDataSection(
+    sheet: ExcelJS.Worksheet,
+    data: any[],
+    denom: db.PerUnitDenominator,
+    totalCols: number
+  ): void {
     const categories = ['Revenue', 'Cost of Sales', 'Payroll', 'Controllables', 'Other', 'Stats'];
+    const PU_COLS = [8, 9, 10, 11, 12]; // per-unit column indices
+    const ABS_COLS = [2, 3, 4, 5, 6]; // absolute value column indices
+
+    // Helper: compute per-unit value, returns null if denominator is 0
+    const perUnit = (value: number, denomValue: number): number | null => {
+      if (denomValue === 0) return null;
+      return value / denomValue;
+    };
+
+    // Helper: apply number formatting to absolute and per-unit columns
+    const applyNumberFormats = (row: ExcelJS.Row) => {
+      ABS_COLS.forEach(col => {
+        const cell = row.getCell(col);
+        if (typeof cell.value === 'number') cell.numFmt = '#,##0';
+      });
+      PU_COLS.forEach(col => {
+        const cell = row.getCell(col);
+        if (typeof cell.value === 'number') cell.numFmt = '#,##0.00';
+      });
+    };
+
+    // Helper: sum a numeric field across rows
+    const sumField = (rows: any[], field: string) =>
+      rows.reduce((sum: number, r: any) => sum + (Number(r[field]) || 0), 0);
+
+    // Helper: create a header row that carries aggregated totals
+    const addHeaderWithTotals = (
+      label: string,
+      rows: any[],
+      styleFn: (row: ExcelJS.Row) => void,
+      isStats: boolean = false
+    ) => {
+      const totActuals = sumField(rows, 'actuals');
+      const totBudget = sumField(rows, 'budget');
+      const totLy = sumField(rows, 'ly');
+      const totVsBud = totActuals - totBudget;
+      const totVsLy = totActuals - totLy;
+
+      const puAct = isStats ? null : perUnit(totActuals, denom.actuals);
+      const puBud = isStats ? null : perUnit(totBudget, denom.budget);
+      const puLy = isStats ? null : perUnit(totLy, denom.ly);
+      const puVsBud = (puAct !== null && puBud !== null) ? puAct - puBud : null;
+      const puVsLy = (puAct !== null && puLy !== null) ? puAct - puLy : null;
+
+      const headerRow = sheet.addRow({
+        account: label,
+        actuals: formatNumber(totActuals),
+        budget: formatNumber(totBudget),
+        vsBud: formatNumber(totVsBud),
+        ly: formatNumber(totLy),
+        vsLy: formatNumber(totVsLy),
+        sep: '',
+        puAct: puAct !== null ? formatNumber(puAct) : null,
+        puBud: puBud !== null ? formatNumber(puBud) : null,
+        puVsBud: puVsBud !== null ? formatNumber(puVsBud) : null,
+        puLy: puLy !== null ? formatNumber(puLy) : null,
+        puVsLy: puVsLy !== null ? formatNumber(puVsLy) : null,
+        comments: ''
+      });
+      styleFn(headerRow);
+      this.styleDeptSeparator(headerRow);
+      applyNumberFormats(headerRow);
+    };
 
     for (const category of categories) {
       const categoryRows = data.filter(r => r.category === category);
       if (categoryRows.length === 0) continue;
 
-      // Add category header
-      const catHeader = sheet.addRow([category, '', '', '', '', '', '']);
-      applyCategoryHeaderStyle(catHeader);
-      sheet.mergeCells(catHeader.number, 1, catHeader.number, 7);
+      const isStats = category === 'Stats';
 
-      // Add account rows
-      for (const row of categoryRows) {
-        const excelRow = sheet.addRow({
-          account: row.accountName || row.account,
-          actuals: formatNumber(row.actuals),
-          budget: formatNumber(row.budget),
-          vsBud: formatNumber(row.vsBud),
-          ly: formatNumber(row.ly),
-          vsLy: formatNumber(row.vsLy),
-          comments: ''
-        });
+      // Category header row WITH totals
+      addHeaderWithTotals(`Total ${category}`, categoryRows, applyCategorySubtotalStyle, isStats);
 
-        applyDataRowStyle(excelRow);
+      if (isStats) {
+        // Stats: render flat without level_12 sub-grouping
+        for (const row of categoryRows) {
+          const excelRow = sheet.addRow({
+            account: `    ${row.accountName || row.account}`,
+            actuals: formatNumber(row.actuals),
+            budget: formatNumber(row.budget),
+            vsBud: formatNumber(row.vsBud),
+            ly: formatNumber(row.ly),
+            vsLy: formatNumber(row.vsLy),
+            sep: '',
+            puAct: '',
+            puBud: '',
+            puVsBud: '',
+            puLy: '',
+            puVsLy: '',
+            comments: ''
+          });
 
-        // Apply number formatting
-        [2, 3, 4, 5, 6].forEach(col => {
-          const cell = excelRow.getCell(col);
-          if (typeof cell.value === 'number') {
-            cell.numFmt = '#,##0';
+          const accountLabel = this.buildAccountLabel(row.accountName || row.account, row.account);
+          if (typeof accountLabel !== 'string') {
+            excelRow.getCell(1).value = { richText: [{ font: { size: 10 }, text: '    ' }, ...accountLabel.richText] };
           }
-        });
 
-        // Color variance cells (green for positive only)
-        const vsBudCell = excelRow.getCell(4);
-        const vsLyCell = excelRow.getCell(6);
-
-        if (row.vsBud > 0) {
-          vsBudCell.font = {
-            ...vsBudCell.font,
-            color: { argb: 'FF008800' }
-          };
+          applyDataRowStyle(excelRow);
+          this.styleDeptSeparator(excelRow);
+          applyNumberFormats(excelRow);
         }
-        if (row.vsLy > 0) {
-          vsLyCell.font = {
-            ...vsLyCell.font,
-            color: { argb: 'FF008800' }
-          };
+      } else {
+        // Non-stats: group accounts by level_12
+        const level12Map = new Map<string, any[]>();
+        for (const row of categoryRows) {
+          const groupKey = row.level12Group || `Other ${category}`;
+          if (!level12Map.has(groupKey)) level12Map.set(groupKey, []);
+          level12Map.get(groupKey)!.push(row);
+        }
+
+        for (const [groupName, groupRows] of level12Map) {
+          // level_12 group header WITH totals (indented 2 spaces)
+          addHeaderWithTotals(`  Total ${groupName}`, groupRows, applyGroupSubtotalStyle);
+
+          // Account detail rows (indented 4 spaces)
+          for (const row of groupRows) {
+            const puAct = perUnit(row.actuals, denom.actuals);
+            const puBud = perUnit(row.budget, denom.budget);
+            const puLy = perUnit(row.ly, denom.ly);
+            const puVsBud = (puAct !== null && puBud !== null) ? puAct - puBud : null;
+            const puVsLy = (puAct !== null && puLy !== null) ? puAct - puLy : null;
+
+            const displayName = row.accountName || row.account;
+            const excelRow = sheet.addRow({
+              account: `    ${displayName}`,
+              actuals: formatNumber(row.actuals),
+              budget: formatNumber(row.budget),
+              vsBud: formatNumber(row.vsBud),
+              ly: formatNumber(row.ly),
+              vsLy: formatNumber(row.vsLy),
+              sep: '',
+              puAct: puAct !== null ? formatNumber(puAct) : null,
+              puBud: puBud !== null ? formatNumber(puBud) : null,
+              puVsBud: puVsBud !== null ? formatNumber(puVsBud) : null,
+              puLy: puLy !== null ? formatNumber(puLy) : null,
+              puVsLy: puVsLy !== null ? formatNumber(puVsLy) : null,
+              comments: ''
+            });
+
+            // Override account cell with rich text if AccPac description exists
+            const accountLabel = this.buildAccountLabel(displayName, row.account);
+            if (typeof accountLabel !== 'string') {
+              excelRow.getCell(1).value = { richText: [{ font: { size: 10 }, text: '    ' }, ...accountLabel.richText] };
+            }
+
+            applyDataRowStyle(excelRow);
+            this.styleDeptSeparator(excelRow);
+            applyNumberFormats(excelRow);
+          }
+
+          // Blank row separator after each level_12 sub-group
+          this.addBlankSeparatorRow(sheet, totalCols);
         }
       }
 
-      // Add blank row after category
-      sheet.addRow([]);
+      // Blank row separator after category
+      this.addBlankSeparatorRow(sheet, totalCols);
+    }
+
+    // --- Department Profit & GOP% ---
+    // Revenue is stored as negative (credit-balance), expenses as positive (debit-balance)
+    // Profit = -(Revenue + Expenses), displayed as positive when profitable
+    const revenueRows = data.filter(r => r.category === 'Revenue');
+    const expenseCategories = ['Cost of Sales', 'Payroll', 'Controllables', 'Other'];
+    const expenseRows = data.filter(r => expenseCategories.includes(r.category));
+
+    if (revenueRows.length > 0) {
+      // Sum raw values (revenue negative, expenses positive)
+      const revActuals = sumField(revenueRows, 'actuals');
+      const revBudget = sumField(revenueRows, 'budget');
+      const revLy = sumField(revenueRows, 'ly');
+      const expActuals = sumField(expenseRows, 'actuals');
+      const expBudget = sumField(expenseRows, 'budget');
+      const expLy = sumField(expenseRows, 'ly');
+
+      // Department Profit = negate(revenue + expenses) so positive = profitable
+      const profitActuals = -(revActuals + expActuals);
+      const profitBudget = -(revBudget + expBudget);
+      const profitLy = -(revLy + expLy);
+      const profitVsBud = profitActuals - profitBudget;
+      const profitVsLy = profitActuals - profitLy;
+
+      // Per-unit for Department Profit
+      const puProfitAct = perUnit(profitActuals, denom.actuals);
+      const puProfitBud = perUnit(profitBudget, denom.budget);
+      const puProfitLy = perUnit(profitLy, denom.ly);
+      const puProfitVsBud = (puProfitAct !== null && puProfitBud !== null) ? puProfitAct - puProfitBud : null;
+      const puProfitVsLy = (puProfitAct !== null && puProfitLy !== null) ? puProfitAct - puProfitLy : null;
+
+      // Revenue totals (positive for display/denominator)
+      const revTotalActuals = -revActuals;
+      const revTotalBudget = -revBudget;
+      const revTotalLy = -revLy;
+
+      // Department Profit row (subtotal style)
+      const profitRow = sheet.addRow({
+        account: 'Department Profit',
+        actuals: formatNumber(profitActuals),
+        budget: formatNumber(profitBudget),
+        vsBud: formatNumber(profitVsBud),
+        ly: formatNumber(profitLy),
+        vsLy: formatNumber(profitVsLy),
+        sep: '',
+        puAct: puProfitAct !== null ? formatNumber(puProfitAct) : null,
+        puBud: puProfitBud !== null ? formatNumber(puProfitBud) : null,
+        puVsBud: puProfitVsBud !== null ? formatNumber(puProfitVsBud) : null,
+        puLy: puProfitLy !== null ? formatNumber(puProfitLy) : null,
+        puVsLy: puProfitVsLy !== null ? formatNumber(puProfitVsLy) : null,
+        comments: ''
+      });
+      profitRow.eachCell({ includeEmpty: true }, (cell) => {
+        cell.fill = SUBTOTAL_FILL;
+        cell.font = { ...DATA_FONT, bold: true };
+        cell.border = BORDER_STYLE;
+        cell.alignment = { vertical: 'middle' };
+      });
+      this.styleDeptSeparator(profitRow);
+      ABS_COLS.forEach(col => {
+        const cell = profitRow.getCell(col);
+        if (typeof cell.value === 'number') cell.numFmt = '#,##0';
+      });
+      PU_COLS.forEach(col => {
+        const cell = profitRow.getCell(col);
+        if (typeof cell.value === 'number') cell.numFmt = '#,##0.00';
+      });
+
+      // GOP% row (no per-unit — already a ratio)
+      const gopPctActuals = revTotalActuals !== 0 ? (profitActuals / revTotalActuals) * 100 : 0;
+      const gopPctBudget = revTotalBudget !== 0 ? (profitBudget / revTotalBudget) * 100 : 0;
+      const gopPctLy = revTotalLy !== 0 ? (profitLy / revTotalLy) * 100 : 0;
+
+      const gopRow = sheet.addRow({
+        account: 'GOP %',
+        actuals: formatPercentage(gopPctActuals),
+        budget: formatPercentage(gopPctBudget),
+        vsBud: `${(gopPctActuals - gopPctBudget).toFixed(1)} pts`,
+        ly: formatPercentage(gopPctLy),
+        vsLy: `${(gopPctActuals - gopPctLy).toFixed(1)} pts`,
+        sep: '',
+        puAct: '',
+        puBud: '',
+        puVsBud: '',
+        puLy: '',
+        puVsLy: '',
+        comments: ''
+      });
+      gopRow.eachCell({ includeEmpty: true }, (cell) => {
+        cell.fill = SUBTOTAL_FILL;
+        cell.font = { ...DATA_FONT, bold: true };
+        cell.border = BORDER_STYLE;
+        cell.alignment = { vertical: 'middle' };
+      });
+      this.styleDeptSeparator(gopRow);
     }
   }
 
   /**
-   * Creates the Room Segments worksheet
+   * Creates the Room Segments worksheet with Revenue, Room Nights, and ADR sections
    */
   private async createRoomSegmentWorksheet(
     workbook: ExcelJS.Workbook,
     config: ExcelExportConfig
   ): Promise<void> {
     const sheet = workbook.addWorksheet('Room Segments');
+    const TOTAL_COLS = 26;
 
-    // Set column widths
+    // 26 columns: Segment, Category, Revenue(7), Sep, Nights(7), Sep, ADR(7), Comments
     sheet.columns = [
-      { header: 'Segment', key: 'description', width: 40 },
-      { header: 'Category', key: 'category', width: 15 },
-      { header: 'Rev Actuals', key: 'revenueActuals', width: 14 },
-      { header: 'Rev Budget', key: 'revenueBudget', width: 14 },
-      { header: 'Rev LY', key: 'revenueLy', width: 14 },
-      { header: 'Nights ACT', key: 'nightsActuals', width: 12 },
-      { header: 'Nights BUD', key: 'nightsBudget', width: 12 },
-      { header: 'Nights LY', key: 'nightsLy', width: 12 },
-      { header: 'Comments', key: 'comments', width: 35 },
+      { key: 'segment', width: 35 },
+      { key: 'category', width: 15 },
+      { key: 'revAct', width: 14 },
+      { key: 'revBud', width: 14 },
+      { key: 'revVsBud', width: 14 },
+      { key: 'revVsBudPct', width: 12 },
+      { key: 'revLy', width: 14 },
+      { key: 'revVsLy', width: 14 },
+      { key: 'revVsLyPct', width: 12 },
+      { key: 'sep1', width: 2 },
+      { key: 'nightsAct', width: 12 },
+      { key: 'nightsBud', width: 12 },
+      { key: 'nightsVsBud', width: 12 },
+      { key: 'nightsVsBudPct', width: 12 },
+      { key: 'nightsLy', width: 12 },
+      { key: 'nightsVsLy', width: 12 },
+      { key: 'nightsVsLyPct', width: 12 },
+      { key: 'sep2', width: 2 },
+      { key: 'adrAct', width: 12 },
+      { key: 'adrBud', width: 12 },
+      { key: 'adrVsBud', width: 12 },
+      { key: 'adrVsBudPct', width: 12 },
+      { key: 'adrLy', width: 12 },
+      { key: 'adrVsLy', width: 12 },
+      { key: 'adrVsLyPct', width: 12 },
+      { key: 'comments', width: 35 },
     ];
 
-    // Style header row
-    applyHeaderStyle(sheet.getRow(1));
+    // Row 1: Section group headers
+    const groupRow = sheet.addRow(new Array(TOTAL_COLS).fill(''));
+    groupRow.getCell(3).value = 'Revenue';
+    groupRow.getCell(11).value = 'Room Nights';
+    groupRow.getCell(19).value = 'ADR';
+    sheet.mergeCells(1, 3, 1, 9);
+    sheet.mergeCells(1, 11, 1, 17);
+    sheet.mergeCells(1, 19, 1, 25);
+    applyHeaderStyle(groupRow);
+    this.styleRoomSegSeparators(groupRow);
+
+    // Row 2: Column sub-headers
+    const headerRow = sheet.addRow([
+      'Segment', 'Category',
+      'Actuals', 'Budget', 'vs Bud', 'vs Bud %', 'LY', 'vs LY', 'vs LY %',
+      '',
+      'Actuals', 'Budget', 'vs Bud', 'vs Bud %', 'LY', 'vs LY', 'vs LY %',
+      '',
+      'Actuals', 'Budget', 'vs Bud', 'vs Bud %', 'LY', 'vs LY', 'vs LY %',
+      'Comments'
+    ]);
+    applyHeaderStyle(headerRow);
+    this.styleRoomSegSeparators(headerRow);
 
     // Fetch single-month data
     const monthSegmentData = await db.getRoomSegmentExportData(
@@ -519,81 +1225,364 @@ class ExcelExportService {
     );
 
     // --- Selected Month Section ---
-    const monthSectionHeader = sheet.addRow([
-      `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`,
-      '', '', '', '', '', '', '', ''
-    ]);
+    const monthSectionHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
+    monthSectionHeader.getCell(1).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
     applySectionHeaderStyle(monthSectionHeader);
-    sheet.mergeCells(monthSectionHeader.number, 1, monthSectionHeader.number, 9);
+    sheet.mergeCells(monthSectionHeader.number, 1, monthSectionHeader.number, TOTAL_COLS);
 
-    this.addRoomSegmentDataSection(sheet, monthSegmentData);
+    // Consolidated summary (no weekday/weekend split)
+    const monthConsolHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
+    monthConsolHeader.getCell(1).value = 'Consolidated Summary';
+    applySectionHeaderStyle(monthConsolHeader);
+    sheet.mergeCells(monthConsolHeader.number, 1, monthConsolHeader.number, TOTAL_COLS);
+
+    this.addConsolidatedSegmentSection(sheet, monthSegmentData, TOTAL_COLS);
+
+    this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
+
+    // Detail by day type
+    const monthDetailHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
+    monthDetailHeader.getCell(1).value = 'Detail by Day Type';
+    applySectionHeaderStyle(monthDetailHeader);
+    sheet.mergeCells(monthDetailHeader.number, 1, monthDetailHeader.number, TOTAL_COLS);
+
+    this.addRoomSegmentDataSection(sheet, monthSegmentData, TOTAL_COLS);
 
     // Blank separator row
-    sheet.addRow([]);
+    this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
 
     // --- Range Section ---
-    const rangeSectionHeader = sheet.addRow([
-      getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear),
-      '', '', '', '', '', '', '', ''
-    ]);
+    const rangeSectionHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
+    rangeSectionHeader.getCell(1).value = getRangeLabel(
+      config.ytdStartMonth, config.ytdStartYear,
+      config.ytdEndMonth, config.ytdEndYear
+    );
     applySectionHeaderStyle(rangeSectionHeader);
-    sheet.mergeCells(rangeSectionHeader.number, 1, rangeSectionHeader.number, 9);
+    sheet.mergeCells(rangeSectionHeader.number, 1, rangeSectionHeader.number, TOTAL_COLS);
 
-    this.addRoomSegmentDataSection(sheet, rangeSegmentData);
+    // Consolidated summary (no weekday/weekend split)
+    const rangeConsolHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
+    rangeConsolHeader.getCell(1).value = 'Consolidated Summary';
+    applySectionHeaderStyle(rangeConsolHeader);
+    sheet.mergeCells(rangeConsolHeader.number, 1, rangeConsolHeader.number, TOTAL_COLS);
 
-    // Freeze panes
-    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 1 }];
+    this.addConsolidatedSegmentSection(sheet, rangeSegmentData, TOTAL_COLS);
+
+    this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
+
+    // Detail by day type
+    const rangeDetailHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
+    rangeDetailHeader.getCell(1).value = 'Detail by Day Type';
+    applySectionHeaderStyle(rangeDetailHeader);
+    sheet.mergeCells(rangeDetailHeader.number, 1, rangeDetailHeader.number, TOTAL_COLS);
+
+    this.addRoomSegmentDataSection(sheet, rangeSegmentData, TOTAL_COLS);
+
+    // Freeze panes (2 header rows)
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 2 }];
   }
 
   /**
-   * Helper to add room segment data rows grouped by category
+   * Helper to add room segment data rows grouped by category with subtotals
    */
-  private addRoomSegmentDataSection(sheet: ExcelJS.Worksheet, data: any[]): void {
+  private addRoomSegmentDataSection(
+    sheet: ExcelJS.Worksheet,
+    data: any[],
+    totalCols: number
+  ): void {
     const categories = ['Sun-Thur', 'Fri-Sat', 'Groups', 'Complimentary'];
+
+    const grandTotals = {
+      revAct: 0, revBud: 0, revLy: 0,
+      nightsAct: 0, nightsBud: 0, nightsLy: 0
+    };
 
     for (const category of categories) {
       const categoryRows = data.filter(r => r.category === category);
       if (categoryRows.length === 0) continue;
 
-      // Add category header
-      const catHeader = sheet.addRow([category, '', '', '', '', '', '', '', '']);
+      // Category header
+      const catHeader = sheet.addRow(new Array(totalCols).fill(''));
+      catHeader.getCell(1).value = category;
       applyCategoryHeaderStyle(catHeader);
-      sheet.mergeCells(catHeader.number, 1, catHeader.number, 9);
+      sheet.mergeCells(catHeader.number, 1, catHeader.number, totalCols);
 
-      // Add segment rows
+      const subtotals = {
+        revAct: 0, revBud: 0, revLy: 0,
+        nightsAct: 0, nightsBud: 0, nightsLy: 0
+      };
+
       for (const row of categoryRows) {
-        const excelRow = sheet.addRow({
-          description: row.description,
-          category: row.category,
-          revenueActuals: formatNumber(row.revenueActuals),
-          revenueBudget: formatNumber(row.revenueBudget),
-          revenueLy: formatNumber(row.revenueLy),
-          nightsActuals: formatNumber(row.nightsActuals),
-          nightsBudget: formatNumber(row.nightsBudget),
-          nightsLy: formatNumber(row.nightsLy),
-          comments: ''
-        });
+        const revAct = row.revenueActuals || 0;
+        const revBud = row.revenueBudget || 0;
+        const revLy = row.revenueLy || 0;
+        const nightsAct = row.nightsActuals || 0;
+        const nightsBud = row.nightsBudget || 0;
+        const nightsLy = row.nightsLy || 0;
 
+        const values = this.computeRoomSegRow(
+          row.description, row.category,
+          revAct, revBud, revLy, nightsAct, nightsBud, nightsLy
+        );
+        const excelRow = sheet.addRow(values);
         applyDataRowStyle(excelRow);
+        this.styleRoomSegSeparators(excelRow);
+        this.applyRoomSegNumFormats(excelRow);
 
-        // Apply number formatting
-        [3, 4, 5].forEach(col => {
-          const cell = excelRow.getCell(col);
-          if (typeof cell.value === 'number') {
-            cell.numFmt = '#,##0';
-          }
-        });
-        [6, 7, 8].forEach(col => {
-          const cell = excelRow.getCell(col);
-          if (typeof cell.value === 'number') {
-            cell.numFmt = '#,##0';
-          }
-        });
+        subtotals.revAct += revAct;
+        subtotals.revBud += revBud;
+        subtotals.revLy += revLy;
+        subtotals.nightsAct += nightsAct;
+        subtotals.nightsBud += nightsBud;
+        subtotals.nightsLy += nightsLy;
       }
 
-      // Add blank row after category
-      sheet.addRow([]);
+      // Category subtotal row
+      const subValues = this.computeRoomSegRow(
+        `${category} Total`, '',
+        subtotals.revAct, subtotals.revBud, subtotals.revLy,
+        subtotals.nightsAct, subtotals.nightsBud, subtotals.nightsLy
+      );
+      const subRow = sheet.addRow(subValues);
+      this.applySubtotalRowStyle(subRow, false);
+      this.styleRoomSegSeparators(subRow);
+      this.applyRoomSegNumFormats(subRow);
+
+      // Accumulate grand totals
+      grandTotals.revAct += subtotals.revAct;
+      grandTotals.revBud += subtotals.revBud;
+      grandTotals.revLy += subtotals.revLy;
+      grandTotals.nightsAct += subtotals.nightsAct;
+      grandTotals.nightsBud += subtotals.nightsBud;
+      grandTotals.nightsLy += subtotals.nightsLy;
+
+      // Blank row after category
+      this.addBlankSeparatorRow(sheet, totalCols, 'roomSeg');
     }
+
+    // Grand total row
+    const grandValues = this.computeRoomSegRow(
+      'Grand Total', '',
+      grandTotals.revAct, grandTotals.revBud, grandTotals.revLy,
+      grandTotals.nightsAct, grandTotals.nightsBud, grandTotals.nightsLy
+    );
+    const grandRow = sheet.addRow(grandValues);
+    this.applySubtotalRowStyle(grandRow, true);
+    this.styleRoomSegSeparators(grandRow);
+    this.applyRoomSegNumFormats(grandRow);
+  }
+
+  /**
+   * Helper to add consolidated (non-weekday/weekend split) room segment data.
+   * Groups rows by consolidatedName and consolidatedCategory, sums values,
+   * then renders with category subtotals and grand total.
+   */
+  private addConsolidatedSegmentSection(
+    sheet: ExcelJS.Worksheet,
+    data: db.RoomSegmentExportRow[],
+    totalCols: number
+  ): void {
+    const consolidatedCategories = ['Transient', 'Groups', 'Complimentary'];
+
+    // Aggregate rows by consolidatedName + consolidatedCategory (preserve insertion order)
+    const consolidatedMap = new Map<string, {
+      name: string; category: string;
+      revAct: number; revBud: number; revLy: number;
+      nightsAct: number; nightsBud: number; nightsLy: number;
+    }>();
+
+    for (const row of data) {
+      const key = `${row.consolidatedCategory}::${row.consolidatedName}`;
+      if (!consolidatedMap.has(key)) {
+        consolidatedMap.set(key, {
+          name: row.consolidatedName,
+          category: row.consolidatedCategory,
+          revAct: 0, revBud: 0, revLy: 0,
+          nightsAct: 0, nightsBud: 0, nightsLy: 0
+        });
+      }
+      const agg = consolidatedMap.get(key)!;
+      agg.revAct += row.revenueActuals || 0;
+      agg.revBud += row.revenueBudget || 0;
+      agg.revLy += row.revenueLy || 0;
+      agg.nightsAct += row.nightsActuals || 0;
+      agg.nightsBud += row.nightsBudget || 0;
+      agg.nightsLy += row.nightsLy || 0;
+    }
+
+    const allConsolidated = Array.from(consolidatedMap.values());
+    const grandTotals = {
+      revAct: 0, revBud: 0, revLy: 0,
+      nightsAct: 0, nightsBud: 0, nightsLy: 0
+    };
+
+    for (const category of consolidatedCategories) {
+      const categoryRows = allConsolidated.filter(r => r.category === category);
+      if (categoryRows.length === 0) continue;
+
+      // Category header
+      const catHeader = sheet.addRow(new Array(totalCols).fill(''));
+      catHeader.getCell(1).value = category;
+      applyCategoryHeaderStyle(catHeader);
+      sheet.mergeCells(catHeader.number, 1, catHeader.number, totalCols);
+
+      const subtotals = {
+        revAct: 0, revBud: 0, revLy: 0,
+        nightsAct: 0, nightsBud: 0, nightsLy: 0
+      };
+
+      for (const row of categoryRows) {
+        const values = this.computeRoomSegRow(
+          row.name, row.category,
+          row.revAct, row.revBud, row.revLy,
+          row.nightsAct, row.nightsBud, row.nightsLy
+        );
+        const excelRow = sheet.addRow(values);
+        applyDataRowStyle(excelRow);
+        this.styleRoomSegSeparators(excelRow);
+        this.applyRoomSegNumFormats(excelRow);
+
+        subtotals.revAct += row.revAct;
+        subtotals.revBud += row.revBud;
+        subtotals.revLy += row.revLy;
+        subtotals.nightsAct += row.nightsAct;
+        subtotals.nightsBud += row.nightsBud;
+        subtotals.nightsLy += row.nightsLy;
+      }
+
+      // Category subtotal
+      const subValues = this.computeRoomSegRow(
+        `${category} Total`, '',
+        subtotals.revAct, subtotals.revBud, subtotals.revLy,
+        subtotals.nightsAct, subtotals.nightsBud, subtotals.nightsLy
+      );
+      const subRow = sheet.addRow(subValues);
+      this.applySubtotalRowStyle(subRow, false);
+      this.styleRoomSegSeparators(subRow);
+      this.applyRoomSegNumFormats(subRow);
+
+      grandTotals.revAct += subtotals.revAct;
+      grandTotals.revBud += subtotals.revBud;
+      grandTotals.revLy += subtotals.revLy;
+      grandTotals.nightsAct += subtotals.nightsAct;
+      grandTotals.nightsBud += subtotals.nightsBud;
+      grandTotals.nightsLy += subtotals.nightsLy;
+
+      this.addBlankSeparatorRow(sheet, totalCols, 'roomSeg');
+    }
+
+    // Grand total
+    const grandValues = this.computeRoomSegRow(
+      'Grand Total', '',
+      grandTotals.revAct, grandTotals.revBud, grandTotals.revLy,
+      grandTotals.nightsAct, grandTotals.nightsBud, grandTotals.nightsLy
+    );
+    const grandRow = sheet.addRow(grandValues);
+    this.applySubtotalRowStyle(grandRow, true);
+    this.styleRoomSegSeparators(grandRow);
+    this.applyRoomSegNumFormats(grandRow);
+  }
+
+  /**
+   * Compute all values for a room segment row including variances and ADR
+   */
+  private computeRoomSegRow(
+    description: string,
+    category: string,
+    revAct: number, revBud: number, revLy: number,
+    nightsAct: number, nightsBud: number, nightsLy: number
+  ): (string | number)[] {
+    const revVsBud = revAct - revBud;
+    const revVsBudPct = revBud !== 0 ? (revVsBud / Math.abs(revBud)) * 100 : null;
+    const revVsLy = revAct - revLy;
+    const revVsLyPct = revLy !== 0 ? (revVsLy / Math.abs(revLy)) * 100 : null;
+
+    const nightsVsBud = nightsAct - nightsBud;
+    const nightsVsBudPct = nightsBud !== 0 ? (nightsVsBud / Math.abs(nightsBud)) * 100 : null;
+    const nightsVsLy = nightsAct - nightsLy;
+    const nightsVsLyPct = nightsLy !== 0 ? (nightsVsLy / Math.abs(nightsLy)) * 100 : null;
+
+    const adrAct = nightsAct !== 0 ? revAct / nightsAct : null;
+    const adrBud = nightsBud !== 0 ? revBud / nightsBud : null;
+    const adrLy = nightsLy !== 0 ? revLy / nightsLy : null;
+    const adrVsBud = adrAct !== null && adrBud !== null ? adrAct - adrBud : null;
+    const adrVsBudPct = adrVsBud !== null && adrBud !== null && adrBud !== 0
+      ? (adrVsBud / Math.abs(adrBud)) * 100 : null;
+    const adrVsLy = adrAct !== null && adrLy !== null ? adrAct - adrLy : null;
+    const adrVsLyPct = adrVsLy !== null && adrLy !== null && adrLy !== 0
+      ? (adrVsLy / Math.abs(adrLy)) * 100 : null;
+
+    return [
+      description, category,
+      formatNumber(revAct), formatNumber(revBud), formatNumber(revVsBud),
+      formatPercentage(revVsBudPct), formatNumber(revLy), formatNumber(revVsLy),
+      formatPercentage(revVsLyPct),
+      '',
+      formatNumber(nightsAct), formatNumber(nightsBud), formatNumber(nightsVsBud),
+      formatPercentage(nightsVsBudPct), formatNumber(nightsLy), formatNumber(nightsVsLy),
+      formatPercentage(nightsVsLyPct),
+      '',
+      formatNumber(adrAct, 2), formatNumber(adrBud, 2), formatNumber(adrVsBud, 2),
+      formatPercentage(adrVsBudPct), formatNumber(adrLy, 2), formatNumber(adrVsLy, 2),
+      formatPercentage(adrVsLyPct),
+      ''
+    ];
+  }
+
+  /**
+   * Style separator columns (10 and 18) with blue-gray fill
+   */
+  private styleRoomSegSeparators(row: ExcelJS.Row): void {
+    [10, 18].forEach(col => {
+      const cell = row.getCell(col);
+      cell.fill = SEPARATOR_FILL;
+      cell.value = '';
+    });
+  }
+
+  /**
+   * Style the separator column (col 7) on department sheets
+   */
+  private styleDeptSeparator(row: ExcelJS.Row): void {
+    const cell = row.getCell(7);
+    cell.fill = SEPARATOR_FILL;
+    cell.value = '';
+  }
+
+  /**
+   * Apply subtotal or grand total row styling
+   */
+  private applySubtotalRowStyle(row: ExcelJS.Row, isGrandTotal: boolean): void {
+    row.eachCell({ includeEmpty: true }, (cell) => {
+      cell.fill = isGrandTotal ? SECTION_HEADER_FILL : SUBTOTAL_FILL;
+      cell.font = isGrandTotal
+        ? { bold: true, size: 11, color: { argb: 'FFFFFFFF' } }
+        : { bold: true, size: 10 };
+      cell.border = BORDER_STYLE;
+      cell.alignment = { vertical: 'middle' };
+    });
+    row.height = isGrandTotal ? 22 : 20;
+  }
+
+  /**
+   * Apply number formatting to room segment data columns
+   */
+  private applyRoomSegNumFormats(row: ExcelJS.Row): void {
+    // Revenue currency: cols 3-5, 7-8
+    [3, 4, 5, 7, 8].forEach(col => {
+      const cell = row.getCell(col);
+      if (typeof cell.value === 'number') cell.numFmt = '#,##0';
+    });
+    // Nights integer: cols 11-13, 15-16
+    [11, 12, 13, 15, 16].forEach(col => {
+      const cell = row.getCell(col);
+      if (typeof cell.value === 'number') cell.numFmt = '#,##0';
+    });
+    // ADR decimal: cols 19-21, 23-24
+    [19, 20, 21, 23, 24].forEach(col => {
+      const cell = row.getCell(col);
+      if (typeof cell.value === 'number') cell.numFmt = '#,##0.00';
+    });
   }
 }
 

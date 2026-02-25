@@ -517,6 +517,18 @@ const migrations: Migration[] = [
         }
       }
 
+      // --- clean up orphaned _new tables from interrupted migrations ---
+      // These are created as temp tables during schema rebuilds and renamed at the end.
+      // If a migration was interrupted they may be left behind. Only drop them when
+      // the real table exists AND already has the correct schema, so we never lose data.
+      for (const baseName of ['financial_data', 'financial_data_staging'] as const) {
+        const tempName = `${baseName}_new`;
+        if (await tableExists(tempName) && await tableExists(baseName)) {
+          console.log(`[Migration v1] Dropping orphaned temp table: ${tempName}`);
+          await client.execute({ sql: `DROP TABLE ${tempName}`, args: [] });
+        }
+      }
+
       // --- hotels_cache table - add missing columns ---
       if (await tableExists('hotels_cache')) {
         const missingCols = [];
@@ -5253,12 +5265,13 @@ export async function setFinancialDataSyncCheck(
 export async function getDepartmentsWithDataForOU(
   ou: string,
   version: string = 'MAIN'
-): Promise<Array<{ baseDepartment: string; departmentName: string }>> {
+): Promise<Array<{ baseDepartment: string; departmentName: string; level7Group: string | null }>> {
   try {
     const query = `
       SELECT DISTINCT
         dm.base_department,
-        dm.department_description_detail_level_max as department_name
+        dm.department_description_detail_level_max as department_name,
+        dm.level_7 as level_7_group
       FROM financial_data fd
       JOIN department_maps dm ON fd.department = dm.base_department
       WHERE fd.ou = ?
@@ -5268,20 +5281,22 @@ export async function getDepartmentsWithDataForOU(
       UNION
       SELECT DISTINCT
         dm.base_department,
-        dm.department_description_detail_level_max as department_name
+        dm.department_description_detail_level_max as department_name,
+        dm.level_7 as level_7_group
       FROM financial_data_staging fds
       JOIN department_maps dm ON fds.department = dm.base_department
       WHERE fds.ou = ?
         AND fds.scenario IN ('ACT', 'BUD')
         AND dm.level_2 = 'Lodging Operations'
-      ORDER BY department_name
+      ORDER BY level_7_group, department_name
     `;
 
     const result = await client.execute({ sql: query, args: [ou, version, ou] });
 
     return result.rows.map(row => ({
       baseDepartment: row.base_department as string,
-      departmentName: row.department_name as string || row.base_department as string
+      departmentName: row.department_name as string || row.base_department as string,
+      level7Group: (row.level_7_group as string) || null
     }));
   } catch (error) {
     console.error(`Error getting departments with data for OU ${ou}:`, error);
@@ -5296,6 +5311,7 @@ export interface DepartmentDetailRow {
   account: string;
   accountName: string;
   category: string;
+  level12Group: string | null;
   actuals: number;
   budget: number;
   vsBud: number;
@@ -5396,6 +5412,7 @@ export async function getDepartmentDetailData(
       SELECT
         COALESCE(a.account, b.account, l.account) AS account,
         am.account_description_detail_level_max AS account_name,
+        am.level_12 AS level_12_group,
         CASE
           WHEN am.level_6 = 'Revenue' THEN 'Revenue'
           WHEN am.level_9 = 'Cost Of Sales' THEN 'Cost of Sales'
@@ -5423,6 +5440,7 @@ export async function getDepartmentDetailData(
           WHEN am.level_1 = 'STAT' OR am.base_account LIKE 'A9%' THEN 6
           ELSE 5
         END,
+        am.level_12,
         am.base_account
     `;
 
@@ -5445,6 +5463,7 @@ export async function getDepartmentDetailData(
       account: row.account as string,
       accountName: (row.account_name as string) || (row.account as string),
       category: row.category as string,
+      level12Group: (row.level_12_group as string) || null,
       actuals: Number(row.actuals) || 0,
       budget: Number(row.budget) || 0,
       vsBud: Number(row.vs_bud) || 0,
@@ -5458,11 +5477,569 @@ export async function getDepartmentDetailData(
 }
 
 /**
+ * Get account-level detail data aggregated across multiple departments for Excel export
+ * Used for department group summary sheets (e.g., all F&B departments combined)
+ */
+export async function getGroupDepartmentDetailData(
+  ou: string,
+  departments: string[],
+  startMonth: number,
+  startYear: number,
+  endMonth: number,
+  endYear: number,
+  version: string = 'MAIN'
+): Promise<DepartmentDetailRow[]> {
+  try {
+    const {
+      generatePeriods,
+      generateLYPeriods
+    } = await import('./services/reports/plCalculationEngine');
+
+    const periodRange = { startMonth, startYear, endMonth, endYear };
+    const periods = generatePeriods(periodRange);
+    const lyPeriods = generateLYPeriods(periods);
+    const latestStagingPeriod = periods[periods.length - 1];
+
+    const periodPlaceholders = periods.map(() => '?').join(', ');
+    const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
+    const deptPlaceholders = departments.map(() => '?').join(', ');
+
+    const query = `
+      WITH combined_actuals AS (
+        SELECT
+          COALESCE(fds.account, fd.account) AS account,
+          SUM(COALESCE(
+            CASE WHEN fds.period_combo = ? THEN fds.amount ELSE NULL END,
+            fd.amount
+          )) AS amount
+        FROM financial_data fd
+        LEFT JOIN financial_data_staging fds
+          ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
+          AND fd.period_combo = fds.period_combo
+          AND fds.scenario = 'ACT'
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department IN (${deptPlaceholders})
+          AND fd.period_combo IN (${periodPlaceholders})
+        GROUP BY COALESCE(fds.account, fd.account)
+        UNION ALL
+        SELECT
+          fds.account,
+          SUM(fds.amount) AS amount
+        FROM financial_data_staging fds
+        LEFT JOIN financial_data fd
+          ON fds.dep_acc_combo_id = fd.dep_acc_combo_id
+          AND fds.period_combo = fd.period_combo
+          AND fd.scenario = 'ACT'
+          AND fd.version = ?
+        WHERE fds.scenario = 'ACT'
+          AND fds.ou = ?
+          AND fds.department IN (${deptPlaceholders})
+          AND fd.dep_acc_combo_id IS NULL
+        GROUP BY fds.account
+      ),
+      actuals_totals AS (
+        SELECT account, SUM(amount) AS actuals FROM combined_actuals GROUP BY account
+      ),
+      budget_totals AS (
+        SELECT
+          fd.account,
+          SUM(fd.amount) AS budget
+        FROM financial_data fd
+        WHERE fd.scenario = 'BUD'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department IN (${deptPlaceholders})
+          AND fd.period_combo IN (${periodPlaceholders})
+        GROUP BY fd.account
+      ),
+      ly_totals AS (
+        SELECT
+          fd.account,
+          SUM(fd.amount) AS ly
+        FROM financial_data fd
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department IN (${deptPlaceholders})
+          AND fd.period_combo IN (${lyPeriodPlaceholders})
+        GROUP BY fd.account
+      )
+      SELECT
+        COALESCE(a.account, b.account, l.account) AS account,
+        am.account_description_detail_level_max AS account_name,
+        am.level_12 AS level_12_group,
+        CASE
+          WHEN am.level_6 = 'Revenue' THEN 'Revenue'
+          WHEN am.level_9 = 'Cost Of Sales' THEN 'Cost of Sales'
+          WHEN am.level_9 = 'Total Payroll' THEN 'Payroll'
+          WHEN am.level_1 = 'STAT' OR am.base_account LIKE 'A9%' THEN 'Stats'
+          WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 'Controllables'
+          ELSE 'Other'
+        END AS category,
+        COALESCE(a.actuals, 0) AS actuals,
+        COALESCE(b.budget, 0) AS budget,
+        COALESCE(a.actuals, 0) - COALESCE(b.budget, 0) AS vs_bud,
+        COALESCE(l.ly, 0) AS ly,
+        COALESCE(a.actuals, 0) - COALESCE(l.ly, 0) AS vs_ly
+      FROM actuals_totals a
+      FULL OUTER JOIN budget_totals b ON a.account = b.account
+      FULL OUTER JOIN ly_totals l ON COALESCE(a.account, b.account) = l.account
+      LEFT JOIN account_maps am ON COALESCE(a.account, b.account, l.account) = am.base_account
+      WHERE COALESCE(a.account, b.account, l.account) IS NOT NULL
+      ORDER BY
+        CASE
+          WHEN am.level_6 = 'Revenue' THEN 1
+          WHEN am.level_9 = 'Cost Of Sales' THEN 2
+          WHEN am.level_9 = 'Total Payroll' THEN 3
+          WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 4
+          WHEN am.level_1 = 'STAT' OR am.base_account LIKE 'A9%' THEN 6
+          ELSE 5
+        END,
+        am.level_12,
+        am.base_account
+    `;
+
+    const params: any[] = [
+      latestStagingPeriod,
+      ou, version, ...departments,
+      ...periods,
+      version,
+      ou, ...departments,
+      ou, version, ...departments,
+      ...periods,
+      ou, version, ...departments,
+      ...lyPeriods
+    ];
+
+    const result = await client.execute({ sql: query, args: params });
+
+    return result.rows.map(row => ({
+      account: row.account as string,
+      accountName: (row.account_name as string) || (row.account as string),
+      category: row.category as string,
+      level12Group: (row.level_12_group as string) || null,
+      actuals: Number(row.actuals) || 0,
+      budget: Number(row.budget) || 0,
+      vsBud: Number(row.vs_bud) || 0,
+      ly: Number(row.ly) || 0,
+      vsLy: Number(row.vs_ly) || 0
+    }));
+  } catch (error) {
+    console.error(`Error getting group department detail data:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Get account-level detail data aggregated across ALL lodging operations departments.
+ * Used for the Hotel Total sheet in Excel export.
+ */
+export async function getAllDepartmentDetailData(
+  ou: string,
+  startMonth: number,
+  startYear: number,
+  endMonth: number,
+  endYear: number,
+  version: string = 'MAIN'
+): Promise<DepartmentDetailRow[]> {
+  try {
+    const {
+      generatePeriods,
+      generateLYPeriods
+    } = await import('./services/reports/plCalculationEngine');
+
+    const periodRange = { startMonth, startYear, endMonth, endYear };
+    const periods = generatePeriods(periodRange);
+    const lyPeriods = generateLYPeriods(periods);
+    const latestStagingPeriod = periods[periods.length - 1];
+
+    const periodPlaceholders = periods.map(() => '?').join(', ');
+    const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
+
+    const query = `
+      WITH combined_actuals AS (
+        SELECT
+          COALESCE(fds.account, fd.account) AS account,
+          SUM(COALESCE(
+            CASE WHEN fds.period_combo = ? THEN fds.amount ELSE NULL END,
+            fd.amount
+          )) AS amount
+        FROM financial_data fd
+        JOIN department_maps dm ON fd.department = dm.base_department
+        LEFT JOIN financial_data_staging fds
+          ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
+          AND fd.period_combo = fds.period_combo
+          AND fds.scenario = 'ACT'
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND dm.level_2 = 'Lodging Operations'
+          AND fd.period_combo IN (${periodPlaceholders})
+        GROUP BY COALESCE(fds.account, fd.account)
+        UNION ALL
+        SELECT
+          fds.account,
+          SUM(fds.amount) AS amount
+        FROM financial_data_staging fds
+        JOIN department_maps dm ON fds.department = dm.base_department
+        LEFT JOIN financial_data fd
+          ON fds.dep_acc_combo_id = fd.dep_acc_combo_id
+          AND fds.period_combo = fd.period_combo
+          AND fd.scenario = 'ACT'
+          AND fd.version = ?
+        WHERE fds.scenario = 'ACT'
+          AND fds.ou = ?
+          AND dm.level_2 = 'Lodging Operations'
+          AND fd.dep_acc_combo_id IS NULL
+        GROUP BY fds.account
+      ),
+      actuals_totals AS (
+        SELECT account, SUM(amount) AS actuals FROM combined_actuals GROUP BY account
+      ),
+      budget_totals AS (
+        SELECT
+          fd.account,
+          SUM(fd.amount) AS budget
+        FROM financial_data fd
+        JOIN department_maps dm ON fd.department = dm.base_department
+        WHERE fd.scenario = 'BUD'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND dm.level_2 = 'Lodging Operations'
+          AND fd.period_combo IN (${periodPlaceholders})
+        GROUP BY fd.account
+      ),
+      ly_totals AS (
+        SELECT
+          fd.account,
+          SUM(fd.amount) AS ly
+        FROM financial_data fd
+        JOIN department_maps dm ON fd.department = dm.base_department
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND dm.level_2 = 'Lodging Operations'
+          AND fd.period_combo IN (${lyPeriodPlaceholders})
+        GROUP BY fd.account
+      )
+      SELECT
+        COALESCE(a.account, b.account, l.account) AS account,
+        am.account_description_detail_level_max AS account_name,
+        am.level_12 AS level_12_group,
+        CASE
+          WHEN am.level_6 = 'Revenue' THEN 'Revenue'
+          WHEN am.level_9 = 'Cost Of Sales' THEN 'Cost of Sales'
+          WHEN am.level_9 = 'Total Payroll' THEN 'Payroll'
+          WHEN am.level_1 = 'STAT' OR am.base_account LIKE 'A9%' THEN 'Stats'
+          WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 'Controllables'
+          ELSE 'Other'
+        END AS category,
+        COALESCE(a.actuals, 0) AS actuals,
+        COALESCE(b.budget, 0) AS budget,
+        COALESCE(a.actuals, 0) - COALESCE(b.budget, 0) AS vs_bud,
+        COALESCE(l.ly, 0) AS ly,
+        COALESCE(a.actuals, 0) - COALESCE(l.ly, 0) AS vs_ly
+      FROM actuals_totals a
+      FULL OUTER JOIN budget_totals b ON a.account = b.account
+      FULL OUTER JOIN ly_totals l ON COALESCE(a.account, b.account) = l.account
+      LEFT JOIN account_maps am ON COALESCE(a.account, b.account, l.account) = am.base_account
+      WHERE COALESCE(a.account, b.account, l.account) IS NOT NULL
+      ORDER BY
+        CASE
+          WHEN am.level_6 = 'Revenue' THEN 1
+          WHEN am.level_9 = 'Cost Of Sales' THEN 2
+          WHEN am.level_9 = 'Total Payroll' THEN 3
+          WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 4
+          WHEN am.level_1 = 'STAT' OR am.base_account LIKE 'A9%' THEN 6
+          ELSE 5
+        END,
+        am.level_12,
+        am.base_account
+    `;
+
+    const params: any[] = [
+      latestStagingPeriod,
+      ou, version,
+      ...periods,
+      version,
+      ou,
+      ou, version,
+      ...periods,
+      ou, version,
+      ...lyPeriods
+    ];
+
+    const result = await client.execute({ sql: query, args: params });
+
+    return result.rows.map(row => ({
+      account: row.account as string,
+      accountName: (row.account_name as string) || (row.account as string),
+      category: row.category as string,
+      level12Group: (row.level_12_group as string) || null,
+      actuals: Number(row.actuals) || 0,
+      budget: Number(row.budget) || 0,
+      vsBud: Number(row.vs_bud) || 0,
+      ly: Number(row.ly) || 0,
+      vsLy: Number(row.vs_ly) || 0
+    }));
+  } catch (error) {
+    console.error(`Error getting all department detail data for hotel total:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Interface for per-unit denominator values (rooms sold or covers)
+ */
+export interface PerUnitDenominator {
+  actuals: number;
+  budget: number;
+  ly: number;
+}
+
+/**
+ * Get rooms sold (A960103) for a given period range.
+ * Used as the per-unit denominator for non-F&B department sheets.
+ */
+export async function getRoomsSoldForPeriod(
+  ou: string,
+  startMonth: number,
+  startYear: number,
+  endMonth: number,
+  endYear: number,
+  version: string = 'MAIN'
+): Promise<PerUnitDenominator> {
+  try {
+    const {
+      generatePeriods,
+      generateLYPeriods
+    } = await import('./services/reports/plCalculationEngine');
+
+    const periodRange = { startMonth, startYear, endMonth, endYear };
+    const periods = generatePeriods(periodRange);
+    const lyPeriods = generateLYPeriods(periods);
+    const latestStagingPeriod = periods[periods.length - 1];
+
+    const periodPlaceholders = periods.map(() => '?').join(', ');
+    const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
+
+    const query = `
+      WITH combined_actuals AS (
+        SELECT
+          SUM(COALESCE(
+            CASE WHEN fds.period_combo = ? THEN fds.amount ELSE NULL END,
+            fd.amount
+          )) AS amount
+        FROM financial_data fd
+        JOIN department_maps dm ON fd.department = dm.base_department
+        LEFT JOIN financial_data_staging fds
+          ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
+          AND fd.period_combo = fds.period_combo
+          AND fds.scenario = 'ACT'
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.account = 'A960103'
+          AND dm.level_10 = 'Rooms'
+          AND fd.period_combo IN (${periodPlaceholders})
+        UNION ALL
+        SELECT
+          SUM(fds.amount) AS amount
+        FROM financial_data_staging fds
+        JOIN department_maps dm ON fds.department = dm.base_department
+        LEFT JOIN financial_data fd
+          ON fds.dep_acc_combo_id = fd.dep_acc_combo_id
+          AND fds.period_combo = fd.period_combo
+          AND fd.scenario = 'ACT'
+          AND fd.version = ?
+        WHERE fds.scenario = 'ACT'
+          AND fds.ou = ?
+          AND fds.account = 'A960103'
+          AND dm.level_10 = 'Rooms'
+          AND fd.dep_acc_combo_id IS NULL
+      ),
+      budget_total AS (
+        SELECT SUM(fd.amount) AS budget
+        FROM financial_data fd
+        JOIN department_maps dm ON fd.department = dm.base_department
+        WHERE fd.scenario = 'BUD'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.account = 'A960103'
+          AND dm.level_10 = 'Rooms'
+          AND fd.period_combo IN (${periodPlaceholders})
+      ),
+      ly_total AS (
+        SELECT SUM(fd.amount) AS ly
+        FROM financial_data fd
+        JOIN department_maps dm ON fd.department = dm.base_department
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.account = 'A960103'
+          AND dm.level_10 = 'Rooms'
+          AND fd.period_combo IN (${lyPeriodPlaceholders})
+      )
+      SELECT
+        COALESCE((SELECT SUM(amount) FROM combined_actuals), 0) AS actuals,
+        COALESCE((SELECT budget FROM budget_total), 0) AS budget,
+        COALESCE((SELECT ly FROM ly_total), 0) AS ly
+    `;
+
+    const params: any[] = [
+      latestStagingPeriod,
+      ou, version,
+      ...periods,
+      version,
+      ou,
+      ou, version,
+      ...periods,
+      ou, version,
+      ...lyPeriods
+    ];
+
+    const result = await client.execute({ sql: query, args: params });
+    const row = result.rows[0];
+
+    return {
+      actuals: Number(row?.actuals) || 0,
+      budget: Number(row?.budget) || 0,
+      ly: Number(row?.ly) || 0
+    };
+  } catch (error) {
+    console.error('Error getting rooms sold for period:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get department volume (covers) for F&B departments for a given period range.
+ * Queries accounts where account_maps.level_4 = 'Department Volume'.
+ * Used as the per-unit denominator for F&B department sheets.
+ */
+export async function getDepartmentVolumeForPeriod(
+  ou: string,
+  departments: string[],
+  startMonth: number,
+  startYear: number,
+  endMonth: number,
+  endYear: number,
+  version: string = 'MAIN'
+): Promise<PerUnitDenominator> {
+  try {
+    const {
+      generatePeriods,
+      generateLYPeriods
+    } = await import('./services/reports/plCalculationEngine');
+
+    const periodRange = { startMonth, startYear, endMonth, endYear };
+    const periods = generatePeriods(periodRange);
+    const lyPeriods = generateLYPeriods(periods);
+    const latestStagingPeriod = periods[periods.length - 1];
+
+    const periodPlaceholders = periods.map(() => '?').join(', ');
+    const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
+    const deptPlaceholders = departments.map(() => '?').join(', ');
+
+    const query = `
+      WITH combined_actuals AS (
+        SELECT
+          SUM(COALESCE(
+            CASE WHEN fds.period_combo = ? THEN fds.amount ELSE NULL END,
+            fd.amount
+          )) AS amount
+        FROM financial_data fd
+        JOIN account_maps am ON fd.account = am.base_account
+        LEFT JOIN financial_data_staging fds
+          ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
+          AND fd.period_combo = fds.period_combo
+          AND fds.scenario = 'ACT'
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department IN (${deptPlaceholders})
+          AND am.level_4 = 'Department Volume'
+          AND fd.period_combo IN (${periodPlaceholders})
+        UNION ALL
+        SELECT
+          SUM(fds.amount) AS amount
+        FROM financial_data_staging fds
+        JOIN account_maps am ON fds.account = am.base_account
+        LEFT JOIN financial_data fd
+          ON fds.dep_acc_combo_id = fd.dep_acc_combo_id
+          AND fds.period_combo = fd.period_combo
+          AND fd.scenario = 'ACT'
+          AND fd.version = ?
+        WHERE fds.scenario = 'ACT'
+          AND fds.ou = ?
+          AND fds.department IN (${deptPlaceholders})
+          AND am.level_4 = 'Department Volume'
+          AND fd.dep_acc_combo_id IS NULL
+      ),
+      budget_total AS (
+        SELECT SUM(fd.amount) AS budget
+        FROM financial_data fd
+        JOIN account_maps am ON fd.account = am.base_account
+        WHERE fd.scenario = 'BUD'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department IN (${deptPlaceholders})
+          AND am.level_4 = 'Department Volume'
+          AND fd.period_combo IN (${periodPlaceholders})
+      ),
+      ly_total AS (
+        SELECT SUM(fd.amount) AS ly
+        FROM financial_data fd
+        JOIN account_maps am ON fd.account = am.base_account
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department IN (${deptPlaceholders})
+          AND am.level_4 = 'Department Volume'
+          AND fd.period_combo IN (${lyPeriodPlaceholders})
+      )
+      SELECT
+        COALESCE((SELECT SUM(amount) FROM combined_actuals), 0) AS actuals,
+        COALESCE((SELECT budget FROM budget_total), 0) AS budget,
+        COALESCE((SELECT ly FROM ly_total), 0) AS ly
+    `;
+
+    const params: any[] = [
+      latestStagingPeriod,
+      ou, version, ...departments,
+      ...periods,
+      version,
+      ou, ...departments,
+      ou, version, ...departments,
+      ...periods,
+      ou, version, ...departments,
+      ...lyPeriods
+    ];
+
+    const result = await client.execute({ sql: query, args: params });
+    const row = result.rows[0];
+
+    return {
+      actuals: Number(row?.actuals) || 0,
+      budget: Number(row?.budget) || 0,
+      ly: Number(row?.ly) || 0
+    };
+  } catch (error) {
+    console.error('Error getting department volume for period:', error);
+    throw error;
+  }
+}
+
+/**
  * Interface for room segment export row
  */
 export interface RoomSegmentExportRow {
   description: string;
   category: string;
+  consolidatedName: string;
+  consolidatedCategory: string;
   revenueActuals: number;
   revenueBudget: number;
   revenueLy: number;
@@ -5496,64 +6073,70 @@ export async function getRoomSegmentExportData(
 
     // Room segment account configurations
     const SEGMENTS_CONFIG = [
-      { revenueAccount: "A361010", statAccount: "A961010", description: "Premium Retail Sun-Thur", category: "Sun-Thur" },
-      { revenueAccount: "A361011", statAccount: "A961011", description: "Regular Sun-Thur", category: "Sun-Thur" },
-      { revenueAccount: "A361012", statAccount: "A961012", description: "Standard Retail Sun-Thur", category: "Sun-Thur" },
-      { revenueAccount: "A361013", statAccount: "A961013", description: "Spec Corp Sun-Thur", category: "Sun-Thur" },
-      { revenueAccount: "A361014", statAccount: "A961014", description: "Stay For Breakfast Sun-Thurs", category: "Sun-Thur" },
-      { revenueAccount: "A361015", statAccount: "A961015", description: "Oth Disc Sun-Thur", category: "Sun-Thur" },
-      { revenueAccount: "A361016", statAccount: "A961016", description: "Adv Purch Sun-Thu", category: "Sun-Thur" },
-      { revenueAccount: "A361017", statAccount: "A961017", description: "Wholesalr Sun-Thu", category: "Sun-Thur" },
-      { revenueAccount: "A361018", statAccount: "A961018", description: "Packages Sun-Thu", category: "Sun-Thur" },
-      { revenueAccount: "A361019", statAccount: "A961019", description: "Leisure Sun-Thu", category: "Sun-Thur" },
-      { revenueAccount: "A361020", statAccount: "A961020", description: "Weekend Sun-Thu", category: "Sun-Thur" },
-      { revenueAccount: "A361021", statAccount: "A961021", description: "Aaa Sun-Thurs", category: "Sun-Thur" },
-      { revenueAccount: "A361026", statAccount: "A961026", description: "Govt / Military Sun-Thur", category: "Sun-Thur" },
-      { revenueAccount: "A361027", statAccount: "A961027", description: "Senior Discount Sun-Thurs", category: "Sun-Thur" },
-      { revenueAccount: "A361028", statAccount: "A961028", description: "Travel Industry Sun-Thu", category: "Sun-Thur" },
-      { revenueAccount: "A361029", statAccount: "A961029", description: "Associate Leisure Sun-Thur", category: "Sun-Thur" },
-      { revenueAccount: "A361030", statAccount: "A961030", description: "Echannel Retail Sun-Thur", category: "Sun-Thur" },
-      { revenueAccount: "A361031", statAccount: "A961031", description: "Reward Redem/Upgrades Sun-Thur", category: "Sun-Thur" },
-      { revenueAccount: "A361032", statAccount: "A961032", description: "Natl Rooms Rev Sun-Thur", category: "Sun-Thur" },
-      { revenueAccount: "A361033", statAccount: "A961033", description: "Volume Rms Rev Sun Thurs", category: "Sun-Thur" },
-      { revenueAccount: "A361318", statAccount: "A961318", description: "Contract Sun-Thur", category: "Sun-Thur" },
-      { revenueAccount: "A361334", statAccount: "A961334", description: "Corp Grp Sun-Thur", category: "Groups" },
-      { revenueAccount: "A361335", statAccount: "A961335", description: "Assoc Grp Sun-Thur", category: "Groups" },
-      { revenueAccount: "A361336", statAccount: "A961336", description: "Other Grp Sun-Thur", category: "Groups" },
-      { revenueAccount: "A361337", statAccount: "A961337", description: "Tour Wholesale Grp Sun Thur", category: "Groups" },
-      { revenueAccount: "A361338", statAccount: "A961338", description: "Government Grp Sun Thurs", category: "Groups" },
-      { revenueAccount: "A361510", statAccount: "A961510", description: "Premium Retail Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361511", statAccount: "A961511", description: "Regular Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361512", statAccount: "A961512", description: "Standard Retail Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361513", statAccount: "A961513", description: "Spec Corp Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361514", statAccount: "A961514", description: "Stay For Breakfast Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361515", statAccount: "A961515", description: "Oth Disc Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361516", statAccount: "A961516", description: "Adv Purch Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361517", statAccount: "A961517", description: "Wholesaler Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361518", statAccount: "A961518", description: "Packages Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361519", statAccount: "A961519", description: "Leisure Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361520", statAccount: "A961520", description: "Weekend Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361521", statAccount: "A961521", description: "Aaa Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361526", statAccount: "A961526", description: "Govt / Military Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361527", statAccount: "A961527", description: "Senior Discount Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361528", statAccount: "A961528", description: "Travel Industry Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361529", statAccount: "A961529", description: "Associate Leisure Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361530", statAccount: "A961530", description: "Echannel Retail Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361531", statAccount: "A961531", description: "Reward Redem/Upgrades Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361533", statAccount: "A961533", description: "Volume Rms Rev Fri Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361601", statAccount: "A961601", description: "Assoc CMP Sun-Thu", category: "Complimentary" },
-      { revenueAccount: "A361602", statAccount: "A961602", description: "Assoc CMP Fri-Sat", category: "Complimentary" },
-      { revenueAccount: "A361603", statAccount: "A961603", description: "Corp CMP Sun-Thu", category: "Complimentary" },
-      { revenueAccount: "A361604", statAccount: "A961604", description: "Corp CMP Fri-Sat", category: "Complimentary" },
-      { revenueAccount: "A361607", statAccount: "A961607", description: "Other CMP Sun-Thu", category: "Complimentary" },
-      { revenueAccount: "A361608", statAccount: "A961608", description: "Other Cmp Fri-Sat", category: "Complimentary" },
-      { revenueAccount: "A361734", statAccount: "A961734", description: "Corp Grp Fri-Sat", category: "Groups" },
-      { revenueAccount: "A361735", statAccount: "A961735", description: "Assoc Grp Fri-Sat", category: "Groups" },
-      { revenueAccount: "A361736", statAccount: "A961736", description: "Other Grp Fri-Sat", category: "Groups" },
-      { revenueAccount: "A361737", statAccount: "A961737", description: "Tour Wholesales Grp Fri Sat", category: "Groups" },
-      { revenueAccount: "A361738", statAccount: "A961738", description: "Government Grp Fri Sat", category: "Groups" },
-      { revenueAccount: "A361818", statAccount: "A961818", description: "Contract Fri-Sat", category: "Fri-Sat" },
-      { revenueAccount: "A361532", statAccount: "A961532", description: "Natl Rooms Rev Fri-Sat", category: "Fri-Sat" },
+      // Sun-Thur Transient
+      { revenueAccount: "A361010", statAccount: "A961010", description: "Premium Retail Sun-Thur", category: "Sun-Thur", consolidatedName: "Premium Retail", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361011", statAccount: "A961011", description: "Regular Sun-Thur", category: "Sun-Thur", consolidatedName: "Regular", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361012", statAccount: "A961012", description: "Standard Retail Sun-Thur", category: "Sun-Thur", consolidatedName: "Standard Retail", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361013", statAccount: "A961013", description: "Spec Corp Sun-Thur", category: "Sun-Thur", consolidatedName: "Spec Corp", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361014", statAccount: "A961014", description: "Stay For Breakfast Sun-Thurs", category: "Sun-Thur", consolidatedName: "Stay For Breakfast", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361015", statAccount: "A961015", description: "Oth Disc Sun-Thur", category: "Sun-Thur", consolidatedName: "Oth Disc", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361016", statAccount: "A961016", description: "Adv Purch Sun-Thu", category: "Sun-Thur", consolidatedName: "Adv Purch", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361017", statAccount: "A961017", description: "Wholesalr Sun-Thu", category: "Sun-Thur", consolidatedName: "Wholesaler", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361018", statAccount: "A961018", description: "Packages Sun-Thu", category: "Sun-Thur", consolidatedName: "Packages", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361019", statAccount: "A961019", description: "Leisure Sun-Thu", category: "Sun-Thur", consolidatedName: "Leisure", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361020", statAccount: "A961020", description: "Weekend Sun-Thu", category: "Sun-Thur", consolidatedName: "Weekend", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361021", statAccount: "A961021", description: "Aaa Sun-Thurs", category: "Sun-Thur", consolidatedName: "Aaa", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361026", statAccount: "A961026", description: "Govt / Military Sun-Thur", category: "Sun-Thur", consolidatedName: "Govt / Military", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361027", statAccount: "A961027", description: "Senior Discount Sun-Thurs", category: "Sun-Thur", consolidatedName: "Senior Discount", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361028", statAccount: "A961028", description: "Travel Industry Sun-Thu", category: "Sun-Thur", consolidatedName: "Travel Industry", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361029", statAccount: "A961029", description: "Associate Leisure Sun-Thur", category: "Sun-Thur", consolidatedName: "Associate Leisure", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361030", statAccount: "A961030", description: "Echannel Retail Sun-Thur", category: "Sun-Thur", consolidatedName: "Echannel Retail", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361031", statAccount: "A961031", description: "Reward Redem/Upgrades Sun-Thur", category: "Sun-Thur", consolidatedName: "Reward Redem/Upgrades", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361032", statAccount: "A961032", description: "Natl Rooms Rev Sun-Thur", category: "Sun-Thur", consolidatedName: "Natl Rooms Rev", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361033", statAccount: "A961033", description: "Volume Rms Rev Sun Thurs", category: "Sun-Thur", consolidatedName: "Volume Rms Rev", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361318", statAccount: "A961318", description: "Contract Sun-Thur", category: "Sun-Thur", consolidatedName: "Contract", consolidatedCategory: "Transient" },
+      // Sun-Thur Groups
+      { revenueAccount: "A361334", statAccount: "A961334", description: "Corp Grp Sun-Thur", category: "Groups", consolidatedName: "Corp Grp", consolidatedCategory: "Groups" },
+      { revenueAccount: "A361335", statAccount: "A961335", description: "Assoc Grp Sun-Thur", category: "Groups", consolidatedName: "Assoc Grp", consolidatedCategory: "Groups" },
+      { revenueAccount: "A361336", statAccount: "A961336", description: "Other Grp Sun-Thur", category: "Groups", consolidatedName: "Other Grp", consolidatedCategory: "Groups" },
+      { revenueAccount: "A361337", statAccount: "A961337", description: "Tour Wholesale Grp Sun Thur", category: "Groups", consolidatedName: "Tour Wholesale Grp", consolidatedCategory: "Groups" },
+      { revenueAccount: "A361338", statAccount: "A961338", description: "Government Grp Sun Thurs", category: "Groups", consolidatedName: "Government Grp", consolidatedCategory: "Groups" },
+      // Fri-Sat Transient
+      { revenueAccount: "A361510", statAccount: "A961510", description: "Premium Retail Fri-Sat", category: "Fri-Sat", consolidatedName: "Premium Retail", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361511", statAccount: "A961511", description: "Regular Fri-Sat", category: "Fri-Sat", consolidatedName: "Regular", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361512", statAccount: "A961512", description: "Standard Retail Fri-Sat", category: "Fri-Sat", consolidatedName: "Standard Retail", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361513", statAccount: "A961513", description: "Spec Corp Fri-Sat", category: "Fri-Sat", consolidatedName: "Spec Corp", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361514", statAccount: "A961514", description: "Stay For Breakfast Fri-Sat", category: "Fri-Sat", consolidatedName: "Stay For Breakfast", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361515", statAccount: "A961515", description: "Oth Disc Fri-Sat", category: "Fri-Sat", consolidatedName: "Oth Disc", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361516", statAccount: "A961516", description: "Adv Purch Fri-Sat", category: "Fri-Sat", consolidatedName: "Adv Purch", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361517", statAccount: "A961517", description: "Wholesaler Fri-Sat", category: "Fri-Sat", consolidatedName: "Wholesaler", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361518", statAccount: "A961518", description: "Packages Fri-Sat", category: "Fri-Sat", consolidatedName: "Packages", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361519", statAccount: "A961519", description: "Leisure Fri-Sat", category: "Fri-Sat", consolidatedName: "Leisure", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361520", statAccount: "A961520", description: "Weekend Fri-Sat", category: "Fri-Sat", consolidatedName: "Weekend", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361521", statAccount: "A961521", description: "Aaa Fri-Sat", category: "Fri-Sat", consolidatedName: "Aaa", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361526", statAccount: "A961526", description: "Govt / Military Fri-Sat", category: "Fri-Sat", consolidatedName: "Govt / Military", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361527", statAccount: "A961527", description: "Senior Discount Fri-Sat", category: "Fri-Sat", consolidatedName: "Senior Discount", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361528", statAccount: "A961528", description: "Travel Industry Fri-Sat", category: "Fri-Sat", consolidatedName: "Travel Industry", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361529", statAccount: "A961529", description: "Associate Leisure Fri-Sat", category: "Fri-Sat", consolidatedName: "Associate Leisure", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361530", statAccount: "A961530", description: "Echannel Retail Fri-Sat", category: "Fri-Sat", consolidatedName: "Echannel Retail", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361531", statAccount: "A961531", description: "Reward Redem/Upgrades Fri-Sat", category: "Fri-Sat", consolidatedName: "Reward Redem/Upgrades", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361533", statAccount: "A961533", description: "Volume Rms Rev Fri Sat", category: "Fri-Sat", consolidatedName: "Volume Rms Rev", consolidatedCategory: "Transient" },
+      // Complimentary
+      { revenueAccount: "A361601", statAccount: "A961601", description: "Assoc CMP Sun-Thu", category: "Complimentary", consolidatedName: "Assoc CMP", consolidatedCategory: "Complimentary" },
+      { revenueAccount: "A361602", statAccount: "A961602", description: "Assoc CMP Fri-Sat", category: "Complimentary", consolidatedName: "Assoc CMP", consolidatedCategory: "Complimentary" },
+      { revenueAccount: "A361603", statAccount: "A961603", description: "Corp CMP Sun-Thu", category: "Complimentary", consolidatedName: "Corp CMP", consolidatedCategory: "Complimentary" },
+      { revenueAccount: "A361604", statAccount: "A961604", description: "Corp CMP Fri-Sat", category: "Complimentary", consolidatedName: "Corp CMP", consolidatedCategory: "Complimentary" },
+      { revenueAccount: "A361607", statAccount: "A961607", description: "Other CMP Sun-Thu", category: "Complimentary", consolidatedName: "Other CMP", consolidatedCategory: "Complimentary" },
+      { revenueAccount: "A361608", statAccount: "A961608", description: "Other Cmp Fri-Sat", category: "Complimentary", consolidatedName: "Other CMP", consolidatedCategory: "Complimentary" },
+      // Fri-Sat Groups
+      { revenueAccount: "A361734", statAccount: "A961734", description: "Corp Grp Fri-Sat", category: "Groups", consolidatedName: "Corp Grp", consolidatedCategory: "Groups" },
+      { revenueAccount: "A361735", statAccount: "A961735", description: "Assoc Grp Fri-Sat", category: "Groups", consolidatedName: "Assoc Grp", consolidatedCategory: "Groups" },
+      { revenueAccount: "A361736", statAccount: "A961736", description: "Other Grp Fri-Sat", category: "Groups", consolidatedName: "Other Grp", consolidatedCategory: "Groups" },
+      { revenueAccount: "A361737", statAccount: "A961737", description: "Tour Wholesales Grp Fri Sat", category: "Groups", consolidatedName: "Tour Wholesale Grp", consolidatedCategory: "Groups" },
+      { revenueAccount: "A361738", statAccount: "A961738", description: "Government Grp Fri Sat", category: "Groups", consolidatedName: "Government Grp", consolidatedCategory: "Groups" },
+      // Fri-Sat extras
+      { revenueAccount: "A361818", statAccount: "A961818", description: "Contract Fri-Sat", category: "Fri-Sat", consolidatedName: "Contract", consolidatedCategory: "Transient" },
+      { revenueAccount: "A361532", statAccount: "A961532", description: "Natl Rooms Rev Fri-Sat", category: "Fri-Sat", consolidatedName: "Natl Rooms Rev", consolidatedCategory: "Transient" },
     ];
 
     // Get all unique accounts we need
@@ -5711,6 +6294,8 @@ export async function getRoomSegmentExportData(
       results.push({
         description: segment.description,
         category: segment.category,
+        consolidatedName: segment.consolidatedName,
+        consolidatedCategory: segment.consolidatedCategory,
         revenueActuals: Number(revenueData.actuals) || 0,
         revenueBudget: Number(revenueData.budget) || 0,
         revenueLy: Number(revenueData.ly) || 0,

@@ -1687,7 +1687,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     ]
   },
 
-  // F90 P&L - Miscellaneous Income Profit (Dry Cleaning)
+  // F90 P&L - Miscellaneous Income Profit
   misc_income_profit_act: {
     id: 'misc_income_profit_act',
     formula: 'CALCULATE',
@@ -1696,7 +1696,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
       { type: 'dept_level', level: 2, value: 'Lodging Operations' },
       { type: 'dept_level', level: 4, value: 'Operating Departments' },
       { type: 'dept_level', level: 7, value: 'Other Operated Departments' },
-      { type: 'dept_level', level: 10, value: 'Dry Cleaning' },
+      { type: 'dept_level', level: 10, value: 'Miscellaneous Income' },
       { type: 'acc_level', level: 1, value: 'EBITDA' },
       { type: 'acc_level', level: 4, value: 'Profit Amount' }
     ]
@@ -1710,7 +1710,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
       { type: 'dept_level', level: 2, value: 'Lodging Operations' },
       { type: 'dept_level', level: 4, value: 'Operating Departments' },
       { type: 'dept_level', level: 7, value: 'Other Operated Departments' },
-      { type: 'dept_level', level: 10, value: 'Dry Cleaning' },
+      { type: 'dept_level', level: 10, value: 'Miscellaneous Income' },
       { type: 'acc_level', level: 1, value: 'EBITDA' },
       { type: 'acc_level', level: 4, value: 'Profit Amount' }
     ]
@@ -1724,7 +1724,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
       { type: 'dept_level', level: 2, value: 'Lodging Operations' },
       { type: 'dept_level', level: 4, value: 'Operating Departments' },
       { type: 'dept_level', level: 7, value: 'Other Operated Departments' },
-      { type: 'dept_level', level: 10, value: 'Dry Cleaning' },
+      { type: 'dept_level', level: 10, value: 'Miscellaneous Income' },
       { type: 'acc_level', level: 1, value: 'EBITDA' },
       { type: 'acc_level', level: 4, value: 'Profit Amount' }
     ]
@@ -1739,7 +1739,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
       { type: 'dept_level', level: 2, value: 'Lodging Operations' },
       { type: 'dept_level', level: 4, value: 'Operating Departments' },
       { type: 'dept_level', level: 7, value: 'Other Operated Departments' },
-      { type: 'dept_level', level: 10, value: 'Miscellaneous Income' },
+      { type: 'dept_level', level: 10, value: 'Dry Cleaning' },
       { type: 'acc_level', level: 1, value: 'EBITDA' },
       { type: 'acc_level', level: 4, value: 'Profit Amount' }
     ]
@@ -1753,7 +1753,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
       { type: 'dept_level', level: 2, value: 'Lodging Operations' },
       { type: 'dept_level', level: 4, value: 'Operating Departments' },
       { type: 'dept_level', level: 7, value: 'Other Operated Departments' },
-      { type: 'dept_level', level: 10, value: 'Miscellaneous Income' },
+      { type: 'dept_level', level: 10, value: 'Dry Cleaning' },
       { type: 'acc_level', level: 1, value: 'EBITDA' },
       { type: 'acc_level', level: 4, value: 'Profit Amount' }
     ]
@@ -1767,7 +1767,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
       { type: 'dept_level', level: 2, value: 'Lodging Operations' },
       { type: 'dept_level', level: 4, value: 'Operating Departments' },
       { type: 'dept_level', level: 7, value: 'Other Operated Departments' },
-      { type: 'dept_level', level: 10, value: 'Miscellaneous Income' },
+      { type: 'dept_level', level: 10, value: 'Dry Cleaning' },
       { type: 'acc_level', level: 1, value: 'EBITDA' },
       { type: 'acc_level', level: 4, value: 'Profit Amount' }
     ]
@@ -1862,7 +1862,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     ]
   },
 
-  // F90 P&L - Total Other Departments Profit
+  // F90 P&L - Total Other Departments Profit (Other Profit Departments + Dry Cleaning)
   total_other_dept_profit_act: {
     id: 'total_other_dept_profit_act',
     formula: 'CALCULATE',
@@ -1871,7 +1871,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
       { type: 'dept_level', level: 2, value: 'Lodging Operations' },
       { type: 'dept_level', level: 4, value: 'Operating Departments' },
       { type: 'dept_level', level: 7, value: 'Other Operated Departments' },
-      { type: 'dept_level', level: 10, value: 'Other Profit Departments' },
+      { type: 'dept_level', level: 10, value: ['Other Profit Departments', 'Dry Cleaning'] },
       { type: 'acc_level', level: 1, value: 'EBITDA' },
       { type: 'acc_level', level: 4, value: 'Profit Amount' }
     ]

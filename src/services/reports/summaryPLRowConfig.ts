@@ -3,6 +3,17 @@ import { PLRow } from '../../types/plReportTypes';
 // ============================================================================
 // SUMMARY P&L ROW CONFIGURATION
 // Defines the structure and ordering of the Summary P&L report
+//
+// SIGN CONVENTION NOTES:
+// - Revenue/profit sub-measures use negate:true in plMeasureDefinitions, which
+//   converts negative DB credits to positive display values.  No invertSign
+//   is needed for these rows — values are already positive.
+// - Expense sub-measures do NOT use negate:true; they are positive DB debits
+//   that come through as positive values.  Again, no data sign change needed.
+// - invertSign:true on expense rows here does NOT invert the displayed value
+//   (unlike F90).  It is used solely as a signal so the engine can set
+//   invertVariance:true, which tells the UI to colour positive variances RED
+//   (over-spend vs budget/LY is bad from a management perspective).
 // ============================================================================
 
 export const SUMMARY_PL_ROW_CONFIG: PLRow[] = [
@@ -46,23 +57,24 @@ export const SUMMARY_PL_ROW_CONFIG: PLRow[] = [
   // SPACING
   { type: 'header', label: '', indentLevel: 0 },
 
-  // UOE DETAILS - INDENTED
-  { type: 'measure', label: 'Administrative & General w/o CC', measureId: 'admin_wo_cc_act_sy', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Credit Card Expense (CC)', measureId: 'cc_expense_act_sy_measure', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'IT & Telephone', measureId: 'it_and_telecom_act_sy_measure', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Energy, Water & Waste', measureId: 'utilities_act_sy_measure', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Property Operation & Maintenance', measureId: 'pom_act_sy_measure', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Sales & Marketing', measureId: 'sales_act_sy_measure', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Other UOE', measureId: 'other_uoe_act_sy_measure', formatting: 'number', indentLevel: 1 },
+  // UOE DETAILS - INDENTED (debit-balance: invertSign signals variance inversion, not data flip)
+  { type: 'measure', label: 'Administrative & General w/o CC', measureId: 'admin_wo_cc_act_sy', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Credit Card Expense (CC)', measureId: 'cc_expense_act_sy_measure', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'IT & Telephone', measureId: 'it_and_telecom_act_sy_measure', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Energy, Water & Waste', measureId: 'utilities_act_sy_measure', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Property Operation & Maintenance', measureId: 'pom_act_sy_measure', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Sales & Marketing', measureId: 'sales_act_sy_measure', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Other UOE', measureId: 'other_uoe_act_sy_measure', formatting: 'number', indentLevel: 1, invertSign: true },
 
   // SPACING
   { type: 'header', label: '', indentLevel: 0 },
 
-  // TOTALS - BOLD
-  { type: 'header', label: 'Total UOE', measureId: 'total_uoe_act_sy', formatting: 'number', indentLevel: 0 },
-  { type: 'header', label: 'Total Payroll', measureId: 'total_payroll_act_sy_measure', formatting: 'number', indentLevel: 0 },
-  { type: 'header', label: 'Payroll % per Total Revenue', measureId: 'payroll_pct_revenue_act_sy', formatting: 'percentage', indentLevel: 0 },
-  { type: 'header', label: 'Travel Agent Commission Cost', measureId: 'ta_commission_act_sy_measure', formatting: 'number', indentLevel: 0 },
-  { type: 'header', label: 'Room CPOR', measureId: 'cpsr_act', formatting: 'number', indentLevel: 0 },
+  // TOTALS - BOLD (expense/cost rows: invertSign signals variance inversion only)
+  { type: 'header', label: 'Total UOE', measureId: 'total_uoe_act_sy', formatting: 'number', indentLevel: 0, invertSign: true },
+  { type: 'header', label: 'Total Payroll', measureId: 'total_payroll_act_sy_measure', formatting: 'number', indentLevel: 0, invertSign: true },
+  { type: 'header', label: 'Payroll % per Total Revenue', measureId: 'payroll_pct_revenue_act_sy', formatting: 'percentage', indentLevel: 0, invertSign: true },
+  { type: 'header', label: 'Travel Agent Commission Cost', measureId: 'ta_commission_act_sy_measure', formatting: 'number', indentLevel: 0, invertSign: true },
+  { type: 'header', label: 'Room CPOR', measureId: 'cpsr_act', formatting: 'number', indentLevel: 0, invertSign: true },
+  // Net Operating Income — credit-balance (higher = good), no invertSign
   { type: 'header', label: 'Net Operating Income', measureId: 'noi_act_sy', formatting: 'number', indentLevel: 0 },
 ];

@@ -3,10 +3,18 @@ import { PLRow } from '../../types/plReportTypes';
 // ============================================================================
 // F90 P&L ROW CONFIGURATION
 // Defines the structure and ordering of the F90 P&L report
+//
+// SIGN CONVENTION RULES:
+// - Credit-balance accounts (revenue, profit, EBITDA, GOP): sub-measures already
+//   have negate:true which converts the negative DB credit to a positive display
+//   value.  Do NOT add invertSign here — that would double-negate back to negative.
+// - Debit-balance accounts (operating expenses, management fees): stored as
+//   positive debits in the DB.  Sub-measures have negate:true which flips them
+//   negative, so invertSign:true IS needed here to restore a positive display value.
 // ============================================================================
 
 export const F90_PL_ROW_CONFIG: PLRow[] = [
-  // Sales Section
+  // Sales Section — credit-balance accounts, no invertSign needed
   { type: 'header', label: 'SALES', indentLevel: 0 },
   { type: 'measure', label: 'Rooms and Reservations', measureId: 'rooms_reservations_revenue', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Gift Shops', measureId: 'gift_shop_revenue', formatting: 'number', indentLevel: 1 },
@@ -29,7 +37,9 @@ export const F90_PL_ROW_CONFIG: PLRow[] = [
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
 
-  // Department Profit Section
+  // Department Profit Section — net of revenue credits and expense debits; the net
+  // is a credit when profitable, so negate:true in the sub-measure already gives a
+  // positive value.  No invertSign needed.
   { type: 'header', label: 'DEPARTMENT PROFIT', measureId: 'department_profit', formatting: 'number', indentLevel: 0 },
   { type: 'measure', label: 'Rooms and Reservations', measureId: 'rooms_reservations_profit', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Gift Shops', measureId: 'gift_shop_profit', formatting: 'number', indentLevel: 1 },
@@ -52,43 +62,45 @@ export const F90_PL_ROW_CONFIG: PLRow[] = [
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
 
-  // Undistributed Operating Expenses
+  // Undistributed Operating Expenses — debit-balance accounts stored as positive in
+  // the DB.  negate:true in the sub-measure flips them negative, so invertSign:true
+  // IS required here to restore a positive display value.
   { type: 'header', label: 'UNDISTRIBUTED OPERATING EXPENSES', indentLevel: 0 },
-  { type: 'measure', label: 'Administrative and General', measureId: 'admin_general_expense', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Human Resources', measureId: 'human_resources_expense', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Loss Prevention', measureId: 'loss_prevention_expense', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Accounting', measureId: 'accounting_expense', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'ADMINISTRATIVE & GENERAL', measureId: 'admin_general_dept_expense', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Information & Telecom Systems', measureId: 'info_telecom_systems_expense', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Utilities', measureId: 'utilities_expense', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Property Operation & Maint', measureId: 'property_operation_maint_expense', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Sales & Marketing', measureId: 'sales_marketing_expense', formatting: 'number', indentLevel: 1 },
-  { type: 'header', label: 'TOTAL UNDISTRIBUTED OP EXP', measureId: 'total_undist_op_exp', formatting: 'number', indentLevel: 0 },
+  { type: 'measure', label: 'Administrative and General', measureId: 'admin_general_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Human Resources', measureId: 'human_resources_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Loss Prevention', measureId: 'loss_prevention_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Accounting', measureId: 'accounting_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'ADMINISTRATIVE & GENERAL', measureId: 'admin_general_dept_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Information & Telecom Systems', measureId: 'info_telecom_systems_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Utilities', measureId: 'utilities_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Property Operation & Maint', measureId: 'property_operation_maint_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Sales & Marketing', measureId: 'sales_marketing_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'header', label: 'TOTAL UNDISTRIBUTED OP EXP', measureId: 'total_undist_op_exp', formatting: 'number', indentLevel: 0, invertSign: true },
 
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
 
-  // Gross Operating Profit
+  // Gross Operating Profit — credit-balance account, no invertSign needed
   { type: 'header', label: 'GROSS OPERATING PROFIT', measureId: 'gross_operating_profit', formatting: 'number', indentLevel: 0 },
 
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
 
-  // Management Fees
+  // Management Fees — debit-balance accounts (same as expenses), invertSign:true needed
   { type: 'header', label: 'MANAGEMENT FEES', indentLevel: 0 },
-  { type: 'measure', label: 'Base Management Fee', measureId: 'base_mgmt_fee', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Incentive Management Fee', measureId: 'incentive_mgmt_fee', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Base Management Fee', measureId: 'base_mgmt_fee', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Incentive Management Fee', measureId: 'incentive_mgmt_fee', formatting: 'number', indentLevel: 1, invertSign: true },
 
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
 
-  // EBITDA
+  // EBITDA — credit-balance account, no invertSign needed
   { type: 'header', label: 'EBITDA', measureId: 'ebitda', formatting: 'number', indentLevel: 0 },
 
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
 
-  // Net Due To/(From) Owner
+  // Net Due To/(From) Owner — credit-balance account, no invertSign needed
   { type: 'measure', label: 'NET DUE TO/(FROM) OWNER', measureId: 'net_due_owner', formatting: 'number', indentLevel: 0 },
 
   // Spacing
@@ -99,6 +111,8 @@ export const F90_PL_ROW_CONFIG: PLRow[] = [
   { type: 'measure', label: 'Total Rooms', measureId: 'total_rooms', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Rooms SOLD', measureId: 'sold_rooms', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Total Occupancy', measureId: 'occupancy_rooms_act_sy', formatting: 'percentage', indentLevel: 1 },
+  // ADR and RevPAR are derived from revenue sub-measures (already positive after negate:true),
+  // so no invertSign needed.
   { type: 'measure', label: 'Average Rate', measureId: 'adr_act_sy', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Room REVPAR', measureId: 'rev_par_act_sy', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Total REVPAR', measureId: 'all_rev_par_act_sy', formatting: 'number', indentLevel: 1 },
@@ -106,7 +120,7 @@ export const F90_PL_ROW_CONFIG: PLRow[] = [
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
 
-  // Cost of Sales Percentages
+  // Cost of Sales Percentages — ratios, no sign inversion needed
   { type: 'measure', label: '% Food COS', measureId: 'food_cost_pct_sales', formatting: 'percentage', indentLevel: 1 },
   { type: 'measure', label: '% Beverage COS', measureId: 'bev_cost_pct_sales', formatting: 'percentage', indentLevel: 1 }
 ];

@@ -346,6 +346,10 @@ export function calculateSummaryPLRows(
     }
 
     // Has measureId - calculate values regardless of type (header or measure)
+    // Note: unlike F90, data values are NOT sign-flipped here — expense
+    // sub-measures carry no negate flag and are already positive debits.
+    // invertSign on a row signals variance-colour inversion only (set via
+    // invertVariance on the result so the UI can colour accordingly).
     const actuals = evaluateMeasure(measureId, actualsSubMeasures, 'ACT');
     const budget = evaluateMeasure(measureId, budgetSubMeasures, 'BUD');
     const ly = evaluateMeasure(measureId, lySubMeasures, 'PY1');
@@ -367,7 +371,8 @@ export function calculateSummaryPLRows(
       ly,
       vs_ly,
       vs_ly_pct,
-      formatting: rowConfig.formatting || 'number'
+      formatting: rowConfig.formatting || 'number',
+      invertVariance: !!rowConfig.invertSign
     });
   });
 
@@ -414,9 +419,11 @@ export function calculateF90PLRows(
     }
 
     // Has measureId - calculate values regardless of type (header or measure)
-    const actuals = evaluateMeasure(measureId, actualsSubMeasures, 'ACT');
-    const budget = evaluateMeasure(measureId, budgetSubMeasures, 'BUD');
-    const ly = evaluateMeasure(measureId, lySubMeasures, 'PY1');
+    // Apply sign inversion for revenue (credits) and expense (debits) lines
+    const sign = rowConfig.invertSign ? -1 : 1;
+    const actuals = evaluateMeasure(measureId, actualsSubMeasures, 'ACT') * sign;
+    const budget = evaluateMeasure(measureId, budgetSubMeasures, 'BUD') * sign;
+    const ly = evaluateMeasure(measureId, lySubMeasures, 'PY1') * sign;
 
     const vs_bud = calculateVariance(actuals, budget);
     const vs_bud_pct = calculateVariancePercent(actuals, budget);
@@ -435,7 +442,8 @@ export function calculateF90PLRows(
       ly,
       vs_ly,
       vs_ly_pct,
-      formatting: rowConfig.formatting || 'number'
+      formatting: rowConfig.formatting || 'number',
+      invertVariance: !!rowConfig.invertSign
     });
   });
 
