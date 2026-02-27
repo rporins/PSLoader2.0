@@ -54,7 +54,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
       setTimeout(() => {
         setStatus((currentStatus) => {
           if (currentStatus === 'downloading') {
-            // Still downloading after 60 seconds - assume it completed silently
+            // Still downloading after 10 minutes - assume it completed silently
             setDownloadProgress(100);
             setUpdateInstalled(true);
             setMessage(`Version ${info.version} ready to install`);
@@ -71,7 +71,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
           }
           return currentStatus;
         });
-      }, 60000); // 60 second timeout for download
+      }, 600000); // 10 minute timeout for download
     };
 
     const handleUpdateNotAvailable = () => {
@@ -410,7 +410,9 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
             gap: '16px',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div className="pulse-ring" style={{ width: '32px', height: '32px' }} />
+              <div style={{ position: 'relative', width: '32px', height: '32px', flexShrink: 0 }}>
+                <div className="pulse-ring" />
+              </div>
               <span style={{ fontWeight: 500 }}>Downloading update...</span>
             </div>
             <div style={{
@@ -444,7 +446,9 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
             justifyContent: 'center',
             gap: '12px',
           }}>
-            <div className="pulse-ring" style={{ width: '32px', height: '32px' }} />
+            <div style={{ position: 'relative', width: '32px', height: '32px', flexShrink: 0 }}>
+              <div className="pulse-ring" />
+            </div>
             <span style={{ fontWeight: 500 }}>Installing update...</span>
           </div>
         )}

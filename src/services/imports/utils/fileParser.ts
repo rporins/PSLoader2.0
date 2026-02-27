@@ -43,6 +43,9 @@ export interface FileParserOptions {
 
   /** Custom column mapping */
   columnMapping?: Record<string, string>;
+
+  /** Skip records with inconsistent column counts instead of throwing (e.g. report footer rows) */
+  relaxColumnCount?: boolean;
 }
 
 /**
@@ -81,7 +84,7 @@ export async function parseCSVFile(
       trim: options.trim !== false,
       delimiter: options.delimiter || ',',
       relax_quotes: true,
-      skip_records_with_error: false
+      skip_records_with_error: options.relaxColumnCount || false
     };
 
     // Add row limit if specified

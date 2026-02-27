@@ -104,7 +104,8 @@ export class OperaRoomSegImportProcessor extends BaseImportProcessor {
       return parseFile(filePath, fileType, {
         delimiter: '\t',
         encoding: options?.encoding,
-        limit: options?.previewRows
+        limit: options?.previewRows,
+        relaxColumnCount: true
       });
     }
     return super.getParsedFile(filePath, fileType, options);
@@ -258,7 +259,7 @@ export class OperaRoomSegImportProcessor extends BaseImportProcessor {
   }
 
   /**
-   * Parse Excel date (can be Date object, string DD/MM/YYYY, or Excel serial number)
+   * Parse Excel date (can be Date object, string DD/MM/YYYY, DD-MMM-YY, or Excel serial number)
    */
   private parseExcelDate(dateField: any): Date | null {
     if (!dateField) return null;
@@ -276,6 +277,23 @@ export class OperaRoomSegImportProcessor extends BaseImportProcessor {
         const year = parseInt(dateMatch[3], 10);
         return new Date(year, month, day);
       }
+
+      // Try DD-MMM-YY format (e.g. 01-FEB-26)
+      const monthNames: Record<string, number> = {
+        JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5,
+        JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11
+      };
+      const shortDateMatch = dateField.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2})$/);
+      if (shortDateMatch) {
+        const day = parseInt(shortDateMatch[1], 10);
+        const monthIdx = monthNames[shortDateMatch[2].toUpperCase()];
+        const shortYear = parseInt(shortDateMatch[3], 10);
+        if (monthIdx !== undefined) {
+          const year = shortYear >= 50 ? 1900 + shortYear : 2000 + shortYear;
+          return new Date(year, monthIdx, day);
+        }
+      }
+
       return null;
     }
 
