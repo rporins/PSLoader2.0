@@ -2,7 +2,7 @@
  * OPERA ROOM SEGMENT IMPORT PROCESSOR
  * ====================================
  *
- * Import processor for Opera Room Segment data from Excel files.
+ * Import processor for Opera Room Segment data from Opera export files (tab-delimited text or Excel).
  * Replaces the old ACCPAC Room Revenue import.
  * Mapping ID: 12
  *
@@ -26,6 +26,7 @@ import {
   ImportOptions,
   ParsedFile
 } from '../core/interfaces';
+import { parseFile } from '../utils/fileParser';
 import * as db from '../../../local_db';
 
 /**
@@ -55,7 +56,7 @@ export class OperaRoomSegImportProcessor extends BaseImportProcessor {
     category: 'Opera',
 
     // File formats this processor can handle
-    supportedFormats: ['xlsx'],
+    supportedFormats: ['txt', 'csv', 'xlsx'],
 
     // Whether this import is required for system operation
     required: true,
@@ -76,7 +77,7 @@ export class OperaRoomSegImportProcessor extends BaseImportProcessor {
 
     // Validation rules shown to users
     validationRules: [
-      'Excel file must contain all required columns: BUSINESS_DATE, MARKET_CODE, NIGHTS, ROOM_REVENUE',
+      'File must contain all required columns: BUSINESS_DATE, MARKET_CODE, NIGHTS, ROOM_REVENUE',
       'Rows with empty NIGHTS and ROOM_REVENUE will be skipped (metadata rows)',
       'BUSINESS_DATE must be valid dates within the selected import month',
       'Market codes are suffixed with _WD (weekday) or _WE (weekend) based on the date'
@@ -88,6 +89,26 @@ export class OperaRoomSegImportProcessor extends BaseImportProcessor {
     // Version of this processor
     version: '1.0.0'
   };
+
+  /**
+   * Override file parsing to use tab delimiter for text-based files (txt/csv).
+   * Opera exports tab-delimited data, so we force '\t' for non-Excel formats.
+   */
+  protected async getParsedFile(
+    filePath: string,
+    fileType: string,
+    options?: ImportOptions
+  ): Promise<ParsedFile> {
+    const ext = fileType.toLowerCase().replace('.', '');
+    if (ext === 'txt' || ext === 'csv') {
+      return parseFile(filePath, fileType, {
+        delimiter: '\t',
+        encoding: options?.encoding,
+        limit: options?.previewRows
+      });
+    }
+    return super.getParsedFile(filePath, fileType, options);
+  }
 
   /**
    * STEP 2: CUSTOMIZE VALIDATION
