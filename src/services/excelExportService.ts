@@ -31,6 +31,12 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 // STYLING HELPERS
 // ============================================================================
 
+// Tab color scheme for worksheet tabs
+const TAB_COLOR_REPORT: Partial<ExcelJS.Color> = { argb: 'FF1E3A5F' };    // Dark blue - F90, Room Segments
+const TAB_COLOR_HOTEL_TOTAL: Partial<ExcelJS.Color> = { argb: 'FF4A4A4A' }; // Dark charcoal - Hotel Total
+const TAB_COLOR_GROUP_SUMMARY: Partial<ExcelJS.Color> = { argb: 'FF2D5F8A' }; // Medium navy - Group summaries
+const TAB_COLOR_DEPARTMENT: Partial<ExcelJS.Color> = { argb: 'FF8899AA' };   // Blue-gray - Individual departments
+
 const HEADER_FILL: ExcelJS.Fill = {
   type: 'pattern',
   pattern: 'solid',
@@ -251,9 +257,17 @@ function getRangeLabel(
 class ExcelExportService {
   private accpacDescriptions: Map<string, string[]> = new Map();
 
+  /** Registry of sheets and group headers for the cover page TOC */
+  private sheetRegistry: Array<{
+    type: 'sheet' | 'groupHeader';
+    sheetName: string;
+    groupName?: string;
+    indent: boolean;
+  }> = [];
+
   /**
    * Main entry point - generates the complete Excel report
-   * Sheet order: F90 Report -> Room Segments -> Department tabs
+   * Sheet order: Contents -> F90 Report -> Room Segments -> Hotel Total -> Department tabs
    */
   async generateReport(config: ExcelExportConfig, savePath: string): Promise<void> {
     const workbook = new ExcelJS.Workbook();
@@ -261,6 +275,9 @@ class ExcelExportService {
     workbook.creator = 'PS Loader';
     workbook.created = new Date();
     workbook.modified = new Date();
+
+    // Reset sheet registry for this report
+    this.sheetRegistry = [];
 
     // Build AccPac description lookup once (used by Hotel Total and all department sheets)
     this.accpacDescriptions.clear();
@@ -276,17 +293,26 @@ class ExcelExportService {
       }
     }
 
-    // 1. Create F90 Report worksheet (first tab)
+    // 1. Create F90 Report worksheet
     await this.createF90Worksheet(workbook, config);
+    this.sheetRegistry.push({ type: 'sheet', sheetName: 'F90 Report', indent: false });
 
-    // 2. Create Room Segments worksheet (second tab)
+    // 2. Create Room Segments worksheet
     await this.createRoomSegmentWorksheet(workbook, config);
+    this.sheetRegistry.push({ type: 'sheet', sheetName: 'Room Segments', indent: false });
 
-    // 3. Create Hotel Total worksheet (third tab, all departments aggregated)
+    // 3. Fetch departments once -- used by department tabs
+    const departments = await db.getDepartmentsWithDataForOU(config.ou, config.version);
+
+    // 4. Create Hotel Total worksheet (queries all Lodging Operations departments directly)
     await this.createHotelTotalWorksheet(workbook, config);
+    this.sheetRegistry.push({ type: 'sheet', sheetName: 'HOTEL TOTAL', indent: false });
 
-    // 4. Create Department worksheets (remaining tabs)
-    await this.createDepartmentWorksheets(workbook, config);
+    // 5. Create Department worksheets (using pre-fetched departments)
+    await this.createDepartmentWorksheets(workbook, config, departments);
+
+    // 6. Create Cover Page (last to build, positioned first via orderNo)
+    this.createCoverPageWorksheet(workbook, config);
 
     // Save the workbook
     await workbook.xlsx.writeFile(savePath);
@@ -299,7 +325,7 @@ class ExcelExportService {
     workbook: ExcelJS.Workbook,
     config: ExcelExportConfig
   ): Promise<void> {
-    const sheet = workbook.addWorksheet('F90 Report');
+    const sheet = workbook.addWorksheet('F90 Report', { properties: { tabColor: TAB_COLOR_REPORT } });
 
     // Set column widths
     sheet.columns = [
@@ -416,7 +442,7 @@ class ExcelExportService {
     workbook: ExcelJS.Workbook,
     config: ExcelExportConfig
   ): Promise<void> {
-    // Fetch hotel-wide totals for month and range
+    // Fetch hotel-wide totals across all Lodging Operations departments
     const [monthDetailData, rangeDetailData] = await Promise.all([
       db.getAllDepartmentDetailData(
         config.ou,
@@ -446,7 +472,7 @@ class ExcelExportService {
       )
     ]);
 
-    const sheet = workbook.addWorksheet('HOTEL TOTAL');
+    const sheet = workbook.addWorksheet('HOTEL TOTAL', { properties: { tabColor: TAB_COLOR_HOTEL_TOTAL } });
     const totalCols = 13;
 
     sheet.columns = [
@@ -513,11 +539,9 @@ class ExcelExportService {
    */
   private async createDepartmentWorksheets(
     workbook: ExcelJS.Workbook,
-    config: ExcelExportConfig
+    config: ExcelExportConfig,
+    departments: Array<{ baseDepartment: string; departmentName: string; level7Group: string | null }>
   ): Promise<void> {
-    // Get departments with level_7 grouping info (pre-sorted by level_7_group, department_name)
-    const departments = await db.getDepartmentsWithDataForOU(config.ou, config.version);
-
     // Group departments by level_7
     const groupMap = new Map<string, typeof departments>();
     for (const dept of departments) {
@@ -549,6 +573,9 @@ class ExcelExportService {
       const isFnB = groupName === 'Total Food & Beverage';
       const perUnitLabel = isFnB ? 'Per Cover' : 'Per Room';
 
+      // Register group header in TOC for every group (including singletons)
+      this.sheetRegistry.push({ type: 'groupHeader', sheetName: '', groupName, indent: false });
+
       // Determine per-unit denominators
       let monthDenom: db.PerUnitDenominator;
       let rangeDenom: db.PerUnitDenominator;
@@ -573,18 +600,60 @@ class ExcelExportService {
         rangeDenom = rangeRoomsSold;
       }
 
-      // Create group summary sheet for multi-department groups
       if (isMultiDeptGroup) {
-        await this.createGroupSummaryWorksheet(
+        // Create group summary sheet for multi-department groups
+        const summaryName = await this.createGroupSummaryWorksheet(
           workbook, config, groupName, groupDepts, usedSheetNames,
           perUnitLabel, monthDenom, rangeDenom
         );
-      }
+        if (summaryName) {
+          this.sheetRegistry.push({ type: 'sheet', sheetName: summaryName, indent: true });
+        }
 
-      // Create individual department detail sheets
-      for (const dept of groupDepts) {
-        // For individual F&B departments, use that department's own volume
-        // Kitchen departments (D019*) don't generate covers — use total F&B volume instead
+        // Create individual department detail sheets
+        for (const dept of groupDepts) {
+          // For individual F&B departments, use that department's own volume
+          // Kitchen departments (D019*) don't generate covers — use total F&B volume instead
+          let deptMonthDenom = monthDenom;
+          let deptRangeDenom = rangeDenom;
+
+          if (isFnB && !dept.baseDepartment.startsWith('D019')) {
+            [deptMonthDenom, deptRangeDenom] = await Promise.all([
+              db.getDepartmentVolumeForPeriod(
+                config.ou, [dept.baseDepartment],
+                config.selectedMonth, config.selectedYear,
+                config.selectedMonth, config.selectedYear, config.version
+              ),
+              db.getDepartmentVolumeForPeriod(
+                config.ou, [dept.baseDepartment],
+                config.ytdStartMonth, config.ytdStartYear,
+                config.ytdEndMonth, config.ytdEndYear, config.version
+              )
+            ]);
+          }
+
+          const deptSheetName = await this.createSingleDepartmentWorksheet(
+            workbook, config, dept, usedSheetNames,
+            perUnitLabel, deptMonthDenom, deptRangeDenom
+          );
+          if (deptSheetName) {
+            this.sheetRegistry.push({ type: 'sheet', sheetName: deptSheetName, indent: true });
+          }
+        }
+      } else {
+        // Singleton group: create both summary + individual sheet for consistent pattern
+        const dept = groupDepts[0];
+
+        // Group summary sheet (uses same data as the single dept)
+        const summaryName = await this.createGroupSummaryWorksheet(
+          workbook, config, groupName, groupDepts, usedSheetNames,
+          perUnitLabel, monthDenom, rangeDenom
+        );
+        if (summaryName) {
+          this.sheetRegistry.push({ type: 'sheet', sheetName: summaryName, indent: true });
+        }
+
+        // Individual department detail sheet
         let deptMonthDenom = monthDenom;
         let deptRangeDenom = rangeDenom;
 
@@ -603,10 +672,13 @@ class ExcelExportService {
           ]);
         }
 
-        await this.createSingleDepartmentWorksheet(
+        const deptSheetName = await this.createSingleDepartmentWorksheet(
           workbook, config, dept, usedSheetNames,
           perUnitLabel, deptMonthDenom, deptRangeDenom
         );
+        if (deptSheetName) {
+          this.sheetRegistry.push({ type: 'sheet', sheetName: deptSheetName, indent: true });
+        }
       }
     }
   }
@@ -623,7 +695,7 @@ class ExcelExportService {
     perUnitLabel: string,
     monthDenom: db.PerUnitDenominator,
     rangeDenom: db.PerUnitDenominator
-  ): Promise<void> {
+  ): Promise<string | null> {
     const deptIds = groupDepts.map(d => d.baseDepartment);
 
     // Fetch aggregated data for the group
@@ -648,7 +720,7 @@ class ExcelExportService {
     );
 
     if (rangeDetailData.length === 0 && monthDetailData.length === 0) {
-      return;
+      return null;
     }
 
     let sheetName = sanitizeSheetName(`${groupName} Summary`.toUpperCase());
@@ -661,7 +733,7 @@ class ExcelExportService {
     }
     usedSheetNames.add(finalName.toLowerCase());
 
-    const sheet = workbook.addWorksheet(finalName);
+    const sheet = workbook.addWorksheet(finalName, { properties: { tabColor: TAB_COLOR_GROUP_SUMMARY } });
     const totalCols = 13;
 
     sheet.columns = [
@@ -719,6 +791,8 @@ class ExcelExportService {
     this.addDepartmentDataSection(sheet, rangeDetailData, rangeDenom, totalCols);
 
     sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 2 }];
+
+    return finalName;
   }
 
   /**
@@ -731,8 +805,9 @@ class ExcelExportService {
     usedSheetNames: Set<string>,
     perUnitLabel: string,
     monthDenom: db.PerUnitDenominator,
-    rangeDenom: db.PerUnitDenominator
-  ): Promise<void> {
+    rangeDenom: db.PerUnitDenominator,
+    nameOverride?: string
+  ): Promise<string | null> {
     const monthDetailData = await db.getDepartmentDetailData(
       config.ou,
       dept.baseDepartment,
@@ -754,10 +829,10 @@ class ExcelExportService {
     );
 
     if (rangeDetailData.length === 0 && monthDetailData.length === 0) {
-      return;
+      return null;
     }
 
-    let sheetName = sanitizeSheetName(dept.departmentName || dept.baseDepartment);
+    let sheetName = sanitizeSheetName(nameOverride || dept.departmentName || dept.baseDepartment);
     let finalName = sheetName;
     let counter = 1;
     while (usedSheetNames.has(finalName.toLowerCase())) {
@@ -767,7 +842,7 @@ class ExcelExportService {
     }
     usedSheetNames.add(finalName.toLowerCase());
 
-    const sheet = workbook.addWorksheet(finalName);
+    const sheet = workbook.addWorksheet(finalName, { properties: { tabColor: TAB_COLOR_DEPARTMENT } });
     const totalCols = 13;
 
     sheet.columns = [
@@ -825,6 +900,86 @@ class ExcelExportService {
     this.addDepartmentDataSection(sheet, rangeDetailData, rangeDenom, totalCols);
 
     sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 2 }];
+
+    return finalName;
+  }
+
+  /**
+   * Creates the cover page / table of contents worksheet.
+   * Built last (all sheet names are known), repositioned first via orderNo.
+   */
+  private createCoverPageWorksheet(
+    workbook: ExcelJS.Workbook,
+    config: ExcelExportConfig
+  ): void {
+    const sheet = workbook.addWorksheet('Contents');
+
+    // Position as the first sheet by setting orderNo to 0
+    // (all other sheets have orderNo >= 1 from auto-increment)
+    (sheet as any).orderNo = 0;
+
+    sheet.columns = [
+      { key: 'label', width: 55 },
+    ];
+
+    // --- Header section ---
+    const titleRow = sheet.getRow(1);
+    titleRow.getCell(1).value = config.hotelName;
+    titleRow.getCell(1).font = { bold: true, size: 18, color: { argb: 'FF1E3A5F' } };
+    titleRow.height = 30;
+
+    const reportRow = sheet.getRow(2);
+    reportRow.getCell(1).value = 'F90 P&L Report';
+    reportRow.getCell(1).font = { bold: true, size: 14, color: { argb: 'FF4A4A4A' } };
+
+    const periodRow = sheet.getRow(3);
+    periodRow.getCell(1).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
+    periodRow.getCell(1).font = { size: 11, color: { argb: 'FF666666' } };
+
+    const rangeRow = sheet.getRow(4);
+    rangeRow.getCell(1).value = getRangeLabel(
+      config.ytdStartMonth, config.ytdStartYear,
+      config.ytdEndMonth, config.ytdEndYear
+    );
+    rangeRow.getCell(1).font = { size: 11, color: { argb: 'FF666666' } };
+
+    const versionRow = sheet.getRow(5);
+    versionRow.getCell(1).value = `Version: ${config.version}`;
+    versionRow.getCell(1).font = { size: 11, color: { argb: 'FF666666' } };
+
+    // Row 7: TOC header (row 6 is blank spacer)
+    const tocHeader = sheet.getRow(7);
+    tocHeader.getCell(1).value = 'Table of Contents';
+    tocHeader.getCell(1).font = { bold: true, size: 14, color: { argb: 'FF1E3A5F' } };
+    tocHeader.getCell(1).border = { bottom: { style: 'medium', color: { argb: 'FF1E3A5F' } } };
+
+    // --- TOC entries ---
+    let currentRow = 9; // start after a blank spacer row
+
+    for (const entry of this.sheetRegistry) {
+      const row = sheet.getRow(currentRow);
+
+      if (entry.type === 'groupHeader') {
+        // Uppercase bold group name (not a hyperlink)
+        row.getCell(1).value = (entry.groupName || '').toUpperCase();
+        row.getCell(1).font = { bold: true, size: 11, color: { argb: 'FF1E3A5F' } };
+        row.height = 22;
+      } else {
+        // Hyperlinked sheet name (indented for department sheets)
+        const indent = entry.indent ? '    ' : '';
+        const displayText = `${indent}${entry.sheetName}`;
+        row.getCell(1).value = {
+          text: displayText,
+          hyperlink: `#'${entry.sheetName}'!A1`
+        } as any;
+        row.getCell(1).font = {
+          size: 10,
+          color: { argb: 'FF0563C1' },
+          underline: true
+        };
+      }
+      currentRow++;
+    }
   }
 
   /**
@@ -1147,7 +1302,7 @@ class ExcelExportService {
     workbook: ExcelJS.Workbook,
     config: ExcelExportConfig
   ): Promise<void> {
-    const sheet = workbook.addWorksheet('Room Segments');
+    const sheet = workbook.addWorksheet('Room Segments', { properties: { tabColor: TAB_COLOR_REPORT } });
     const TOTAL_COLS = 26;
 
     // 26 columns: Segment, Category, Revenue(7), Sep, Nights(7), Sep, ADR(7), Comments

@@ -3787,6 +3787,118 @@ export async function deleteStagingBySourceAccounts(sourceAccounts: (string | nu
   }
 }
 
+// Generate derived room stats entries (A960001, A960003, A960102) from source accounts (A960103, A960101)
+// Called when the user clicks "Complete Import" to auto-populate derived stat accounts
+export async function generateDerivedRoomStats(ou: string): Promise<number> {
+  try {
+    // Step 1: Delete any existing derived entries
+    await deleteStagingBySourceAccounts(['DERIVED_A960001', 'DERIVED_A960003', 'DERIVED_A960102']);
+
+    // Step 2: Query staging for source account totals
+    const totalsResult = await client.execute({
+      sql: `SELECT account, SUM(amount) as total
+            FROM financial_data_staging
+            WHERE department = 'D0010' AND ou = ? AND account IN ('A960103', 'A960101')
+            GROUP BY account`,
+      args: [ou]
+    });
+
+    const totals: Record<string, number> = {};
+    for (const row of totalsResult.rows) {
+      totals[row.account as string] = row.total as number;
+    }
+
+    // Step 3: Get period info from an existing staging entry
+    const periodResult = await client.execute({
+      sql: `SELECT period_combo, month, year, currency
+            FROM financial_data_staging
+            WHERE department = 'D0010' AND ou = ? LIMIT 1`,
+      args: [ou]
+    });
+
+    if (periodResult.rows.length === 0) {
+      return 0;
+    }
+
+    const period = periodResult.rows[0];
+    const entries: StagingData[] = [];
+    const batchId = `DERIVED_STATS_${new Date().toISOString().replace(/[:.]/g, '-')}`;
+
+    // Step 4: A960001 = value of A960103
+    if (totals['A960103'] !== undefined && totals['A960103'] !== 0) {
+      entries.push({
+        dep_acc_combo_id: 'D0010_A960001',
+        month: period.month as number,
+        year: period.year as number,
+        period_combo: period.period_combo as string,
+        scenario: 'ACT',
+        amount: totals['A960103'],
+        currency: period.currency as string,
+        ou,
+        department: 'D0010',
+        account: 'A960001',
+        version: 'MAIN',
+        source_account: 'DERIVED_A960001',
+        source_department: 'D0010',
+        source_description: 'Derived from A960103 (Total SOLD Room Nights)',
+        mapping_status: 'mapped',
+        import_batch_id: batchId,
+      });
+    }
+
+    // Step 5: A960003 and A960102 = value of A960101
+    if (totals['A960101'] !== undefined && totals['A960101'] !== 0) {
+      entries.push({
+        dep_acc_combo_id: 'D0010_A960003',
+        month: period.month as number,
+        year: period.year as number,
+        period_combo: period.period_combo as string,
+        scenario: 'ACT',
+        amount: totals['A960101'],
+        currency: period.currency as string,
+        ou,
+        department: 'D0010',
+        account: 'A960003',
+        version: 'MAIN',
+        source_account: 'DERIVED_A960003',
+        source_department: 'D0010',
+        source_description: 'Derived from A960101 (Total AVAILABLE Rooms)',
+        mapping_status: 'mapped',
+        import_batch_id: batchId,
+      });
+
+      entries.push({
+        dep_acc_combo_id: 'D0010_A960102',
+        month: period.month as number,
+        year: period.year as number,
+        period_combo: period.period_combo as string,
+        scenario: 'ACT',
+        amount: totals['A960101'],
+        currency: period.currency as string,
+        ou,
+        department: 'D0010',
+        account: 'A960102',
+        version: 'MAIN',
+        source_account: 'DERIVED_A960102',
+        source_department: 'D0010',
+        source_description: 'Derived from A960101 (Total AVAILABLE Rooms)',
+        mapping_status: 'mapped',
+        import_batch_id: batchId,
+      });
+    }
+
+    // Step 6: Insert derived entries
+    if (entries.length > 0) {
+      await insertBatchStagingData(entries);
+    }
+
+    return entries.length;
+  } catch (error) {
+    console.error("Error generating derived room stats:", error);
+    throw error;
+  }
+}
+
 // Insert batch staging data
 export async function insertBatchStagingData(batchData: StagingData[]): Promise<void> {
   if (!Array.isArray(batchData) || batchData.length === 0) {
@@ -5380,6 +5492,7 @@ export async function getDepartmentDetailData(
           AND fds.ou = ?
           AND fds.department = ?
           AND fd.dep_acc_combo_id IS NULL
+          AND fds.period_combo IN (${periodPlaceholders})
         GROUP BY fds.account
       ),
       actuals_totals AS (
@@ -5451,6 +5564,7 @@ export async function getDepartmentDetailData(
       ...periods,  // First IN clause
       version,     // For LEFT JOIN check
       ou, department,  // Second combined_actuals (staging-only)
+      ...periods,  // Staging-only period filter
       ou, version, department,  // budget_totals
       ...periods,  // Budget periods
       ou, version, department,  // ly_totals
@@ -5537,6 +5651,7 @@ export async function getGroupDepartmentDetailData(
           AND fds.ou = ?
           AND fds.department IN (${deptPlaceholders})
           AND fd.dep_acc_combo_id IS NULL
+          AND fds.period_combo IN (${periodPlaceholders})
         GROUP BY fds.account
       ),
       actuals_totals AS (
@@ -5607,6 +5722,7 @@ export async function getGroupDepartmentDetailData(
       ...periods,
       version,
       ou, ...departments,
+      ...periods,  // Staging-only period filter
       ou, version, ...departments,
       ...periods,
       ou, version, ...departments,
@@ -5693,6 +5809,7 @@ export async function getAllDepartmentDetailData(
           AND fds.ou = ?
           AND dm.level_2 = 'Lodging Operations'
           AND fd.dep_acc_combo_id IS NULL
+          AND fds.period_combo IN (${periodPlaceholders})
         GROUP BY fds.account
       ),
       actuals_totals AS (
@@ -5765,6 +5882,7 @@ export async function getAllDepartmentDetailData(
       ...periods,
       version,
       ou,
+      ...periods,  // Staging-only period filter
       ou, version,
       ...periods,
       ou, version,
@@ -6139,68 +6257,8 @@ export async function getRoomSegmentExportData(
       { revenueAccount: "A361532", statAccount: "A961532", description: "Natl Rooms Rev Fri-Sat", category: "Fri-Sat", consolidatedName: "Natl Rooms Rev", consolidatedCategory: "Transient" },
     ];
 
-    // Get all unique accounts we need
-    const revenueAccounts = SEGMENTS_CONFIG.map(s => s.revenueAccount);
-    const statAccounts = SEGMENTS_CONFIG.filter(s => s.statAccount).map(s => s.statAccount);
-    const allAccounts = [...revenueAccounts, ...statAccounts];
-
-    const accountPlaceholders = allAccounts.map(() => '?').join(', ');
     const periodPlaceholders = periods.map(() => '?').join(', ');
     const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
-
-    // Query for actuals (with staging overlay), budget, and LY
-    const query = `
-      WITH actuals AS (
-        SELECT
-          COALESCE(fds.account, fd.account) AS account,
-          SUM(COALESCE(
-            CASE WHEN fds.period_combo = ? THEN fds.amount ELSE NULL END,
-            fd.amount
-          )) AS amount
-        FROM financial_data fd
-        LEFT JOIN financial_data_staging fds
-          ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
-          AND fd.period_combo = fds.period_combo
-          AND fds.scenario = 'ACT'
-        WHERE fd.scenario = 'ACT'
-          AND fd.ou = ?
-          AND fd.version = ?
-          AND fd.account IN (${accountPlaceholders})
-          AND fd.period_combo IN (${periodPlaceholders})
-        GROUP BY COALESCE(fds.account, fd.account)
-      ),
-      budget AS (
-        SELECT account, SUM(amount) AS amount
-        FROM financial_data
-        WHERE scenario = 'BUD'
-          AND ou = ?
-          AND version = ?
-          AND account IN (${accountPlaceholders})
-          AND period_combo IN (${periodPlaceholders})
-        GROUP BY account
-      ),
-      ly AS (
-        SELECT account, SUM(amount) AS amount
-        FROM financial_data
-        WHERE scenario = 'ACT'
-          AND ou = ?
-          AND version = ?
-          AND account IN (${accountPlaceholders})
-          AND period_combo IN (${lyPeriodPlaceholders})
-        GROUP BY account
-      )
-      SELECT
-        a.account,
-        COALESCE(act.amount, 0) AS actuals,
-        COALESCE(bud.amount, 0) AS budget,
-        COALESCE(l.amount, 0) AS ly
-      FROM (SELECT ? AS account) a
-      LEFT JOIN actuals act ON a.account = act.account
-      LEFT JOIN budget bud ON a.account = bud.account
-      LEFT JOIN ly l ON a.account = l.account
-    `;
-
-    // We need to query each account individually to map them properly
     const results: RoomSegmentExportRow[] = [];
 
     for (const segment of SEGMENTS_CONFIG) {
@@ -6209,34 +6267,54 @@ export async function getRoomSegmentExportData(
         ou, version,
         segment.revenueAccount,
         ...periods,
+        segment.revenueAccount,
+        ...periods,
+        ou,
         ou, version,
         segment.revenueAccount,
         ...periods,
         ou, version,
         segment.revenueAccount,
-        ...lyPeriods,
-        segment.revenueAccount
+        ...lyPeriods
       ];
 
       const revenueQuery = `
-        WITH actuals AS (
+        WITH actuals_combined AS (
           SELECT
             COALESCE(fds.account, fd.account) AS account,
-            SUM(COALESCE(
-              CASE WHEN fds.period_combo = ? THEN fds.amount ELSE NULL END,
-              fd.amount
-            )) AS amount
+            COALESCE(fds.amount, fd.amount) AS amount
           FROM financial_data fd
           LEFT JOIN financial_data_staging fds
             ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
-            AND fd.period_combo = fds.period_combo
+            AND fds.period_combo = ?
             AND fds.scenario = 'ACT'
           WHERE fd.scenario = 'ACT'
             AND fd.ou = ?
             AND fd.version = ?
             AND fd.account = ?
             AND fd.period_combo IN (${periodPlaceholders})
-          GROUP BY COALESCE(fds.account, fd.account)
+
+          UNION ALL
+
+          SELECT
+            fds.account,
+            fds.amount
+          FROM financial_data_staging fds
+          WHERE fds.scenario = 'ACT'
+            AND fds.account = ?
+            AND fds.period_combo IN (${periodPlaceholders})
+            AND fds.ou = ?
+            AND NOT EXISTS (
+              SELECT 1 FROM financial_data fd2
+              WHERE fd2.dep_acc_combo_id = fds.dep_acc_combo_id
+                AND fd2.period_combo = fds.period_combo
+                AND fd2.scenario = 'ACT'
+            )
+        ),
+        actuals AS (
+          SELECT account, SUM(amount) AS amount
+          FROM actuals_combined
+          GROUP BY account
         ),
         budget AS (
           SELECT account, SUM(amount) AS amount
@@ -6279,6 +6357,9 @@ export async function getRoomSegmentExportData(
           ou, version,
           segment.statAccount,
           ...periods,
+          segment.statAccount,
+          ...periods,
+          ou,
           ou, version,
           segment.statAccount,
           ...periods,

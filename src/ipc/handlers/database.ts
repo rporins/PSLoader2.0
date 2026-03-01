@@ -624,6 +624,13 @@ export class DatabaseHandlers {
 
   setImportCompletedStateHandler: IpcHandler = async (event, request) => {
     await db.setImportCompletedState(request.ou, request.completed);
+
+    // Generate derived room stats (A960001, A960003, A960102) when completing imports
+    if (request.completed && request.ou) {
+      const derivedCount = await db.generateDerivedRoomStats(request.ou);
+      console.log(`Generated ${derivedCount} derived room stat entries for OU: ${request.ou}`);
+    }
+
     return {
       success: true,
       data: { message: 'Import completed state updated successfully' },

@@ -84,7 +84,10 @@ const DEPARTMENT = "D0010";
 // Room Stats (stat accounts start with A9 in the staging table)
 const ROOM_STATS_CONFIG = [
   { statAccount: "A960101", description: "Total AVAILABLE Rooms" },
+  { statAccount: "A960102", description: "Total AVAILABLE Rooms (from 960101)" },
   { statAccount: "A960103", description: "Total SOLD Room Nights" },
+  { statAccount: "A960001", description: "Total Room Nights (from 960103)" },
+  { statAccount: "A960003", description: "Total Available Rooms (from 960101)" },
   { statAccount: "A961662", description: "Total Complimentary Rooms" },
 ];
 
@@ -767,7 +770,7 @@ export default function RoomSegmentReview() {
             Room Stats
           </Typography>
         </SectionTitle>
-        <Box sx={{ height: 160 }}>
+        <Box sx={{ height: 250 }}>
           <StyledDataGrid
             rows={statsRows}
             columns={statsColumns}
