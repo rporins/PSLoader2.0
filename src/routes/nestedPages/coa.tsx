@@ -25,6 +25,7 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import ApartmentIcon from "@mui/icons-material/Apartment";
 import LinkIcon from "@mui/icons-material/Link";
+import mappingTablesService from "../../services/mappingTablesService";
 
 // IPC API types
 interface IpcApi {
@@ -208,6 +209,7 @@ export default function COA() {
   const [departmentMaps, setDepartmentMaps] = useState<DepartmentMap[]>([]);
   const [combos, setCombos] = useState<AccountDepartmentCombo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Helper function to get account hierarchy
@@ -262,8 +264,47 @@ export default function COA() {
     }
   };
 
+  const handleRefresh = async () => {
+    setSyncing(true);
+    setError(null);
+
+    try {
+      await mappingTablesService.syncMappingTables();
+      await loadData();
+    } catch (err) {
+      console.error('Error syncing COA data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to sync data from server');
+      // Still try to load local data even if sync fails
+      try { await loadData(); } catch {}
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // On page open: only sync if mapping tables cache is stale (30 min), otherwise just load local data
   useEffect(() => {
-    loadData();
+    const initLoad = async () => {
+      try {
+        let shouldSync = false;
+        if (window.ipcApi) {
+          const shouldRefresh = await window.ipcApi.sendIpcRequest('db:should-refresh-cache', {
+            key: 'mapping_tables',
+            maxAgeMinutes: 30
+          });
+          shouldSync = !!shouldRefresh.data;
+        }
+
+        if (shouldSync) {
+          await handleRefresh();
+        } else {
+          await loadData();
+        }
+      } catch {
+        await loadData();
+      }
+    };
+
+    initLoad();
   }, []);
 
   // Define columns for Account Maps
@@ -370,13 +411,13 @@ export default function COA() {
             </Typography>
           </Box>
           <Button
-            startIcon={<RefreshIcon />}
-            onClick={loadData}
-            disabled={loading}
+            startIcon={syncing ? <CircularProgress size={16} /> : <RefreshIcon />}
+            onClick={handleRefresh}
+            disabled={loading || syncing}
             variant="outlined"
             size="small"
           >
-            Refresh
+            {syncing ? 'Syncing...' : 'Refresh'}
           </Button>
         </Box>
 
@@ -437,13 +478,13 @@ export default function COA() {
             </Typography>
           </Box>
           <Button
-            startIcon={<RefreshIcon />}
-            onClick={loadData}
-            disabled={loading}
+            startIcon={syncing ? <CircularProgress size={16} /> : <RefreshIcon />}
+            onClick={handleRefresh}
+            disabled={loading || syncing}
             variant="outlined"
             size="small"
           >
-            Refresh
+            {syncing ? 'Syncing...' : 'Refresh'}
           </Button>
         </Box>
 
@@ -504,13 +545,13 @@ export default function COA() {
             </Typography>
           </Box>
           <Button
-            startIcon={<RefreshIcon />}
-            onClick={loadData}
-            disabled={loading}
+            startIcon={syncing ? <CircularProgress size={16} /> : <RefreshIcon />}
+            onClick={handleRefresh}
+            disabled={loading || syncing}
             variant="outlined"
             size="small"
           >
-            Refresh
+            {syncing ? 'Syncing...' : 'Refresh'}
           </Button>
         </Box>
 

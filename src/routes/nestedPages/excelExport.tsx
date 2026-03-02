@@ -29,6 +29,7 @@ import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorIcon from "@mui/icons-material/Error";
 import { useSettingsStore, useFinancialDataVersion } from "../../store/settings";
+import CheckForUpdatesButton from "../../components/CheckForUpdatesButton";
 
 // ============================================================================
 // STYLES
@@ -149,9 +150,12 @@ export default function ExcelExport() {
 
   return (
     <Box sx={{ p: 3, maxWidth: 1000 }}>
-      <Typography variant="h4" gutterBottom sx={{ mb: 3, fontWeight: 600 }}>
-        Excel Export
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+        <Typography variant="h4" sx={{ fontWeight: 600 }}>
+          Excel Export
+        </Typography>
+        <CheckForUpdatesButton />
+      </Box>
 
       <StyledCard>
         <CardContent>

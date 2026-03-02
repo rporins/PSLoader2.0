@@ -1047,37 +1047,6 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     ]
   },
 
-  // F90 P&L - Department Profit
-  department_profit_act: {
-    id: 'department_profit_act',
-    formula: 'CALCULATE',
-    negate: true,
-    filters: [
-      { type: 'acc_level', level: 1, value: 'EBITDA' },
-      { type: 'acc_level', level: 4, value: 'Profit Amount' }
-    ]
-  },
-
-  department_profit_sy: {
-    id: 'department_profit_sy',
-    formula: 'CALCULATE',
-    negate: true,
-    filters: [
-      { type: 'acc_level', level: 1, value: 'EBITDA' },
-      { type: 'acc_level', level: 4, value: 'Profit Amount' }
-    ]
-  },
-
-  department_profit_py1: {
-    id: 'department_profit_py1',
-    formula: 'CALCULATE',
-    negate: true,
-    filters: [
-      { type: 'acc_level', level: 1, value: 'EBITDA' },
-      { type: 'acc_level', level: 4, value: 'Profit Amount' }
-    ]
-  },
-
   // F90 P&L - Rooms and Reservations Profit
   rooms_reservations_profit_act: {
     id: 'rooms_reservations_profit_act',
@@ -2041,12 +2010,14 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
   },
 
   // F90 P&L - Incentive Management Fee
+  // Note: accounts 701125/701126 are on department D0490, which has a different
+  // level_10 value than D0480 ('Invest Factor NonOp'). Use dept_base to target directly.
   incentive_mgmt_fee_act: {
     id: 'incentive_mgmt_fee_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
-      { type: 'dept_level', level: 10, value: 'Invest Factor NonOp' },
+      { type: 'dept_base', value: 'D0490' },
       { type: 'acc_base', value: ['A701125', 'A701126'] }
     ]
   },
@@ -2638,13 +2609,6 @@ export const MEASURES: Record<string, Measure> = {
     id: 'total_sales',
     type: 'simple',
     subMeasures: ['total_sales_act']
-  },
-
-  // F90 P&L - Department Profit
-  department_profit: {
-    id: 'department_profit',
-    type: 'simple',
-    subMeasures: ['department_profit_act']
   },
 
   // F90 P&L - Rooms and Reservations Profit

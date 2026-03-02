@@ -40,7 +40,7 @@ export const F90_PL_ROW_CONFIG: PLRow[] = [
   // Department Profit Section — net of revenue credits and expense debits; the net
   // is a credit when profitable, so negate:true in the sub-measure already gives a
   // positive value.  No invertSign needed.
-  { type: 'header', label: 'DEPARTMENT PROFIT', measureId: 'department_profit', formatting: 'number', indentLevel: 0 },
+  { type: 'header', label: 'DEPARTMENT PROFIT', indentLevel: 0 },
   { type: 'measure', label: 'Rooms and Reservations', measureId: 'rooms_reservations_profit', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Gift Shops', measureId: 'gift_shop_profit', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Restaurants and Rooms Service', measureId: 'restaurants_room_service_profit', formatting: 'number', indentLevel: 1 },

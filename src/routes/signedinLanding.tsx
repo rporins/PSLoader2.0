@@ -53,6 +53,7 @@ import ThemeToggle from "./customComponents/themeToggle";
 import { useSettingsStore } from "../store/settings";
 import authService, { Hotel } from "../services/auth";
 import mappingTablesService from "../services/mappingTablesService";
+import dailyFinancialSyncService from "../services/dailyFinancialSyncService";
 
 // IPC API types
 interface IpcApi {
@@ -392,6 +393,22 @@ const handleSignOut = useCallback(async () => {
 
     syncMappingTablesOnStartup();
   }, []); // Run only once on mount
+
+  // Sync financial data on login (fire-and-forget, once per OU per day)
+  useEffect(() => {
+    if (!selectedHotelOu) return;
+
+    const syncFinancialDataOnStartup = async () => {
+      try {
+        await dailyFinancialSyncService.performDailyCheck(selectedHotelOu);
+      } catch (error) {
+        // Silent fail - don't block the app
+        console.warn("Failed to sync financial data on startup:", error);
+      }
+    };
+
+    syncFinancialDataOnStartup();
+  }, [selectedHotelOu]);
 
   const userEmail = user?.email || '';
   // Extract username from email (part before @) for friendly display

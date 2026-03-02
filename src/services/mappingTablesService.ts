@@ -246,80 +246,56 @@ class MappingTablesService {
    * Check if mapping tables need to be synced by comparing versions
    * @returns { needsSync: boolean, needsComboSync: boolean } indicating if sync is needed
    */
-  async checkIfSyncNeeded(): Promise<{ needsSync: boolean; needsComboSync: boolean }> {
+  async checkIfSyncNeeded(): Promise<boolean> {
     try {
       // Get local version
       const localVersion = await this.getStoredVersion();
 
-      // Get remote version
+      // Get remote version from lightweight API call
       const remoteVersion = await this.getVersion();
 
       if (!localVersion) {
-        // No local data, needs full sync
-        // console.log('No local mapping tables version found, sync needed');
-        return { needsSync: true, needsComboSync: true };
+        return true;
       }
 
-      // Compare versions
+      // Single PS roll-up version governs all three tables (accounts, departments, combos)
       const needsSync = localVersion.version !== remoteVersion.version;
-      const needsComboSync = localVersion.combo_version !== (remoteVersion.combo_version || remoteVersion.version);
-
-      if (needsSync) {
-        // console.log(`Mapping tables version mismatch: local=${localVersion.version}, remote=${remoteVersion.version}`);
-      }
-
-      if (needsComboSync) {
-        // console.log(`Combos version mismatch: local=${localVersion.combo_version}, remote=${remoteVersion.combo_version || remoteVersion.version}`);
-      }
-
-      return { needsSync, needsComboSync };
+      return needsSync;
     } catch (error) {
       console.error('Error checking if sync needed:', error);
       // On error, assume sync is needed
-      return { needsSync: true, needsComboSync: true };
+      return true;
     }
   }
 
   /**
    * Sync mapping tables from API to local database
-   * Downloads data only if version has changed
+   * Downloads data only if version has changed (or always if force=true)
+   * @param force If true, skip version check and always re-download from PG
    * @returns Promise<boolean> true if sync was performed, false if already up-to-date
    */
-  async syncMappingTables(): Promise<boolean> {
+  async syncMappingTables(force: boolean = false): Promise<boolean> {
     try {
-      const { needsSync, needsComboSync } = await this.checkIfSyncNeeded();
-
-      if (!needsSync && !needsComboSync) {
-        // console.log('Mapping tables are already up-to-date');
-        return false;
+      if (!force) {
+        const needsSync = await this.checkIfSyncNeeded();
+        if (!needsSync) {
+          return false;
+        }
       }
 
-      let remoteVersion: MappingTablesVersionResponse;
+      // Single PS roll-up version changed (or forced) — sync all three tables
+      const [data, combosData] = await Promise.all([
+        this.getData(),
+        this.getCombos(),
+      ]);
 
-      // Sync account and department maps if needed
-      if (needsSync) {
-        // console.log('Syncing mapping tables data...');
-        const data = await this.getData();
-        await this.storeMappingTablesData(data);
-        remoteVersion = { version: data.version, combo_version: data.combo_version };
-      } else {
-        // Just get version for combo sync
-        remoteVersion = await this.getVersion();
-      }
+      await this.storeMappingTablesData(data);
+      await this.storeCombosData(combosData);
 
-      // Sync combos if needed
-      if (needsComboSync) {
-        // console.log('Syncing combos data...');
-        const combosData = await this.getCombos();
-        await this.storeCombosData(combosData);
-        // Use the combo_version from response if available, otherwise use the main version
-        remoteVersion.combo_version = combosData.combo_version || remoteVersion.version;
-      }
-
-      // Update version after successful sync
+      // Store the version after successful sync
       await this.updateVersion(
-        remoteVersion.version,
-        remoteVersion.combo_version || remoteVersion.version
+        data.version,
+        data.version
       );
 
       // console.log('Mapping tables sync completed successfully');

@@ -46,10 +46,9 @@ import {
   Refresh as RefreshIcon,
   TrendingFlat as TrendingFlatIcon,
   HourglassEmpty as PendingIcon,
-  ThumbUp as ApproveIcon,
-  ThumbDown as RejectIcon,
   Block as BlockIcon,
   Add as AddIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import mappingConfigService, { MappingConfigResponse, MappingEntry, ApprovalStatus } from '../../services/mappingConfigService';
 import importConfigService from '../../services/importConfigService';
@@ -337,7 +336,6 @@ const MappingReview: React.FC = () => {
   // State
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [approvingId, setApprovingId] = useState<number | null>(null);
   const [mappingConfigs, setMappingConfigs] = useState<MappingConfigResponse[]>([]);
   const [selectedConfigId, setSelectedConfigId] = useState<string>('');
   const [selectedConfig, setSelectedConfig] = useState<MappingConfigResponse | null>(null);
@@ -346,6 +344,8 @@ const MappingReview: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState<string>('');
   const [approvalFilter, setApprovalFilter] = useState<ApprovalStatus | 'ALL'>('ALL');
   const [requestDialogOpen, setRequestDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingMapping, setEditingMapping] = useState<MappingEntry | null>(null);
 
   // Fetch mapping configs
   const fetchMappingConfigs = useCallback(async () => {
@@ -363,6 +363,12 @@ const MappingReview: React.FC = () => {
           const configId = String(firstConfig.config_id || firstConfig.id);
           setSelectedConfigId(configId);
           setSelectedConfig(firstConfig);
+        } else {
+          // Always update selectedConfig with fresh data so mappings useEffect re-triggers
+          const freshConfig = configs.find(c => String(c.config_id || c.id) === selectedConfigId);
+          if (freshConfig) {
+            setSelectedConfig(freshConfig);
+          }
         }
       } else {
         setError('No mapping configurations found. Click sync to load configurations.');
@@ -408,9 +414,35 @@ const MappingReview: React.FC = () => {
     fetchMappings();
   }, [selectedConfig]);
 
-  // Initial load
+  // Initial load - check if cache is stale, sync from server if needed, then load from local DB
   useEffect(() => {
-    fetchMappingConfigs();
+    const syncAndLoad = async () => {
+      try {
+        // Only auto-sync if import groups cache is older than 30 minutes
+        // This avoids hitting the API every time the page is opened
+        let shouldSync = true;
+        if (window.ipcApi) {
+          const hotels = await authService.getHotels();
+          if (hotels && hotels.length > 0) {
+            const currentOU = hotels[0].ou;
+            const shouldRefresh = await window.ipcApi.sendIpcRequest('db:should-refresh-cache', {
+              key: `import_groups_${currentOU}`,
+              maxAgeMinutes: 30
+            });
+
+            if (shouldRefresh.data) {
+              await importConfigService.syncMappingConfigsForOU(currentOU);
+            }
+          }
+        }
+      } catch (err) {
+        // Silent fail - still load from local DB
+        console.warn('Failed to sync mapping configs on page open:', err);
+      }
+      await fetchMappingConfigs();
+    };
+
+    syncAndLoad();
   }, []);
 
   // Handle config selection
@@ -429,6 +461,11 @@ const MappingReview: React.FC = () => {
     setSuccessMessage('');
 
     try {
+      // Capture local version of selected config before sync
+      const configId = selectedConfig?.config_id || selectedConfig?.id;
+      const localVersion = selectedConfig?.version;
+      const configLabel = selectedConfig?.description || `config #${configId}`;
+
       const hotels = await authService.getHotels();
       if (!hotels || hotels.length === 0) {
         throw new Error('No hotels available');
@@ -436,15 +473,28 @@ const MappingReview: React.FC = () => {
 
       const currentOU = hotels[0].ou;
       await importConfigService.syncMappingConfigsForOU(currentOU);
-      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Also sync the selected config directly — syncMappingConfigsForOU only
+      // syncs configs linked to import groups, which may not include the selected one
+      if (configId) {
+        await mappingConfigService.syncMappingConfig(configId as number);
+      }
+
       await fetchMappingConfigs();
 
-      const configs = await mappingConfigService.getAllStoredMappingConfigs();
+      if (configId) {
+        const syncedConfig = await mappingConfigService.getStoredMappingConfig(configId);
+        const apiVersion = syncedConfig?.version;
 
-      if (configs && configs.length > 0) {
-        setSuccessMessage(`Successfully synced ${configs.length} configuration(s)`);
+        if (localVersion && apiVersion && localVersion !== apiVersion) {
+          setSuccessMessage(`[id=${configId}] ${configLabel} updated: local ${localVersion} → API ${apiVersion}`);
+        } else if (localVersion && apiVersion) {
+          setSuccessMessage(`[id=${configId}] ${configLabel} already up-to-date (local: ${localVersion}, API: ${apiVersion})`);
+        } else {
+          setSuccessMessage(`[id=${configId}] ${configLabel} synced (API: ${apiVersion || 'unknown'})`);
+        }
       } else {
-        setError('No mapping configurations found after sync');
+        setSuccessMessage('Sync complete');
       }
     } catch (err) {
       console.error('Error syncing mapping configs:', err);
@@ -453,71 +503,31 @@ const MappingReview: React.FC = () => {
       setSyncing(false);
       setTimeout(() => setSuccessMessage(''), 5000);
     }
-  }, [fetchMappingConfigs]);
+  }, [fetchMappingConfigs, selectedConfig]);
 
-  // Handle approve mapping
-  const handleApproveMapping = useCallback(async (mappingId: number) => {
-    setApprovingId(mappingId);
-    setError('');
-
-    try {
-      const result = await mappingConfigService.approveMapping(mappingId, { approval_status: 'APPROVED' });
-
-      // Update local database
-      await mappingConfigService.updateLocalMappingApprovalStatus(
-        mappingId,
-        'APPROVED',
-        result.approved_by
-      );
-
-      // Update local state
-      setMappings(prev => prev.map(m =>
-        m.id === mappingId
-          ? { ...m, approval_status: 'APPROVED', approved_by: result.approved_by, approved_at: result.approved_at }
-          : m
-      ));
-
-      setSuccessMessage('Mapping approved successfully');
-      setTimeout(() => setSuccessMessage(''), 3000);
-    } catch (err) {
-      console.error('Error approving mapping:', err);
-      setError('Failed to approve mapping: ' + (err as Error).message);
-    } finally {
-      setApprovingId(null);
-    }
+  // Handle edit mapping
+  const handleEditMapping = useCallback((mapping: MappingEntry) => {
+    setEditingMapping(mapping);
+    setEditDialogOpen(true);
   }, []);
 
-  // Handle reject mapping
-  const handleRejectMapping = useCallback(async (mappingId: number) => {
-    setApprovingId(mappingId);
-    setError('');
+  // Handle successful mapping edit - refresh mappings from API
+  const handleEditMappingSuccess = useCallback(async () => {
+    if (!selectedConfig) return;
 
     try {
-      const result = await mappingConfigService.approveMapping(mappingId, { approval_status: 'REJECTED' });
-
-      // Update local database
-      await mappingConfigService.updateLocalMappingApprovalStatus(
-        mappingId,
-        'REJECTED',
-        result.approved_by
-      );
-
-      // Update local state
-      setMappings(prev => prev.map(m =>
-        m.id === mappingId
-          ? { ...m, approval_status: 'REJECTED', approved_by: result.approved_by, approved_at: result.approved_at }
-          : m
-      ));
-
-      setSuccessMessage('Mapping rejected successfully');
-      setTimeout(() => setSuccessMessage(''), 3000);
+      const configId = selectedConfig.config_id || selectedConfig.id;
+      const apiMappings = await mappingConfigService.getMappingsFromAPI(configId);
+      await mappingConfigService.replaceMappings(configId, apiMappings);
+      setMappings(apiMappings);
+      setSuccessMessage('Modification request submitted and list refreshed');
+      setTimeout(() => setSuccessMessage(''), 5000);
     } catch (err) {
-      console.error('Error rejecting mapping:', err);
-      setError('Failed to reject mapping: ' + (err as Error).message);
-    } finally {
-      setApprovingId(null);
+      console.error('Error refreshing mappings after edit:', err);
+      setSuccessMessage('Modification request submitted. Sync to see it in the list.');
+      setTimeout(() => setSuccessMessage(''), 5000);
     }
-  }, []);
+  }, [selectedConfig]);
 
   // Handle successful mapping request - refresh mappings from API
   const handleMappingRequestSuccess = useCallback(async () => {
@@ -781,66 +791,39 @@ const MappingReview: React.FC = () => {
     },
     {
       field: 'actions',
-      headerName: 'Actions',
-      width: 100,
+      headerName: '',
+      width: 60,
       sortable: false,
       filterable: false,
       disableColumnMenu: true,
       disableExport: true,
+      align: 'center',
       renderCell: (params) => {
-        const status = params.row.approval_status as ApprovalStatus;
-        const mappingId = params.row.id as number;
-        const isProcessing = approvingId === mappingId;
-
-        if (status === 'APPROVED' || status === 'REJECTED') {
-          return null;
-        }
+        const isLocked = selectedConfig?.is_locked;
 
         return (
-          <Stack direction="row" spacing={0.5}>
-            <Tooltip title="Approve" arrow placement="top">
-              <span>
-                <IconButton
-                  size="small"
-                  onClick={() => handleApproveMapping(mappingId)}
-                  disabled={isProcessing || syncing}
-                  sx={{
-                    width: 28,
-                    height: 28,
-                    color: theme.palette.success.main,
-                    '&:hover': {
-                      backgroundColor: alpha(theme.palette.success.main, 0.12),
-                    },
-                  }}
-                >
-                  {isProcessing ? (
-                    <CircularProgress size={14} thickness={4} />
-                  ) : (
-                    <ApproveIcon sx={{ fontSize: 16 }} />
-                  )}
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title="Reject" arrow placement="top">
-              <span>
-                <IconButton
-                  size="small"
-                  onClick={() => handleRejectMapping(mappingId)}
-                  disabled={isProcessing || syncing}
-                  sx={{
-                    width: 28,
-                    height: 28,
-                    color: theme.palette.error.main,
-                    '&:hover': {
-                      backgroundColor: alpha(theme.palette.error.main, 0.12),
-                    },
-                  }}
-                >
-                  <RejectIcon sx={{ fontSize: 16 }} />
-                </IconButton>
-              </span>
-            </Tooltip>
-          </Stack>
+          <Tooltip title={isLocked ? 'Config is locked' : 'Edit mapping'} arrow placement="top">
+            <span>
+              <IconButton
+                size="small"
+                onClick={() => handleEditMapping(params.row as MappingEntry)}
+                disabled={syncing || isLocked}
+                sx={{
+                  width: 28,
+                  height: 28,
+                  color: theme.palette.info.main,
+                  '&:hover': {
+                    backgroundColor: alpha(theme.palette.info.main, 0.12),
+                  },
+                  '&.Mui-disabled': {
+                    color: alpha(theme.palette.text.disabled, 0.4),
+                  },
+                }}
+              >
+                <EditIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </span>
+          </Tooltip>
         );
       },
     },
@@ -1036,31 +1019,33 @@ const MappingReview: React.FC = () => {
           <Box flex={1} />
 
           {/* Request New Mapping Button */}
-          {selectedConfig && !selectedConfig.is_locked && (
-            <Tooltip title="Request a new mapping line" arrow placement="top">
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={() => setRequestDialogOpen(true)}
-                disabled={syncing || loading}
-                sx={{
-                  textTransform: 'none',
-                  borderRadius: 2,
-                  fontSize: '0.8125rem',
-                  fontWeight: 500,
-                  px: 2,
-                  height: 36,
-                  borderColor: 'divider',
-                  color: 'text.primary',
-                  '&:hover': {
-                    borderColor: theme.palette.primary.main,
-                    backgroundColor: alpha(theme.palette.primary.main, 0.04),
-                  },
-                }}
-              >
-                {isMobile ? 'Request' : 'Request Mapping'}
-              </Button>
+          {selectedConfig && (
+            <Tooltip title={selectedConfig.is_locked ? 'Config is locked' : 'Request a new mapping line'} arrow placement="top">
+              <span>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={() => setRequestDialogOpen(true)}
+                  disabled={syncing || loading || selectedConfig.is_locked}
+                  sx={{
+                    textTransform: 'none',
+                    borderRadius: 2,
+                    fontSize: '0.8125rem',
+                    fontWeight: 500,
+                    px: 2,
+                    height: 36,
+                    borderColor: 'divider',
+                    color: 'text.primary',
+                    '&:hover': {
+                      borderColor: theme.palette.primary.main,
+                      backgroundColor: alpha(theme.palette.primary.main, 0.04),
+                    },
+                  }}
+                >
+                  {isMobile ? 'Request' : 'Request Mapping'}
+                </Button>
+              </span>
             </Tooltip>
           )}
 
@@ -1222,6 +1207,22 @@ const MappingReview: React.FC = () => {
           configId={selectedConfig.config_id || selectedConfig.id || 0}
           configDescription={selectedConfig.description}
           onSuccess={handleMappingRequestSuccess}
+        />
+      )}
+
+      {/* Edit Mapping Dialog */}
+      {selectedConfig && editingMapping && (
+        <RequestMappingDialog
+          open={editDialogOpen}
+          onClose={() => {
+            setEditDialogOpen(false);
+            setEditingMapping(null);
+          }}
+          configId={selectedConfig.config_id || selectedConfig.id || 0}
+          configDescription={selectedConfig.description}
+          onSuccess={handleEditMappingSuccess}
+          mode="edit"
+          existingMapping={editingMapping}
         />
       )}
     </PageContainer>

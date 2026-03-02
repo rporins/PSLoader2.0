@@ -154,6 +154,7 @@ export default function StagingDataReview() {
   const [selectedRow, setSelectedRow] = useState<StagingDataRow | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [importsExist, setImportsExist] = useState(false);
+  const [rowFilter, setRowFilter] = useState<'all' | 'unmapped' | 'invalid_combo'>('all');
 
   // Separate account/department lists for better UX
   const [accounts, setAccounts] = useState<string[]>([]);
@@ -674,6 +675,22 @@ export default function StagingDataReview() {
     return cols;
   }, []);
 
+  const filteredRows = useMemo(() => {
+    if (rowFilter === 'unmapped') {
+      return rows.filter(r => r.mapping_status?.toLowerCase().includes('unmapped'));
+    }
+    if (rowFilter === 'invalid_combo') {
+      return rows.filter(r => r.is_valid_combo === 0);
+    }
+    return rows;
+  }, [rows, rowFilter]);
+
+  const issueCounts = useMemo(() => {
+    const unmapped = rows.filter(r => r.mapping_status?.toLowerCase().includes('unmapped')).length;
+    const invalidCombo = rows.filter(r => r.is_valid_combo === 0).length;
+    return { unmapped, invalidCombo };
+  }, [rows]);
+
   const summary = useMemo(() => {
     let totalAmount = 0;
     const uniquePeriods = new Set<string>();
@@ -746,17 +763,34 @@ export default function StagingDataReview() {
               </Box>
             </Stack>
           </Stack>
-          {/* Row 2: Legend */}
-          <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 1 }}>
-            <Typography variant="caption" color="text.secondary">Legend:</Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <Box sx={{ width: 12, height: 12, borderRadius: 0.5, bgcolor: (theme) => alpha(theme.palette.warning.main, 0.3) }} />
-              <Typography variant="caption">Unmapped</Typography>
-            </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <Box sx={{ width: 12, height: 12, borderRadius: 0.5, bgcolor: (theme) => alpha(theme.palette.error.main, 0.3) }} />
-              <Typography variant="caption">Invalid Combo</Typography>
-            </Box>
+          {/* Row 2: Legend + Filter chips */}
+          <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 1 }} flexWrap="wrap">
+            <Typography variant="caption" color="text.secondary">Filter:</Typography>
+            <Chip
+              label="All"
+              size="small"
+              variant={rowFilter === 'all' ? 'filled' : 'outlined'}
+              color={rowFilter === 'all' ? 'primary' : 'default'}
+              onClick={() => setRowFilter('all')}
+            />
+            <Chip
+              label={`Unmapped (${issueCounts.unmapped})`}
+              size="small"
+              variant={rowFilter === 'unmapped' ? 'filled' : 'outlined'}
+              color="warning"
+              onClick={() => setRowFilter('unmapped')}
+              sx={issueCounts.unmapped > 0 ? { fontWeight: 600 } : { opacity: 0.5 }}
+              disabled={issueCounts.unmapped === 0}
+            />
+            <Chip
+              label={`Invalid Combo (${issueCounts.invalidCombo})`}
+              size="small"
+              variant={rowFilter === 'invalid_combo' ? 'filled' : 'outlined'}
+              color="error"
+              onClick={() => setRowFilter('invalid_combo')}
+              sx={issueCounts.invalidCombo > 0 ? { fontWeight: 600 } : { opacity: 0.5 }}
+              disabled={issueCounts.invalidCombo === 0}
+            />
           </Stack>
         </CardContent>
       </StyledCard>
@@ -764,7 +798,7 @@ export default function StagingDataReview() {
       <Paper sx={{ flex: 1, minHeight: 0, width: '100%' }}>
         <DataGridPremium
           key={gridKey}
-          rows={rows}
+          rows={filteredRows}
           columns={columns}
           slots={{
             toolbar: CustomToolbar,

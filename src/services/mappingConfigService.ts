@@ -62,6 +62,7 @@ export interface CreateMappingRequest {
   is_active?: boolean;
 }
 
+
 class MappingConfigService {
   /**
    * Fetch mapping configuration from API
@@ -287,20 +288,15 @@ class MappingConfigService {
       let needsMappingUpdate = false;
 
       if (!localConfig) {
-        // No local config, need to store it and download mappings
-        // console.log(`No local config for ${configId}, downloading...`);
         await this.storeMappingConfig(remoteConfig);
         needsMappingUpdate = true;
       } else if (localConfig.version !== remoteConfig.version) {
-        // Version mismatch, update config and mappings
-        // console.log(`Version mismatch for config ${configId}: local=${localConfig.version}, remote=${remoteConfig.version}`);
         await this.storeMappingConfig(remoteConfig);
         needsMappingUpdate = true;
       } else {
         // Config versions match, check if we have mappings
         const hasMappingsStored = await this.hasMappings(configId);
         if (!hasMappingsStored) {
-          // console.log(`No mappings found for config ${configId}, downloading...`);
           needsMappingUpdate = true;
         }
       }

@@ -1355,7 +1355,7 @@ export async function getFinancialReportData(
 
     // combined_actuals CTE params
     params.push(latestPeriod);           // LEFT JOIN condition
-    params.push(version);                 // version filter
+    params.push('MAIN');                  // actuals always use MAIN version
     params.push(...periods);              // WHERE clause
     if (ou) params.push(ou);
     params.push(...periods);              // UNION ALL WHERE clause
@@ -1363,7 +1363,7 @@ export async function getFinancialReportData(
 
     // combined_budget CTE params
     params.push(latestPeriod);           // LEFT JOIN condition
-    params.push(version);                 // version filter
+    params.push(version);                 // budget uses user-selected version
     params.push(...periods);              // WHERE clause
     if (ou) params.push(ou);
     params.push(...periods);              // UNION ALL WHERE clause
@@ -1428,9 +1428,9 @@ export async function getSummaryPLData(
     const periods = generatePeriods(periodRange);
     const lyPeriods = generateLYPeriods(periods);
 
-    const actualsQuery = buildScenarioQuery('ACT', periods, ou, version);
+    const actualsQuery = buildScenarioQuery('ACT', periods, ou, 'MAIN');
     const budgetQuery = buildScenarioQuery('BUD', periods, ou, version);
-    const lyQuery = buildScenarioQuery('ACT', lyPeriods, ou, version);
+    const lyQuery = buildScenarioQuery('ACT', lyPeriods, ou, 'MAIN');
 
     const [actualsResult, budgetResult, lyResult] = await Promise.all([
       client.execute({ sql: actualsQuery.sql, args: actualsQuery.params }),
@@ -1473,9 +1473,9 @@ export async function getF90PLData(
     const periods = generatePeriods(periodRange);
     const lyPeriods = generateLYPeriods(periods);
 
-    const actualsQuery = buildScenarioQuery('ACT', periods, ou, version);
+    const actualsQuery = buildScenarioQuery('ACT', periods, ou, 'MAIN');
     const budgetQuery = buildScenarioQuery('BUD', periods, ou, version);
-    const lyQuery = buildScenarioQuery('ACT', lyPeriods, ou, version);
+    const lyQuery = buildScenarioQuery('ACT', lyPeriods, ou, 'MAIN');
 
     const [actualsResult, budgetResult, lyResult] = await Promise.all([
       client.execute({ sql: actualsQuery.sql, args: actualsQuery.params }),
@@ -3338,6 +3338,86 @@ export async function updateMappingApprovalStatus(
     });
   } catch (error) {
     console.error("Error updating mapping approval status:", error);
+    throw error;
+  }
+}
+
+// Update a mapping's fields (partial update)
+export async function updateMapping(
+  mappingId: number,
+  updateData: {
+    source_account?: string | null;
+    source_department?: string | null;
+    source_account_department?: string | null;
+    target_account?: string | null;
+    target_department?: string | null;
+    target_account_department?: string | null;
+    priority?: number;
+    is_active?: boolean;
+    approval_status?: ApprovalStatus;
+    approved_by?: string | null;
+    approved_at?: string | null;
+  }
+): Promise<void> {
+  try {
+    const setClauses: string[] = [];
+    const args: any[] = [];
+
+    if (updateData.source_account !== undefined) {
+      setClauses.push('source_account = ?');
+      args.push(updateData.source_account);
+    }
+    if (updateData.source_department !== undefined) {
+      setClauses.push('source_department = ?');
+      args.push(updateData.source_department);
+    }
+    if (updateData.source_account_department !== undefined) {
+      setClauses.push('source_account_department = ?');
+      args.push(updateData.source_account_department);
+    }
+    if (updateData.target_account !== undefined) {
+      setClauses.push('target_account = ?');
+      args.push(updateData.target_account);
+    }
+    if (updateData.target_department !== undefined) {
+      setClauses.push('target_department = ?');
+      args.push(updateData.target_department);
+    }
+    if (updateData.target_account_department !== undefined) {
+      setClauses.push('target_account_department = ?');
+      args.push(updateData.target_account_department);
+    }
+    if (updateData.priority !== undefined) {
+      setClauses.push('priority = ?');
+      args.push(updateData.priority);
+    }
+    if (updateData.is_active !== undefined) {
+      setClauses.push('is_active = ?');
+      args.push(updateData.is_active ? 1 : 0);
+    }
+    if (updateData.approval_status !== undefined) {
+      setClauses.push('approval_status = ?');
+      args.push(updateData.approval_status);
+    }
+    if (updateData.approved_by !== undefined) {
+      setClauses.push('approved_by = ?');
+      args.push(updateData.approved_by);
+    }
+    if (updateData.approved_at !== undefined) {
+      setClauses.push('approved_at = ?');
+      args.push(updateData.approved_at);
+    }
+
+    if (setClauses.length === 0) return;
+
+    args.push(mappingId);
+
+    await client.execute({
+      sql: `UPDATE mappings SET ${setClauses.join(', ')} WHERE id = ?`,
+      args,
+    });
+  } catch (error) {
+    console.error("Error updating mapping:", error);
     throw error;
   }
 }
@@ -5370,7 +5450,7 @@ export async function setFinancialDataSyncCheck(
  * Get list of departments that have financial data for a specific OU
  * Captures departments across all scenarios (ACT, BUD) for the selected version
  * Also checks financial_data_staging for current period actuals
- * Only includes departments where level_2 = 'Lodging Operations'
+ * Only includes departments where level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
  * Uses department_description_detail_level_max for the display name
  * Departments with no data rows are automatically excluded (JOIN behavior)
  */
@@ -5389,7 +5469,7 @@ export async function getDepartmentsWithDataForOU(
       WHERE fd.ou = ?
         AND fd.version = ?
         AND fd.scenario IN ('ACT', 'BUD')
-        AND dm.level_2 = 'Lodging Operations'
+        AND dm.level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
       UNION
       SELECT DISTINCT
         dm.base_department,
@@ -5399,7 +5479,7 @@ export async function getDepartmentsWithDataForOU(
       JOIN department_maps dm ON fds.department = dm.base_department
       WHERE fds.ou = ?
         AND fds.scenario IN ('ACT', 'BUD')
-        AND dm.level_2 = 'Lodging Operations'
+        AND dm.level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
       ORDER BY level_7_group, department_name
     `;
 
@@ -5558,16 +5638,17 @@ export async function getDepartmentDetailData(
     `;
 
     // Build params array in order they appear in the query
+    // Actuals and LY always use 'MAIN' version; only budget uses user-selected version
     const params: any[] = [
       latestStagingPeriod,  // For COALESCE staging check
-      ou, version, department, // First combined_actuals WHERE
+      ou, 'MAIN', department, // First combined_actuals WHERE - actuals always MAIN
       ...periods,  // First IN clause
-      version,     // For LEFT JOIN check
+      'MAIN',      // For LEFT JOIN check - actuals always MAIN
       ou, department,  // Second combined_actuals (staging-only)
       ...periods,  // Staging-only period filter
-      ou, version, department,  // budget_totals
+      ou, version, department,  // budget_totals - uses user selection
       ...periods,  // Budget periods
-      ou, version, department,  // ly_totals
+      ou, 'MAIN', department,  // ly_totals - last year always MAIN
       ...lyPeriods  // LY periods
     ];
 
@@ -5716,16 +5797,17 @@ export async function getGroupDepartmentDetailData(
         am.base_account
     `;
 
+    // Actuals and LY always use 'MAIN' version; only budget uses user-selected version
     const params: any[] = [
       latestStagingPeriod,
-      ou, version, ...departments,
+      ou, 'MAIN', ...departments,       // combined_actuals first part - actuals always MAIN
       ...periods,
-      version,
+      'MAIN',                            // combined_actuals LEFT JOIN - actuals always MAIN
       ou, ...departments,
       ...periods,  // Staging-only period filter
-      ou, version, ...departments,
+      ou, version, ...departments,       // budget_totals - uses user selection
       ...periods,
-      ou, version, ...departments,
+      ou, 'MAIN', ...departments,       // ly_totals - last year always MAIN
       ...lyPeriods
     ];
 
@@ -5791,7 +5873,7 @@ export async function getAllDepartmentDetailData(
         WHERE fd.scenario = 'ACT'
           AND fd.ou = ?
           AND fd.version = ?
-          AND dm.level_2 = 'Lodging Operations'
+          AND dm.level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
           AND fd.period_combo IN (${periodPlaceholders})
         GROUP BY COALESCE(fds.account, fd.account)
         UNION ALL
@@ -5807,7 +5889,7 @@ export async function getAllDepartmentDetailData(
           AND fd.version = ?
         WHERE fds.scenario = 'ACT'
           AND fds.ou = ?
-          AND dm.level_2 = 'Lodging Operations'
+          AND dm.level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
           AND fd.dep_acc_combo_id IS NULL
           AND fds.period_combo IN (${periodPlaceholders})
         GROUP BY fds.account
@@ -5824,7 +5906,7 @@ export async function getAllDepartmentDetailData(
         WHERE fd.scenario = 'BUD'
           AND fd.ou = ?
           AND fd.version = ?
-          AND dm.level_2 = 'Lodging Operations'
+          AND dm.level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
           AND fd.period_combo IN (${periodPlaceholders})
         GROUP BY fd.account
       ),
@@ -5837,7 +5919,7 @@ export async function getAllDepartmentDetailData(
         WHERE fd.scenario = 'ACT'
           AND fd.ou = ?
           AND fd.version = ?
-          AND dm.level_2 = 'Lodging Operations'
+          AND dm.level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
           AND fd.period_combo IN (${lyPeriodPlaceholders})
         GROUP BY fd.account
       )
@@ -5876,16 +5958,17 @@ export async function getAllDepartmentDetailData(
         am.base_account
     `;
 
+    // Actuals and LY always use 'MAIN' version; only budget uses user-selected version
     const params: any[] = [
       latestStagingPeriod,
-      ou, version,
+      ou, 'MAIN',           // combined_actuals first part - actuals always MAIN
       ...periods,
-      version,
+      'MAIN',               // combined_actuals LEFT JOIN - actuals always MAIN
       ou,
       ...periods,  // Staging-only period filter
-      ou, version,
+      ou, version,           // budget_totals - uses user selection
       ...periods,
-      ou, version,
+      ou, 'MAIN',           // ly_totals - last year always MAIN
       ...lyPeriods
     ];
 
@@ -6006,15 +6089,16 @@ export async function getRoomsSoldForPeriod(
         COALESCE((SELECT ly FROM ly_total), 0) AS ly
     `;
 
+    // Actuals and LY always use 'MAIN' version; only budget uses user-selected version
     const params: any[] = [
       latestStagingPeriod,
-      ou, version,
+      ou, 'MAIN',           // combined_actuals first part - actuals always MAIN
       ...periods,
-      version,
+      'MAIN',               // combined_actuals LEFT JOIN - actuals always MAIN
       ou,
-      ou, version,
+      ou, version,           // budget_total - uses user selection
       ...periods,
-      ou, version,
+      ou, 'MAIN',           // ly_total - last year always MAIN
       ...lyPeriods
     ];
 
@@ -6124,15 +6208,16 @@ export async function getDepartmentVolumeForPeriod(
         COALESCE((SELECT ly FROM ly_total), 0) AS ly
     `;
 
+    // Actuals and LY always use 'MAIN' version; only budget uses user-selected version
     const params: any[] = [
       latestStagingPeriod,
-      ou, version, ...departments,
+      ou, 'MAIN', ...departments,       // combined_actuals first part - actuals always MAIN
       ...periods,
-      version,
+      'MAIN',                            // combined_actuals LEFT JOIN - actuals always MAIN
       ou, ...departments,
-      ou, version, ...departments,
+      ou, version, ...departments,       // budget_total - uses user selection
       ...periods,
-      ou, version, ...departments,
+      ou, 'MAIN', ...departments,       // ly_total - last year always MAIN
       ...lyPeriods
     ];
 
@@ -6262,18 +6347,19 @@ export async function getRoomSegmentExportData(
     const results: RoomSegmentExportRow[] = [];
 
     for (const segment of SEGMENTS_CONFIG) {
+      // Actuals and LY always use 'MAIN' version; only budget uses user-selected version
       const revenueParams = [
         latestStagingPeriod,
-        ou, version,
+        ou, 'MAIN',                      // actuals_combined - actuals always MAIN
         segment.revenueAccount,
         ...periods,
         segment.revenueAccount,
         ...periods,
         ou,
-        ou, version,
+        ou, version,                      // budget - uses user selection
         segment.revenueAccount,
         ...periods,
-        ou, version,
+        ou, 'MAIN',                       // ly - last year always MAIN
         segment.revenueAccount,
         ...lyPeriods
       ];
@@ -6352,18 +6438,19 @@ export async function getRoomSegmentExportData(
       let nightsData = { actuals: 0, budget: 0, ly: 0 };
 
       if (segment.statAccount) {
+        // Actuals and LY always use 'MAIN' version; only budget uses user-selected version
         const nightsParams = [
           latestStagingPeriod,
-          ou, version,
+          ou, 'MAIN',                      // actuals_combined - actuals always MAIN
           segment.statAccount,
           ...periods,
           segment.statAccount,
           ...periods,
           ou,
-          ou, version,
+          ou, version,                      // budget - uses user selection
           segment.statAccount,
           ...periods,
-          ou, version,
+          ou, 'MAIN',                       // ly - last year always MAIN
           segment.statAccount,
           ...lyPeriods
         ];

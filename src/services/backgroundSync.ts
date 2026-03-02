@@ -15,6 +15,8 @@
 
 import authService from './auth';
 import importConfigService from './importConfigService';
+import mappingTablesService from './mappingTablesService';
+import dailyFinancialSyncService from './dailyFinancialSyncService';
 
 class BackgroundSyncService {
   private syncInterval: number = 5 * 60 * 1000; // 5 minutes
@@ -99,6 +101,12 @@ class BackgroundSyncService {
 
       // Sync import groups for current OU
       await this.syncImportGroups(this.currentOU);
+
+      // Sync mapping tables (version-based, lightweight check)
+      await this.syncMappingTables();
+
+      // Sync financial data (once-per-day check)
+      await this.syncFinancialData(this.currentOU);
 
       // console.log('[BackgroundSync] Sync completed successfully');
     } catch (error) {
@@ -215,6 +223,64 @@ class BackgroundSyncService {
           errorMessage: error instanceof Error ? error.message : 'Unknown error'
         });
       }
+    }
+  }
+
+  /**
+   * Sync mapping tables (account maps, department maps, combos)
+   * Gated by 30-min cache age to avoid frequent API calls for remote users.
+   * The version check itself is lightweight (single API call), but we still
+   * respect the cache age to keep network usage minimal.
+   */
+  private async syncMappingTables() {
+    try {
+      // Check if cache needs refresh (only if older than 30 minutes)
+      if (typeof window !== 'undefined' && window.ipcApi) {
+        const shouldRefresh = await window.ipcApi.sendIpcRequest('db:should-refresh-cache', {
+          key: 'mapping_tables',
+          maxAgeMinutes: 30
+        });
+
+        if (!shouldRefresh.data) {
+          return;
+        }
+
+        await window.ipcApi.sendIpcRequest('db:update-cache-metadata', {
+          key: 'mapping_tables',
+          status: 'fetching'
+        });
+      }
+
+      await mappingTablesService.syncMappingTables();
+
+      if (typeof window !== 'undefined' && window.ipcApi) {
+        await window.ipcApi.sendIpcRequest('db:update-cache-metadata', {
+          key: 'mapping_tables',
+          status: 'success'
+        });
+      }
+    } catch (error) {
+      console.error('[BackgroundSync] Failed to sync mapping tables:', error);
+
+      if (typeof window !== 'undefined' && window.ipcApi) {
+        await window.ipcApi.sendIpcRequest('db:update-cache-metadata', {
+          key: 'mapping_tables',
+          status: 'failed',
+          errorMessage: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+  }
+
+  /**
+   * Perform daily financial data check for the current OU
+   * Uses once-per-day gating internally
+   */
+  private async syncFinancialData(ou: string) {
+    try {
+      await dailyFinancialSyncService.performDailyCheck(ou);
+    } catch (error) {
+      console.error('[BackgroundSync] Failed to sync financial data:', error);
     }
   }
 

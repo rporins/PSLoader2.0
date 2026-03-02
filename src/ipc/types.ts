@@ -112,6 +112,7 @@ export const IPC_CHANNELS = {
   DB_FIND_MAPPING: 'db:find-mapping',
   DB_GET_MAPPINGS_BY_APPROVAL_STATUS: 'db:get-mappings-by-approval-status',
   DB_UPDATE_MAPPING_APPROVAL_STATUS: 'db:update-mapping-approval-status',
+  DB_UPDATE_MAPPING: 'db:update-mapping',
 
   // Import group channels
   DB_STORE_IMPORT_GROUPS: 'db:store-import-groups',

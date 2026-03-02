@@ -264,7 +264,7 @@ export default function Settings() {
     setMappingTablesSyncMessage(null);
 
     try {
-      const synced = await mappingTablesService.syncMappingTables();
+      const synced = await mappingTablesService.syncMappingTables(true);
 
       if (synced) {
         // Reload version

@@ -51,7 +51,6 @@ export default function SignOffUpload() {
   const [unmappedCount, setUnmappedCount] = useState<number>(0);
   const [invalidComboCount, setInvalidComboCount] = useState<number>(0);
   const [totalRecords, setTotalRecords] = useState<number>(0);
-  const [skippedOnUpload, setSkippedOnUpload] = useState<number>(0);
   const [validationCompleted, setValidationCompleted] = useState<boolean>(false);
   const [signOffCompleted, setSignOffCompleted] = useState<boolean>(false);
   const [showAccessDeniedModal, setShowAccessDeniedModal] = useState<boolean>(false);
@@ -143,6 +142,7 @@ export default function SignOffUpload() {
 
   const allValidationsPassed = validations.every(v => v.status === "pass");
   const hasWarnings = validations.some(v => v.status === "warning");
+  const hasDataIssues = unmappedCount > 0 || invalidComboCount > 0;
 
   const handleSignOff = () => {
     if (signature.trim().length > 0) {
@@ -169,15 +169,16 @@ export default function SignOffUpload() {
 
       const stagingData = JSON.parse(response.data as string);
 
-      // Filter out unmapped records and invalid combos
-      const mappedData = stagingData.filter((row: any) =>
-        row.department && row.account &&
-        row.department !== null && row.account !== null &&
-        row.is_valid_combo !== 0
+      // Safety check: abort if any unmapped or invalid combo records exist
+      const hasIssues = stagingData.some((row: any) =>
+        !row.department || !row.account || row.is_valid_combo === 0
       );
+      if (hasIssues) {
+        throw new Error("Upload aborted: there are unmapped or invalid combo records. Please fix them in the Staging Data Review page before uploading.");
+      }
 
       // Transform staging data to match API format
-      const submittedData: SubmittedDataEntry[] = mappedData.map((row: any) => ({
+      const submittedData: SubmittedDataEntry[] = stagingData.map((row: any) => ({
         ou: row.ou.padEnd(7, ' '), // Pad OU to minimum 7 characters
         period: row.period_combo, // Use period_combo (format: "YYYY-MM")
         department: row.department,
@@ -196,8 +197,6 @@ export default function SignOffUpload() {
       // Upload data via API
       const uploadedData = await submittedDataService.uploadBulk(submittedData, signedBy);
 
-      const skippedCount = stagingData.length - mappedData.length;
-      setSkippedOnUpload(skippedCount);
       setUploadComplete(true);
 
       // Mark sign-off as completed
@@ -240,18 +239,27 @@ export default function SignOffUpload() {
         Sign-Off & Upload
       </Typography>
 
-      {/* Unmapped/Invalid Records Warning */}
+      {/* Unmapped/Invalid Records - Upload Blocked */}
       {(unmappedCount > 0 || invalidComboCount > 0) && (
-        <Alert severity="warning" sx={{ mb: 3 }}>
+        <Alert severity="error" sx={{ mb: 3 }}>
           <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-            {unmappedCount + invalidComboCount} of {totalRecords} records will be skipped during upload
+            Upload blocked — {unmappedCount + invalidComboCount} record{unmappedCount + invalidComboCount !== 1 ? 's' : ''} require attention
           </Typography>
-          <Typography variant="body2">
+          <Typography variant="body2" sx={{ mb: 1 }}>
             {unmappedCount > 0 && `${unmappedCount} unmapped record${unmappedCount !== 1 ? 's' : ''} (missing account/department). `}
             {invalidComboCount > 0 && `${invalidComboCount} invalid combo${invalidComboCount !== 1 ? 's' : ''} (account/department combination doesn't exist). `}
-            Only {totalRecords - unmappedCount - invalidComboCount} valid records will be uploaded.
-            Please review the Staging Data page to fix these issues.
           </Typography>
+          <Typography variant="body2" sx={{ mb: 1.5 }}>
+            All records must be valid before uploading. Please go to the Staging Data Review page to fix the mappings or delete the invalid rows.
+          </Typography>
+          <Button
+            variant="outlined"
+            size="small"
+            color="error"
+            onClick={() => navigate('/signed-in-landing/staging-data-review')}
+          >
+            Go to Staging Data Review
+          </Button>
         </Alert>
       )}
 
@@ -361,7 +369,7 @@ export default function SignOffUpload() {
                 value={signature}
                 onChange={(e) => setSignature(e.target.value)}
                 placeholder="Type your full name"
-                disabled={!allValidationsPassed || !validationCompleted || signOffCompleted}
+                disabled={!allValidationsPassed || !validationCompleted || signOffCompleted || hasDataIssues}
                 InputProps={{
                   startAdornment: <EditIcon sx={{ mr: 1, color: 'text.secondary' }} />,
                 }}
@@ -370,7 +378,7 @@ export default function SignOffUpload() {
                 variant="contained"
                 color="primary"
                 onClick={handleSignOff}
-                disabled={!allValidationsPassed || signature.trim().length === 0 || !validationCompleted || signOffCompleted}
+                disabled={!allValidationsPassed || signature.trim().length === 0 || !validationCompleted || signOffCompleted || hasDataIssues}
                 fullWidth
               >
                 Sign Off
@@ -408,11 +416,6 @@ export default function SignOffUpload() {
                 <Alert severity="success" icon={<CheckCircleIcon />}>
                   Data uploaded successfully!
                 </Alert>
-                {skippedOnUpload > 0 && (
-                  <Alert severity="info">
-                    {skippedOnUpload} record{skippedOnUpload !== 1 ? 's were' : ' was'} skipped (unmapped or invalid account/department combinations).
-                  </Alert>
-                )}
               </Stack>
             ) : (
               <>

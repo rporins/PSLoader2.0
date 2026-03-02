@@ -1,9 +1,10 @@
 /**
- * Request Mapping Dialog
- * ======================
+ * Request / Edit Mapping Dialog
+ * =============================
  *
- * A dialog for users to request new mapping lines within an existing configuration.
- * Features combo validation against valid account-department pairs.
+ * Dual-mode dialog for creating new mapping lines or editing existing ones.
+ * Source fields are free-text (unknown external systems), target fields use
+ * Autocomplete with combo validation against valid account-department pairs.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -32,10 +33,14 @@ import {
   CheckCircle as ValidIcon,
   Error as InvalidIcon,
   Add as AddIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 import mappingTablesService from '../services/mappingTablesService';
-import mappingConfigService, { CreateMappingRequest } from '../services/mappingConfigService';
+import mappingConfigService, {
+  CreateMappingRequest,
+  MappingEntry,
+} from '../services/mappingConfigService';
 
 // ────────────────────────────────────────────────────────────
 // STYLED COMPONENTS
@@ -113,12 +118,8 @@ interface RequestMappingDialogProps {
   configId: number;
   configDescription?: string;
   onSuccess?: () => void;
-}
-
-interface ComboOption {
-  account: string;
-  department: string;
-  description: string;
+  mode?: 'create' | 'edit';
+  existingMapping?: MappingEntry | null;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -131,7 +132,11 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
   configId,
   configDescription,
   onSuccess,
+  mode = 'create',
+  existingMapping = null,
 }) => {
+  const isEditMode = mode === 'edit';
+
   // Form state
   const [sourceAccount, setSourceAccount] = useState<string>('');
   const [sourceDepartment, setSourceDepartment] = useState<string>('');
@@ -139,7 +144,7 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
   const [targetDepartment, setTargetDepartment] = useState<string>('');
   const [priority, setPriority] = useState<number>(100);
 
-  // Options state
+  // Options state (for target Autocomplete only)
   const [accounts, setAccounts] = useState<string[]>([]);
   const [departments, setDepartments] = useState<string[]>([]);
   const [targetAccountOptions, setTargetAccountOptions] = useState<string[]>([]);
@@ -155,7 +160,12 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState(false);
 
-  // Load unique accounts and departments on mount
+  // Helper: strip A/D prefix from target values for DB lookups
+  const stripAccountPrefix = (val: string) => val.startsWith('A') ? val.slice(1) : val;
+  const stripDepartmentPrefix = (val: string) => val.startsWith('D') ? val.slice(1) : val;
+
+  // Load unique accounts and departments for target Autocomplete
+  // Prefix with A/D to match how mappings store target values
   useEffect(() => {
     const loadOptions = async () => {
       if (!open) return;
@@ -166,10 +176,12 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
           mappingTablesService.getUniqueAccounts(),
           mappingTablesService.getUniqueDepartments(),
         ]);
-        setAccounts(accountList);
-        setDepartments(departmentList);
-        setTargetAccountOptions(accountList);
-        setTargetDepartmentOptions(departmentList);
+        const prefixedAccounts = accountList.map(a => `A${a}`);
+        const prefixedDepartments = departmentList.map(d => `D${d}`);
+        setAccounts(prefixedAccounts);
+        setDepartments(prefixedDepartments);
+        setTargetAccountOptions(prefixedAccounts);
+        setTargetDepartmentOptions(prefixedDepartments);
       } catch (err) {
         console.error('Failed to load options:', err);
         setError('Failed to load account/department options. Please try syncing mapping tables.');
@@ -190,9 +202,11 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
       }
 
       try {
-        const validDepts = await mappingTablesService.getDepartmentsForAccount(targetAccount);
+        // Strip "A" prefix for the DB lookup
+        const rawAccount = stripAccountPrefix(targetAccount);
+        const validDepts = await mappingTablesService.getDepartmentsForAccount(rawAccount);
         if (validDepts.length > 0) {
-          setTargetDepartmentOptions(validDepts);
+          setTargetDepartmentOptions(validDepts.map(d => `D${d}`));
         } else {
           setTargetDepartmentOptions(departments);
         }
@@ -214,9 +228,11 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
       }
 
       try {
-        const validAccts = await mappingTablesService.getAccountsForDepartment(targetDepartment);
+        // Strip "D" prefix for the DB lookup
+        const rawDepartment = stripDepartmentPrefix(targetDepartment);
+        const validAccts = await mappingTablesService.getAccountsForDepartment(rawDepartment);
         if (validAccts.length > 0) {
-          setTargetAccountOptions(validAccts);
+          setTargetAccountOptions(validAccts.map(a => `A${a}`));
         } else {
           setTargetAccountOptions(accounts);
         }
@@ -239,7 +255,10 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
 
       setValidatingCombo(true);
       try {
-        const isValid = await mappingTablesService.isValidCombo(targetAccount, targetDepartment);
+        // Strip A/D prefixes for the DB validation lookup
+        const rawAccount = stripAccountPrefix(targetAccount);
+        const rawDepartment = stripDepartmentPrefix(targetDepartment);
+        const isValid = await mappingTablesService.isValidCombo(rawAccount, rawDepartment);
         setIsTargetComboValid(isValid);
       } catch (err) {
         console.error('Failed to validate combo:', err);
@@ -252,7 +271,7 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
     validateCombo();
   }, [targetAccount, targetDepartment]);
 
-  // Reset form when dialog closes
+  // Reset or pre-populate form when dialog opens/closes
   useEffect(() => {
     if (!open) {
       setSourceAccount('');
@@ -263,8 +282,14 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
       setIsTargetComboValid(null);
       setError('');
       setSuccess(false);
+    } else if (mode === 'edit' && existingMapping) {
+      setSourceAccount(existingMapping.source_account || '');
+      setSourceDepartment(existingMapping.source_department || '');
+      setTargetAccount(existingMapping.target_account || '');
+      setTargetDepartment(existingMapping.target_department || '');
+      setPriority(existingMapping.priority);
     }
-  }, [open]);
+  }, [open, mode, existingMapping]);
 
   const handleSubmit = useCallback(async () => {
     setLoading(true);
@@ -272,12 +297,10 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
     setSuccess(false);
 
     try {
-      // Validate that we have at least source or target info
       if (!sourceAccount && !sourceDepartment && !targetAccount && !targetDepartment) {
         throw new Error('Please fill in at least one source or target field');
       }
 
-      // Warn if target combo is invalid (but still allow submission)
       if (isTargetComboValid === false) {
         const proceed = window.confirm(
           'The target account-department combination is not in the valid combos list. ' +
@@ -289,35 +312,45 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
         }
       }
 
+      // Compute concatenated fields
+      // Format: dept first, acct second, no separator
+      // Target values carry A/D prefix (e.g., D0100A390001)
+      // Source values are free text, clean concat (e.g., 0100390001)
+      const srcAcct = sourceAccount || null;
+      const srcDept = sourceDepartment || null;
+      const tgtAcct = targetAccount || null;
+      const tgtDept = targetDepartment || null;
+      const sourceAcctDept = srcDept && srcAcct ? `${srcDept}${srcAcct}` : null;
+      const targetAcctDept = tgtDept && tgtAcct ? `${tgtDept}${tgtAcct}` : null;
+
       const mappingData: CreateMappingRequest = {
-        source_account: sourceAccount || null,
-        source_department: sourceDepartment || null,
-        target_account: targetAccount || null,
-        target_department: targetDepartment || null,
+        source_account: srcAcct,
+        source_department: srcDept,
+        source_account_department: sourceAcctDept,
+        target_account: tgtAcct,
+        target_department: tgtDept,
+        target_account_department: targetAcctDept,
         priority,
-        is_active: true,
+        // Edit mode: new inactive line (original stays untouched)
+        // Create mode: active line
+        is_active: isEditMode ? false : true,
       };
 
-      // Create the mapping via API
       await mappingConfigService.createMapping(configId, mappingData);
-
       setSuccess(true);
-
-      // Close after a brief delay to show success message
       setTimeout(() => {
         onClose();
         onSuccess?.();
       }, 1500);
-
     } catch (err) {
-      console.error('Failed to create mapping:', err);
-      setError(err instanceof Error ? err.message : 'Failed to create mapping request');
+      console.error('Failed to submit mapping:', err);
+      setError(err instanceof Error ? err.message : 'Failed to submit mapping');
     } finally {
       setLoading(false);
     }
   }, [
     sourceAccount, sourceDepartment, targetAccount, targetDepartment,
-    priority, isTargetComboValid, configId, onClose, onSuccess
+    priority, isTargetComboValid, configId, onClose, onSuccess, isEditMode,
   ]);
 
   const canSubmit = !loading && !success && (
@@ -329,7 +362,7 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
       <StyledDialogTitle>
         <Box>
           <Typography variant="h6" fontWeight={600}>
-            Request New Mapping
+            {isEditMode ? 'Edit Mapping' : 'Request New Mapping'}
           </Typography>
           {configDescription && (
             <Typography variant="caption" color="text.secondary">
@@ -351,43 +384,31 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
           <Stack spacing={3}>
             {/* Info Alert */}
             <Alert severity="info" sx={{ borderRadius: 2 }}>
-              Request a new mapping line. It will be submitted for approval and won't be active until approved.
+              {isEditMode
+                ? 'Submit a modified mapping request. The original mapping will remain active until an admin approves this change.'
+                : 'Request a new mapping line. It will be submitted for approval and won\'t be active until approved.'}
             </Alert>
 
-            {/* Source Fields */}
+            {/* Source Fields — plain text inputs */}
             <Box>
               <SectionLabel>Source (What to map from)</SectionLabel>
               <FieldRow>
-                <Autocomplete
-                  freeSolo
-                  options={accounts}
+                <TextField
+                  label="Source Account"
+                  placeholder="e.g., 4100"
+                  size="small"
                   value={sourceAccount}
-                  onInputChange={(_, value) => setSourceAccount(value)}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Source Account"
-                      placeholder="e.g., 4100"
-                      size="small"
-                      helperText="Leave empty to match any"
-                    />
-                  )}
+                  onChange={(e) => setSourceAccount(e.target.value)}
+                  helperText="Leave empty to match any"
                   sx={{ flex: 1 }}
                 />
-                <Autocomplete
-                  freeSolo
-                  options={departments}
+                <TextField
+                  label="Source Department"
+                  placeholder="e.g., 100"
+                  size="small"
                   value={sourceDepartment}
-                  onInputChange={(_, value) => setSourceDepartment(value)}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Source Department"
-                      placeholder="e.g., 100"
-                      size="small"
-                      helperText="Leave empty to match any"
-                    />
-                  )}
+                  onChange={(e) => setSourceDepartment(e.target.value)}
+                  helperText="Leave empty to match any"
                   sx={{ flex: 1 }}
                 />
               </FieldRow>
@@ -398,7 +419,7 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
               <ArrowIcon sx={{ fontSize: 24, color: 'text.disabled' }} />
             </Box>
 
-            {/* Target Fields */}
+            {/* Target Fields — Autocomplete with combo validation */}
             <Box>
               <SectionLabel>
                 Target (What to map to)
@@ -425,7 +446,7 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
                     <TextField
                       {...params}
                       label="Target Account"
-                      placeholder="e.g., 5100"
+                      placeholder="e.g., A5100"
                       size="small"
                     />
                   )}
@@ -440,7 +461,7 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
                     <TextField
                       {...params}
                       label="Target Department"
-                      placeholder="e.g., 200"
+                      placeholder="e.g., D200"
                       size="small"
                     />
                   )}
@@ -474,7 +495,9 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
               )}
               {success && (
                 <Alert severity="success" sx={{ borderRadius: 2 }}>
-                  Mapping request submitted successfully! It is now pending approval.
+                  {isEditMode
+                    ? 'Modification request submitted. Original mapping remains active.'
+                    : 'Mapping request submitted successfully! It is now pending approval.'}
                 </Alert>
               )}
             </Collapse>
@@ -494,14 +517,14 @@ const RequestMappingDialog: React.FC<RequestMappingDialogProps> = ({
           variant="contained"
           onClick={handleSubmit}
           disabled={!canSubmit}
-          startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <AddIcon />}
+          startIcon={loading ? <CircularProgress size={16} color="inherit" /> : (isEditMode ? <EditIcon /> : <AddIcon />)}
           sx={{
             textTransform: 'none',
             borderRadius: 2,
             px: 3,
           }}
         >
-          {loading ? 'Submitting...' : 'Submit Request'}
+          {loading ? 'Submitting...' : (isEditMode ? 'Complete' : 'Submit Request')}
         </Button>
       </StyledDialogActions>
     </StyledDialog>

@@ -230,6 +230,16 @@ export class DatabaseHandlers {
     };
   };
 
+  updateMappingHandler: IpcHandler = async (event, request) => {
+    const { mapping_id, ...updateData } = request;
+    await db.updateMapping(mapping_id, updateData);
+    return {
+      success: true,
+      data: { message: 'Mapping updated successfully' },
+      timestamp: Date.now(),
+    };
+  };
+
   // Import group handlers
   storeImportGroupsHandler: IpcHandler = async (event, request) => {
     await db.storeImportGroups(request.ou, request.importGroups);
@@ -817,6 +827,7 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_FIND_MAPPING]: handlers.findMappingHandler,
     [IPC_CHANNELS.DB_GET_MAPPINGS_BY_APPROVAL_STATUS]: handlers.getMappingsByApprovalStatusHandler,
     [IPC_CHANNELS.DB_UPDATE_MAPPING_APPROVAL_STATUS]: handlers.updateMappingApprovalStatusHandler,
+    [IPC_CHANNELS.DB_UPDATE_MAPPING]: handlers.updateMappingHandler,
     [IPC_CHANNELS.DB_STORE_IMPORT_GROUPS]: handlers.storeImportGroupsHandler,
     [IPC_CHANNELS.DB_GET_IMPORT_GROUPS]: handlers.getImportGroupsHandler,
     [IPC_CHANNELS.DB_GET_MAPPING_CONFIG_IDS_FOR_OU]: handlers.getMappingConfigIdsForOUHandler,
