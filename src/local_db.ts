@@ -1249,6 +1249,7 @@ export async function getFinancialReportData(
         LEFT JOIN financial_data_staging fds
           ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
           AND fds.period_combo = ?
+          AND fd.period_combo = fds.period_combo
           AND fds.scenario = 'ACT'
         WHERE fd.scenario = 'ACT'
           AND fd.version = ?
@@ -1285,6 +1286,7 @@ export async function getFinancialReportData(
         LEFT JOIN financial_data_staging fds
           ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
           AND fds.period_combo = ?
+          AND fd.period_combo = fds.period_combo
           AND fds.scenario = 'BUD'
         WHERE fd.scenario = 'BUD'
           AND fd.version = ?
