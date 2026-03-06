@@ -2041,6 +2041,104 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
       { type: 'dept_level', level: 10, value: 'Invest Factor NonOp' },
       { type: 'acc_base', value: ['A700304', 'A701601', 'A701602', 'A701603'] }
     ]
+  },
+
+  // ============================================================================
+  // F90 KPI Sub-Measures — Detailed management fees, non-op, owner, depreciation
+  // ============================================================================
+
+  // Base Management Fee (D0480 - Lease Expenses / Base Fees)
+  f90_base_mgmt_fee_act: {
+    id: 'f90_base_mgmt_fee_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0480' },
+      { type: 'acc_level', level: 13, value: 'Managed Fees' },
+      { type: 'acc_level', level: 14, value: 'Lease Expenses' },
+      { type: 'acc_level', level: 15, value: 'Base Fees' }
+    ]
+  },
+
+  // Base Royalty Fee (D0490 - Lease Expenses / Incentive Fees)
+  f90_base_royalty_fee_act: {
+    id: 'f90_base_royalty_fee_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0490' },
+      { type: 'acc_level', level: 13, value: 'Managed Fees' },
+      { type: 'acc_level', level: 14, value: 'Lease Expenses' },
+      { type: 'acc_level', level: 15, value: 'Incentive Fees' }
+    ]
+  },
+
+  // Incentive Fee (D0480 - Royalty Costs / Base Fees)
+  f90_incentive_fee_act: {
+    id: 'f90_incentive_fee_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0480' },
+      { type: 'acc_level', level: 13, value: 'Managed Fees' },
+      { type: 'acc_level', level: 14, value: 'Royalty Costs' },
+      { type: 'acc_level', level: 15, value: 'Base Fees' }
+    ]
+  },
+
+  // D0480 All Accounts (for exclusion-based NON-OP calculation)
+  f90_d0480_all_act: {
+    id: 'f90_d0480_all_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0480' },
+      { type: 'acc_level', level: 1, value: 'EBITDA' }
+    ]
+  },
+
+  // D0490 All Accounts (for exclusion-based OWNER EXPENSE calculation)
+  f90_d0490_all_act: {
+    id: 'f90_d0490_all_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0490' },
+      { type: 'acc_level', level: 1, value: 'EBITDA' }
+    ]
+  },
+
+  // Replacement Reserve — D0480, A701110 only
+  f90_replacement_reserve_act: {
+    id: 'f90_replacement_reserve_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0480' },
+      { type: 'acc_base', value: 'A701110' }
+    ]
+  },
+
+  // D0690 All Accounts — Owner Depreciation & Amortization
+  f90_d0690_all_act: {
+    id: 'f90_d0690_all_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0690' },
+      { type: 'acc_level', level: 1, value: 'EBITDA' }
+    ]
+  },
+
+  // D0691 All Accounts — Owner Interest & Income Tax
+  f90_d0691_all_act: {
+    id: 'f90_d0691_all_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0691' },
+      { type: 'acc_level', level: 1, value: 'EBITDA' }
+    ]
   }
 };
 
@@ -2681,6 +2779,48 @@ export const MEASURES: Record<string, Measure> = {
     }
   },
 
+  // F90 P&L - GOP %
+  gop_pct: {
+    id: 'gop_pct',
+    type: 'calculated',
+    subMeasures: ['total_profit_act', 'total_sales_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return evaluateDivide(
+        ctx.subMeasures.total_profit_act || 0,
+        ctx.subMeasures.total_sales_act || 0,
+        0
+      ) * 100;
+    }
+  },
+
+  // F90 P&L - Rooms Department Profit %
+  rooms_dept_profit_pct: {
+    id: 'rooms_dept_profit_pct',
+    type: 'calculated',
+    subMeasures: ['rooms_reservations_profit_act', 'rooms_reservations_revenue_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return evaluateDivide(
+        ctx.subMeasures.rooms_reservations_profit_act || 0,
+        ctx.subMeasures.rooms_reservations_revenue_act || 0,
+        0
+      ) * 100;
+    }
+  },
+
+  // F90 P&L - F&B Department Profit %
+  fb_dept_profit_pct: {
+    id: 'fb_dept_profit_pct',
+    type: 'calculated',
+    subMeasures: ['total_fb_profit_act', 'total_fb_revenue_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return evaluateDivide(
+        ctx.subMeasures.total_fb_profit_act || 0,
+        ctx.subMeasures.total_fb_revenue_act || 0,
+        0
+      ) * 100;
+    }
+  },
+
   // F90 P&L - Total F&B Profit
   total_fb_profit: {
     id: 'total_fb_profit',
@@ -2868,5 +3008,204 @@ export const MEASURES: Record<string, Measure> = {
     id: 'sold_rooms',
     type: 'simple',
     subMeasures: ['sold_rooms_act']
+  },
+
+  // ============================================================================
+  // F90 KPI Measures — Detailed management fees, non-op, owner, depreciation
+  // ============================================================================
+
+  // Simple wrappers
+  f90_base_mgmt_fee: {
+    id: 'f90_base_mgmt_fee',
+    type: 'simple',
+    subMeasures: ['f90_base_mgmt_fee_act']
+  },
+
+  f90_base_royalty_fee: {
+    id: 'f90_base_royalty_fee',
+    type: 'simple',
+    subMeasures: ['f90_base_royalty_fee_act']
+  },
+
+  f90_incentive_fee: {
+    id: 'f90_incentive_fee',
+    type: 'simple',
+    subMeasures: ['f90_incentive_fee_act']
+  },
+
+  f90_repl_reserve: {
+    id: 'f90_repl_reserve',
+    type: 'simple',
+    subMeasures: ['f90_replacement_reserve_act']
+  },
+
+  f90_owner_depr_amort: {
+    id: 'f90_owner_depr_amort',
+    type: 'simple',
+    subMeasures: ['f90_d0690_all_act']
+  },
+
+  f90_owner_interest_income_tax: {
+    id: 'f90_owner_interest_income_tax',
+    type: 'simple',
+    subMeasures: ['f90_d0691_all_act']
+  },
+
+  // Calculated measures
+  f90_total_mgmt_fees: {
+    id: 'f90_total_mgmt_fees',
+    type: 'calculated',
+    subMeasures: ['f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act', 'f90_incentive_fee_act'],
+    evaluator: (ctx: MeasureContext) => {
+      const baseMgmt = ctx.subMeasures.f90_base_mgmt_fee_act || 0;
+      const baseRoyalty = ctx.subMeasures.f90_base_royalty_fee_act || 0;
+      const incentive = ctx.subMeasures.f90_incentive_fee_act || 0;
+      return baseMgmt + baseRoyalty + incentive;
+    }
+  },
+
+  f90_income_before_nonop: {
+    id: 'f90_income_before_nonop',
+    type: 'calculated',
+    subMeasures: ['total_profit_act', 'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act', 'f90_incentive_fee_act'],
+    evaluator: (ctx: MeasureContext) => {
+      const gop = ctx.subMeasures.total_profit_act || 0;
+      const baseMgmt = ctx.subMeasures.f90_base_mgmt_fee_act || 0;
+      const baseRoyalty = ctx.subMeasures.f90_base_royalty_fee_act || 0;
+      const incentive = ctx.subMeasures.f90_incentive_fee_act || 0;
+      return gop + baseMgmt + baseRoyalty + incentive;
+    }
+  },
+
+  f90_nonop_inc_exp: {
+    id: 'f90_nonop_inc_exp',
+    type: 'calculated',
+    subMeasures: ['f90_d0480_all_act', 'f90_base_mgmt_fee_act', 'f90_incentive_fee_act', 'f90_replacement_reserve_act'],
+    evaluator: (ctx: MeasureContext) => {
+      const d0480All = ctx.subMeasures.f90_d0480_all_act || 0;
+      const baseMgmt = ctx.subMeasures.f90_base_mgmt_fee_act || 0;
+      const incentive = ctx.subMeasures.f90_incentive_fee_act || 0;
+      const replReserve = ctx.subMeasures.f90_replacement_reserve_act || 0;
+      return d0480All - baseMgmt - incentive - replReserve;
+    }
+  },
+
+  f90_ebitda_excl_owner: {
+    id: 'f90_ebitda_excl_owner',
+    type: 'calculated',
+    subMeasures: [
+      'total_profit_act', 'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act',
+      'f90_incentive_fee_act', 'f90_d0480_all_act', 'f90_replacement_reserve_act'
+    ],
+    evaluator: (ctx: MeasureContext) => {
+      const gop = ctx.subMeasures.total_profit_act || 0;
+      const baseMgmt = ctx.subMeasures.f90_base_mgmt_fee_act || 0;
+      const baseRoyalty = ctx.subMeasures.f90_base_royalty_fee_act || 0;
+      const incentive = ctx.subMeasures.f90_incentive_fee_act || 0;
+      const incomeBeforeNonOp = gop + baseMgmt + baseRoyalty + incentive;
+
+      const d0480All = ctx.subMeasures.f90_d0480_all_act || 0;
+      const replReserve = ctx.subMeasures.f90_replacement_reserve_act || 0;
+      const nonOp = d0480All - baseMgmt - incentive - replReserve;
+
+      return incomeBeforeNonOp + nonOp;
+    }
+  },
+
+  f90_owner_expense: {
+    id: 'f90_owner_expense',
+    type: 'calculated',
+    subMeasures: ['f90_d0490_all_act', 'f90_base_royalty_fee_act'],
+    evaluator: (ctx: MeasureContext) => {
+      const d0490All = ctx.subMeasures.f90_d0490_all_act || 0;
+      const royaltyFee = ctx.subMeasures.f90_base_royalty_fee_act || 0;
+      return d0490All - royaltyFee;
+    }
+  },
+
+  f90_ebitda: {
+    id: 'f90_ebitda',
+    type: 'calculated',
+    subMeasures: [
+      'total_profit_act', 'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act',
+      'f90_incentive_fee_act', 'f90_d0480_all_act', 'f90_replacement_reserve_act',
+      'f90_d0490_all_act'
+    ],
+    evaluator: (ctx: MeasureContext) => {
+      const gop = ctx.subMeasures.total_profit_act || 0;
+      const baseMgmt = ctx.subMeasures.f90_base_mgmt_fee_act || 0;
+      const baseRoyalty = ctx.subMeasures.f90_base_royalty_fee_act || 0;
+      const incentive = ctx.subMeasures.f90_incentive_fee_act || 0;
+      const incomeBeforeNonOp = gop + baseMgmt + baseRoyalty + incentive;
+
+      const d0480All = ctx.subMeasures.f90_d0480_all_act || 0;
+      const replReserve = ctx.subMeasures.f90_replacement_reserve_act || 0;
+      const nonOp = d0480All - baseMgmt - incentive - replReserve;
+      const ebitdaExclOwner = incomeBeforeNonOp + nonOp;
+
+      const d0490All = ctx.subMeasures.f90_d0490_all_act || 0;
+      const ownerExpense = d0490All - baseRoyalty;
+
+      return ebitdaExclOwner + ownerExpense;
+    }
+  },
+
+  f90_ebitda_less_repl_reserve: {
+    id: 'f90_ebitda_less_repl_reserve',
+    type: 'calculated',
+    subMeasures: [
+      'total_profit_act', 'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act',
+      'f90_incentive_fee_act', 'f90_d0480_all_act', 'f90_replacement_reserve_act',
+      'f90_d0490_all_act'
+    ],
+    evaluator: (ctx: MeasureContext) => {
+      const gop = ctx.subMeasures.total_profit_act || 0;
+      const baseMgmt = ctx.subMeasures.f90_base_mgmt_fee_act || 0;
+      const baseRoyalty = ctx.subMeasures.f90_base_royalty_fee_act || 0;
+      const incentive = ctx.subMeasures.f90_incentive_fee_act || 0;
+      const incomeBeforeNonOp = gop + baseMgmt + baseRoyalty + incentive;
+
+      const d0480All = ctx.subMeasures.f90_d0480_all_act || 0;
+      const replReserve = ctx.subMeasures.f90_replacement_reserve_act || 0;
+      const nonOp = d0480All - baseMgmt - incentive - replReserve;
+      const ebitdaExclOwner = incomeBeforeNonOp + nonOp;
+
+      const d0490All = ctx.subMeasures.f90_d0490_all_act || 0;
+      const ownerExpense = d0490All - baseRoyalty;
+      const ebitda = ebitdaExclOwner + ownerExpense;
+
+      return ebitda + replReserve;
+    }
+  },
+
+  f90_total_mgr_profit_contrib: {
+    id: 'f90_total_mgr_profit_contrib',
+    type: 'calculated',
+    subMeasures: [
+      'total_profit_act', 'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act',
+      'f90_incentive_fee_act', 'f90_d0480_all_act', 'f90_replacement_reserve_act',
+      'f90_d0490_all_act', 'f90_d0690_all_act', 'f90_d0691_all_act'
+    ],
+    evaluator: (ctx: MeasureContext) => {
+      const gop = ctx.subMeasures.total_profit_act || 0;
+      const baseMgmt = ctx.subMeasures.f90_base_mgmt_fee_act || 0;
+      const baseRoyalty = ctx.subMeasures.f90_base_royalty_fee_act || 0;
+      const incentive = ctx.subMeasures.f90_incentive_fee_act || 0;
+      const incomeBeforeNonOp = gop + baseMgmt + baseRoyalty + incentive;
+
+      const d0480All = ctx.subMeasures.f90_d0480_all_act || 0;
+      const replReserve = ctx.subMeasures.f90_replacement_reserve_act || 0;
+      const nonOp = d0480All - baseMgmt - incentive - replReserve;
+      const ebitdaExclOwner = incomeBeforeNonOp + nonOp;
+
+      const d0490All = ctx.subMeasures.f90_d0490_all_act || 0;
+      const ownerExpense = d0490All - baseRoyalty;
+      const ebitda = ebitdaExclOwner + ownerExpense;
+      const ebitdaLessReserve = ebitda + replReserve;
+
+      const ownerDepr = ctx.subMeasures.f90_d0690_all_act || 0;
+      const ownerInterestTax = ctx.subMeasures.f90_d0691_all_act || 0;
+      return ebitdaLessReserve + ownerDepr + ownerInterestTax;
+    }
   }
 };

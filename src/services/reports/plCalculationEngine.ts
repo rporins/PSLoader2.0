@@ -185,6 +185,7 @@ export function buildScenarioQuery(
     FROM combined_data cd
     LEFT JOIN department_maps dm ON cd.department = dm.base_department
     LEFT JOIN account_maps am ON cd.account = am.base_account
+    WHERE cd.account NOT LIKE 'A1%' AND cd.account NOT LIKE 'A2%'
   `;
 
   return { sql, params };
@@ -448,5 +449,64 @@ export function calculateF90PLRows(
     });
   });
 
-  return results;
+  return filterZeroRows(results);
+}
+
+// ============================================================================
+// ZERO-ROW FILTER
+// Removes measure rows where actuals, budget, and LY are all zero.
+// Preserves totals (headers with values) and cleans up orphaned section
+// headers and spacing rows so smaller hotels don't see empty rows.
+// ============================================================================
+
+function filterZeroRows(rows: PLCalculationResult[]): PLCalculationResult[] {
+  // Step 1: Identify which measure rows have non-zero data
+  const rowHasData = rows.map(row =>
+    row.type === 'measure' &&
+    ((row.actuals !== null && row.actuals !== 0) ||
+     (row.budget !== null && row.budget !== 0) ||
+     (row.ly !== null && row.ly !== 0))
+  );
+
+  // Step 2: Decide which rows to keep
+  const keep = rows.map((row, i) => {
+    // Measure rows: only keep if they have data
+    if (row.type === 'measure') return rowHasData[i];
+
+    // Total/calculated headers (have actual values): always keep
+    if (row.type === 'header' && row.actuals !== null) return true;
+
+    // Spacing rows: tentatively keep (cleaned up in step 3)
+    if (row.type === 'header' && !row.label) return true;
+
+    // Section label headers (no values): keep only if any child measures have data
+    if (row.type === 'header' && row.label && row.actuals === null) {
+      for (let j = i + 1; j < rows.length; j++) {
+        // Stop at next section header at same or lower indent level
+        if (rows[j].type === 'header' && rows[j].label &&
+            rows[j].actuals === null && rows[j].indentLevel <= row.indentLevel) {
+          break;
+        }
+        if (rowHasData[j]) return true;
+      }
+      return false;
+    }
+
+    return true;
+  });
+
+  let filtered = rows.filter((_, i) => keep[i]);
+
+  // Step 3: Clean up spacing — remove leading, trailing, and consecutive empty rows
+  filtered = filtered.filter((row, i, arr) => {
+    if (row.type !== 'header' || row.label !== '') return true;
+    if (i === 0 || i === arr.length - 1) return false;
+    if (arr[i - 1].type === 'header' && arr[i - 1].label === '') return false;
+    return true;
+  });
+
+  // Re-number row IDs
+  filtered.forEach((row, i) => { row.rowId = i + 1; });
+
+  return filtered;
 }

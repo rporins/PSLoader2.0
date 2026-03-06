@@ -1234,6 +1234,9 @@ export async function getFinancialReportData(
   const periods = generatePeriods(startPeriod, numberOfPeriods);
 
   try {
+    // Auto-clean staging if its period has already been imported
+    await autoCleanStagingIfImported();
+
     // Get the latest period for staging data join optimization
     const latestPeriod = periods[periods.length - 1];
 
@@ -1345,6 +1348,7 @@ export async function getFinancialReportData(
       LEFT JOIN department_maps dm ON a.department = dm.base_department
       WHERE dm.level_2 = 'Lodging Operations'
         AND am.level_4 = 'Profit Amount'
+        AND a.account NOT LIKE 'A1%' AND a.account NOT LIKE 'A2%'
         AND (${periods.map((_, i) => `(a.act_p${i + 1} != 0 OR b.bud_p${i + 1} != 0)`).join(' OR ')})
       ORDER BY dm.level_4, dm.level_5, dm.level_7, am.level_4, am.level_6, am.level_9
     `;
@@ -1419,6 +1423,9 @@ export async function getSummaryPLData(
   version: string = 'MAIN'
 ): Promise<string> {
   try {
+    // Auto-clean staging if its period has already been imported
+    await autoCleanStagingIfImported();
+
     const {
       generatePeriods,
       generateLYPeriods,
@@ -1464,6 +1471,9 @@ export async function getF90PLData(
   version: string = 'MAIN'
 ): Promise<string> {
   try {
+    // Auto-clean staging if its period has already been imported
+    await autoCleanStagingIfImported();
+
     const {
       generatePeriods,
       generateLYPeriods,
@@ -3793,6 +3803,50 @@ export async function clearStagingTable(): Promise<void> {
   }
 }
 
+// Auto-clean staging table if its period has already been imported into financial_data.
+// Called before union reports to prevent stale staging data from being included.
+// Near-zero cost when staging is empty (single COUNT query short-circuits).
+export async function autoCleanStagingIfImported(): Promise<boolean> {
+  try {
+    const countResult = await client.execute({
+      sql: "SELECT COUNT(*) as cnt FROM financial_data_staging",
+      args: []
+    });
+
+    const count = (countResult.rows[0] as any)?.cnt || 0;
+    if (count === 0) return false;
+
+    // Staging has data - check if that period already exists in financial_data
+    const stagingPeriod = await client.execute({
+      sql: "SELECT DISTINCT period_combo FROM financial_data_staging LIMIT 1",
+      args: []
+    });
+
+    if (stagingPeriod.rows.length === 0) return false;
+
+    const period = (stagingPeriod.rows[0] as any).period_combo;
+
+    const existsInMain = await client.execute({
+      sql: "SELECT 1 FROM financial_data WHERE period_combo = ? AND scenario = 'ACT' LIMIT 1",
+      args: [period]
+    });
+
+    if (existsInMain.rows.length === 0) return false;
+
+    // Period exists in both tables - staging data has been imported, clear it
+    await client.execute({
+      sql: "DELETE FROM financial_data_staging",
+      args: []
+    });
+
+    console.log(`[AutoClean] Staging table cleared - period ${period} already exists in financial_data`);
+    return true;
+  } catch (error) {
+    console.error("[AutoClean] Error during staging auto-cleanup:", error);
+    return false;
+  }
+}
+
 // Get all staging data
 export async function getStagingData(ou?: string): Promise<string> {
   try {
@@ -5558,6 +5612,7 @@ export async function getDepartmentDetailData(
           AND fd.ou = ?
           AND fd.version = ?
           AND fd.department = ?
+          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
           AND fd.period_combo IN (${periodPlaceholders})
         GROUP BY COALESCE(fds.account, fd.account)
         UNION ALL
@@ -5573,12 +5628,15 @@ export async function getDepartmentDetailData(
         WHERE fds.scenario = 'ACT'
           AND fds.ou = ?
           AND fds.department = ?
+          AND fds.account NOT LIKE 'A1%' AND fds.account NOT LIKE 'A2%'
           AND fd.dep_acc_combo_id IS NULL
           AND fds.period_combo IN (${periodPlaceholders})
         GROUP BY fds.account
       ),
       actuals_totals AS (
-        SELECT account, SUM(amount) AS actuals FROM combined_actuals GROUP BY account
+        SELECT account, SUM(amount) AS actuals FROM combined_actuals
+        WHERE account NOT LIKE 'A1%' AND account NOT LIKE 'A2%'
+        GROUP BY account
       ),
       budget_totals AS (
         SELECT
@@ -5589,6 +5647,7 @@ export async function getDepartmentDetailData(
           AND fd.ou = ?
           AND fd.version = ?
           AND fd.department = ?
+          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
           AND fd.period_combo IN (${periodPlaceholders})
         GROUP BY fd.account
       ),
@@ -5601,6 +5660,7 @@ export async function getDepartmentDetailData(
           AND fd.ou = ?
           AND fd.version = ?
           AND fd.department = ?
+          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
           AND fd.period_combo IN (${lyPeriodPlaceholders})
         GROUP BY fd.account
       )
@@ -5626,6 +5686,8 @@ export async function getDepartmentDetailData(
       FULL OUTER JOIN ly_totals l ON COALESCE(a.account, b.account) = l.account
       LEFT JOIN account_maps am ON COALESCE(a.account, b.account, l.account) = am.base_account
       WHERE COALESCE(a.account, b.account, l.account) IS NOT NULL
+        AND COALESCE(a.account, b.account, l.account) NOT LIKE 'A1%'
+        AND COALESCE(a.account, b.account, l.account) NOT LIKE 'A2%'
       ORDER BY
         CASE
           WHEN am.level_6 = 'Revenue' THEN 1
@@ -5718,6 +5780,7 @@ export async function getGroupDepartmentDetailData(
           AND fd.ou = ?
           AND fd.version = ?
           AND fd.department IN (${deptPlaceholders})
+          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
           AND fd.period_combo IN (${periodPlaceholders})
         GROUP BY COALESCE(fds.account, fd.account)
         UNION ALL
@@ -5733,12 +5796,15 @@ export async function getGroupDepartmentDetailData(
         WHERE fds.scenario = 'ACT'
           AND fds.ou = ?
           AND fds.department IN (${deptPlaceholders})
+          AND fds.account NOT LIKE 'A1%' AND fds.account NOT LIKE 'A2%'
           AND fd.dep_acc_combo_id IS NULL
           AND fds.period_combo IN (${periodPlaceholders})
         GROUP BY fds.account
       ),
       actuals_totals AS (
-        SELECT account, SUM(amount) AS actuals FROM combined_actuals GROUP BY account
+        SELECT account, SUM(amount) AS actuals FROM combined_actuals
+        WHERE account NOT LIKE 'A1%' AND account NOT LIKE 'A2%'
+        GROUP BY account
       ),
       budget_totals AS (
         SELECT
@@ -5749,6 +5815,7 @@ export async function getGroupDepartmentDetailData(
           AND fd.ou = ?
           AND fd.version = ?
           AND fd.department IN (${deptPlaceholders})
+          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
           AND fd.period_combo IN (${periodPlaceholders})
         GROUP BY fd.account
       ),
@@ -5761,6 +5828,7 @@ export async function getGroupDepartmentDetailData(
           AND fd.ou = ?
           AND fd.version = ?
           AND fd.department IN (${deptPlaceholders})
+          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
           AND fd.period_combo IN (${lyPeriodPlaceholders})
         GROUP BY fd.account
       )
@@ -5786,6 +5854,8 @@ export async function getGroupDepartmentDetailData(
       FULL OUTER JOIN ly_totals l ON COALESCE(a.account, b.account) = l.account
       LEFT JOIN account_maps am ON COALESCE(a.account, b.account, l.account) = am.base_account
       WHERE COALESCE(a.account, b.account, l.account) IS NOT NULL
+        AND COALESCE(a.account, b.account, l.account) NOT LIKE 'A1%'
+        AND COALESCE(a.account, b.account, l.account) NOT LIKE 'A2%'
       ORDER BY
         CASE
           WHEN am.level_6 = 'Revenue' THEN 1
@@ -5842,7 +5912,8 @@ export async function getAllDepartmentDetailData(
   startYear: number,
   endMonth: number,
   endYear: number,
-  version: string = 'MAIN'
+  version: string = 'MAIN',
+  excludeDepartments: string[] = []
 ): Promise<DepartmentDetailRow[]> {
   try {
     const {
@@ -5857,6 +5928,12 @@ export async function getAllDepartmentDetailData(
 
     const periodPlaceholders = periods.map(() => '?').join(', ');
     const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
+
+    // Build optional department exclusion clause
+    const hasExclusions = excludeDepartments.length > 0;
+    const excludePlaceholders = hasExclusions
+      ? `AND dm.base_department NOT IN (${excludeDepartments.map(() => '?').join(', ')})`
+      : '';
 
     const query = `
       WITH combined_actuals AS (
@@ -5876,6 +5953,8 @@ export async function getAllDepartmentDetailData(
           AND fd.ou = ?
           AND fd.version = ?
           AND dm.level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
+          ${excludePlaceholders}
+          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
           AND fd.period_combo IN (${periodPlaceholders})
         GROUP BY COALESCE(fds.account, fd.account)
         UNION ALL
@@ -5892,12 +5971,16 @@ export async function getAllDepartmentDetailData(
         WHERE fds.scenario = 'ACT'
           AND fds.ou = ?
           AND dm.level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
+          ${excludePlaceholders}
+          AND fds.account NOT LIKE 'A1%' AND fds.account NOT LIKE 'A2%'
           AND fd.dep_acc_combo_id IS NULL
           AND fds.period_combo IN (${periodPlaceholders})
         GROUP BY fds.account
       ),
       actuals_totals AS (
-        SELECT account, SUM(amount) AS actuals FROM combined_actuals GROUP BY account
+        SELECT account, SUM(amount) AS actuals FROM combined_actuals
+        WHERE account NOT LIKE 'A1%' AND account NOT LIKE 'A2%'
+        GROUP BY account
       ),
       budget_totals AS (
         SELECT
@@ -5909,6 +5992,8 @@ export async function getAllDepartmentDetailData(
           AND fd.ou = ?
           AND fd.version = ?
           AND dm.level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
+          ${excludePlaceholders}
+          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
           AND fd.period_combo IN (${periodPlaceholders})
         GROUP BY fd.account
       ),
@@ -5922,6 +6007,8 @@ export async function getAllDepartmentDetailData(
           AND fd.ou = ?
           AND fd.version = ?
           AND dm.level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
+          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
+          ${excludePlaceholders}
           AND fd.period_combo IN (${lyPeriodPlaceholders})
         GROUP BY fd.account
       )
@@ -5947,6 +6034,8 @@ export async function getAllDepartmentDetailData(
       FULL OUTER JOIN ly_totals l ON COALESCE(a.account, b.account) = l.account
       LEFT JOIN account_maps am ON COALESCE(a.account, b.account, l.account) = am.base_account
       WHERE COALESCE(a.account, b.account, l.account) IS NOT NULL
+        AND COALESCE(a.account, b.account, l.account) NOT LIKE 'A1%'
+        AND COALESCE(a.account, b.account, l.account) NOT LIKE 'A2%'
       ORDER BY
         CASE
           WHEN am.level_6 = 'Revenue' THEN 1
@@ -5964,13 +6053,17 @@ export async function getAllDepartmentDetailData(
     const params: any[] = [
       latestStagingPeriod,
       ou, 'MAIN',           // combined_actuals first part - actuals always MAIN
+      ...(hasExclusions ? excludeDepartments : []),
       ...periods,
       'MAIN',               // combined_actuals LEFT JOIN - actuals always MAIN
       ou,
+      ...(hasExclusions ? excludeDepartments : []),
       ...periods,  // Staging-only period filter
       ou, version,           // budget_totals - uses user selection
+      ...(hasExclusions ? excludeDepartments : []),
       ...periods,
       ou, 'MAIN',           // ly_totals - last year always MAIN
+      ...(hasExclusions ? excludeDepartments : []),
       ...lyPeriods
     ];
 

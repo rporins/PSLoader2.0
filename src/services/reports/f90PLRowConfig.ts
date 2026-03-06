@@ -86,22 +86,47 @@ export const F90_PL_ROW_CONFIG: PLRow[] = [
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
 
-  // Management Fees — debit-balance accounts (same as expenses), invertSign:true needed
-  { type: 'header', label: 'MANAGEMENT FEES', indentLevel: 0 },
-  { type: 'measure', label: 'Base Management Fee', measureId: 'base_mgmt_fee', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Incentive Management Fee', measureId: 'incentive_mgmt_fee', formatting: 'number', indentLevel: 1, invertSign: true },
+  // Management Fees — debit-balance accounts, invertSign:true needed
+  { type: 'measure', label: 'Base Mgmt Fee', measureId: 'f90_base_mgmt_fee', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Base Royalty Fee', measureId: 'f90_base_royalty_fee', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Incentive Fee', measureId: 'f90_incentive_fee', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'header', label: 'TOTAL MANAGEMENT FEES', measureId: 'f90_total_mgmt_fees', formatting: 'number', indentLevel: 0, invertSign: true },
+  { type: 'header', label: 'INCOME BEFORE NON-OP INC/EXP', measureId: 'f90_income_before_nonop', formatting: 'number', indentLevel: 0 },
 
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
 
-  // EBITDA — credit-balance account, no invertSign needed
-  { type: 'header', label: 'EBITDA', measureId: 'ebitda', formatting: 'number', indentLevel: 0 },
+  // Non-Op Inc/Exp — D0480 remainder after excluding fees and A701110
+  { type: 'measure', label: 'Non-Op Inc/Exp Excl. Owner Exp', measureId: 'f90_nonop_inc_exp', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'header', label: 'EBITDA EXCL. OWNER EXPENSES', measureId: 'f90_ebitda_excl_owner', formatting: 'number', indentLevel: 0 },
 
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
 
-  // Net Due To/(From) Owner — credit-balance account, no invertSign needed
-  { type: 'measure', label: 'NET DUE TO/(FROM) OWNER', measureId: 'net_due_owner', formatting: 'number', indentLevel: 0 },
+  // Owner Expense — D0490 remainder after excluding royalty fee
+  { type: 'measure', label: 'Owner Expense', measureId: 'f90_owner_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+
+  // Spacing
+  { type: 'header', label: '', indentLevel: 0 },
+
+  // EBITDA and Replacement Reserve
+  { type: 'header', label: 'EBITDA', measureId: 'f90_ebitda', formatting: 'number', indentLevel: 0 },
+  { type: 'measure', label: 'Replacement Reserve', measureId: 'f90_repl_reserve', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'header', label: 'EBITDA LESS REPLACEMENT RESERVE', measureId: 'f90_ebitda_less_repl_reserve', formatting: 'number', indentLevel: 0 },
+
+  // Spacing
+  { type: 'header', label: '', indentLevel: 0 },
+
+  // Owner Depreciation & Amortization — all of D0690
+  { type: 'measure', label: 'Owner Depreciation & Amortization', measureId: 'f90_owner_depr_amort', formatting: 'number', indentLevel: 1, invertSign: true },
+  // Owner Interest & Income Tax — all of D0691
+  { type: 'measure', label: 'Owner Interest & Income Tax', measureId: 'f90_owner_interest_income_tax', formatting: 'number', indentLevel: 1, invertSign: true },
+
+  // Spacing
+  { type: 'header', label: '', indentLevel: 0 },
+
+  // Total Manager Profit Contribution — EBITDA less reserve minus depreciation minus interest/tax
+  { type: 'header', label: 'TOTAL MGR PROFIT CONTRIB', measureId: 'f90_total_mgr_profit_contrib', formatting: 'number', indentLevel: 0 },
 
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
@@ -116,6 +141,9 @@ export const F90_PL_ROW_CONFIG: PLRow[] = [
   { type: 'measure', label: 'Average Rate', measureId: 'adr_act_sy', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Room REVPAR', measureId: 'rev_par_act_sy', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Total REVPAR', measureId: 'all_rev_par_act_sy', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'GOP %', measureId: 'gop_pct', formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'Rooms Dept Profit %', measureId: 'rooms_dept_profit_pct', formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'F&B Dept Profit %', measureId: 'fb_dept_profit_pct', formatting: 'percentage', indentLevel: 1 },
 
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },

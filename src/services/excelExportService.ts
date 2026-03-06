@@ -254,6 +254,9 @@ function getRangeLabel(
 // EXCEL EXPORT SERVICE CLASS
 // ============================================================================
 
+// Departments excluded from Excel export (non-operating depts with no reportable data)
+const EXCEL_EXCLUDED_DEPARTMENTS = new Set(['D1468', 'D3095', 'D0376']);
+
 class ExcelExportService {
   private accpacDescriptions: Map<string, string[]> = new Map();
 
@@ -275,6 +278,9 @@ class ExcelExportService {
     workbook.creator = 'PS Loader';
     workbook.created = new Date();
     workbook.modified = new Date();
+
+    // Auto-clean staging if its period has already been imported into financial_data
+    await db.autoCleanStagingIfImported();
 
     // Reset sheet registry for this report
     this.sheetRegistry = [];
@@ -302,7 +308,8 @@ class ExcelExportService {
     this.sheetRegistry.push({ type: 'sheet', sheetName: 'Room Segments', indent: false });
 
     // 3. Fetch departments once -- used by department tabs
-    const departments = await db.getDepartmentsWithDataForOU(config.ou, config.version);
+    const departments = (await db.getDepartmentsWithDataForOU(config.ou, config.version))
+      .filter(d => !EXCEL_EXCLUDED_DEPARTMENTS.has(d.baseDepartment));
 
     // 4. Create Hotel Total worksheet (queries all Lodging Operations departments directly)
     await this.createHotelTotalWorksheet(workbook, config);
@@ -442,19 +449,22 @@ class ExcelExportService {
     workbook: ExcelJS.Workbook,
     config: ExcelExportConfig
   ): Promise<void> {
-    // Fetch hotel-wide totals across all Lodging Operations departments
+    // Fetch hotel-wide totals across all Lodging Operations departments (excluding non-reportable depts)
+    const excludedDepts = [...EXCEL_EXCLUDED_DEPARTMENTS];
     const [monthDetailData, rangeDetailData] = await Promise.all([
       db.getAllDepartmentDetailData(
         config.ou,
         config.selectedMonth, config.selectedYear,
         config.selectedMonth, config.selectedYear,
-        config.version
+        config.version,
+        excludedDepts
       ),
       db.getAllDepartmentDetailData(
         config.ou,
         config.ytdStartMonth, config.ytdStartYear,
         config.ytdEndMonth, config.ytdEndYear,
-        config.version
+        config.version,
+        excludedDepts
       )
     ]);
 
@@ -1292,6 +1302,51 @@ class ExcelExportService {
         cell.alignment = { vertical: 'middle' };
       });
       this.styleDeptSeparator(gopRow);
+    } else if (data.length > 0) {
+      // Non-revenue departments (e.g. Admin & General): simple Total row
+      const allRows = data.filter(r => r.category !== 'Stats');
+      const totActuals = sumField(allRows, 'actuals');
+      const totBudget = sumField(allRows, 'budget');
+      const totLy = sumField(allRows, 'ly');
+      const totVsBud = totActuals - totBudget;
+      const totVsLy = totActuals - totLy;
+
+      const puAct = perUnit(totActuals, denom.actuals);
+      const puBud = perUnit(totBudget, denom.budget);
+      const puLy = perUnit(totLy, denom.ly);
+      const puVsBud = (puAct !== null && puBud !== null) ? puAct - puBud : null;
+      const puVsLy = (puAct !== null && puLy !== null) ? puAct - puLy : null;
+
+      const totalRow = sheet.addRow({
+        account: 'Total',
+        actuals: formatNumber(totActuals),
+        budget: formatNumber(totBudget),
+        vsBud: formatNumber(totVsBud),
+        ly: formatNumber(totLy),
+        vsLy: formatNumber(totVsLy),
+        sep: '',
+        puAct: puAct !== null ? formatNumber(puAct) : null,
+        puBud: puBud !== null ? formatNumber(puBud) : null,
+        puVsBud: puVsBud !== null ? formatNumber(puVsBud) : null,
+        puLy: puLy !== null ? formatNumber(puLy) : null,
+        puVsLy: puVsLy !== null ? formatNumber(puVsLy) : null,
+        comments: ''
+      });
+      totalRow.eachCell({ includeEmpty: true }, (cell) => {
+        cell.fill = SUBTOTAL_FILL;
+        cell.font = { ...DATA_FONT, bold: true };
+        cell.border = BORDER_STYLE;
+        cell.alignment = { vertical: 'middle' };
+      });
+      this.styleDeptSeparator(totalRow);
+      ABS_COLS.forEach(col => {
+        const cell = totalRow.getCell(col);
+        if (typeof cell.value === 'number') cell.numFmt = '#,##0';
+      });
+      PU_COLS.forEach(col => {
+        const cell = totalRow.getCell(col);
+        if (typeof cell.value === 'number') cell.numFmt = '#,##0.00';
+      });
     }
   }
 
