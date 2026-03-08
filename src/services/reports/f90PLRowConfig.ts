@@ -66,11 +66,11 @@ export const F90_PL_ROW_CONFIG: PLRow[] = [
   // the DB.  negate:true in the sub-measure flips them negative, so invertSign:true
   // IS required here to restore a positive display value.
   { type: 'header', label: 'UNDISTRIBUTED OPERATING EXPENSES', indentLevel: 0 },
-  { type: 'measure', label: 'Administrative and General', measureId: 'admin_general_expense', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Human Resources', measureId: 'human_resources_expense', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Loss Prevention', measureId: 'loss_prevention_expense', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Accounting', measureId: 'accounting_expense', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'ADMINISTRATIVE & GENERAL', measureId: 'admin_general_dept_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Administrative and General', measureId: 'admin_general_expense', formatting: 'number', indentLevel: 2, invertSign: true },
+  { type: 'measure', label: 'Human Resources', measureId: 'human_resources_expense', formatting: 'number', indentLevel: 2, invertSign: true },
+  { type: 'measure', label: 'Loss Prevention', measureId: 'loss_prevention_expense', formatting: 'number', indentLevel: 2, invertSign: true },
+  { type: 'measure', label: 'Accounting', measureId: 'accounting_expense', formatting: 'number', indentLevel: 2, invertSign: true },
+  { type: 'header', label: 'Total Administrative & General', measureId: 'admin_general_dept_expense', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'measure', label: 'Information & Telecom Systems', measureId: 'info_telecom_systems_expense', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'measure', label: 'Utilities', measureId: 'utilities_expense', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'measure', label: 'Property Operation & Maint', measureId: 'property_operation_maint_expense', formatting: 'number', indentLevel: 1, invertSign: true },
