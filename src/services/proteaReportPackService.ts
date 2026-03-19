@@ -1,7 +1,7 @@
 /**
- * Excel Export Service
- * ====================
- * Generates formatted Excel reports using ExcelJS.
+ * Protea Report Pack Service
+ * ===========================
+ * Generates formatted Protea Report Pack Excel reports using ExcelJS.
  * Runs in the Electron main process.
  */
 
@@ -13,7 +13,7 @@ import { PLCalculationResult } from '../types/plReportTypes';
 // TYPES
 // ============================================================================
 
-export interface ExcelExportConfig {
+export interface ProteaReportPackConfig {
   ou: string;
   hotelName: string;
   selectedMonth: number;
@@ -257,7 +257,7 @@ function getRangeLabel(
 // Departments excluded from Excel export (non-operating depts with no reportable data)
 const EXCEL_EXCLUDED_DEPARTMENTS = new Set(['D1468', 'D3095', 'D0376']);
 
-class ExcelExportService {
+class ProteaReportPackService {
   private accpacDescriptions: Map<string, string[]> = new Map();
 
   /** Registry of sheets and group headers for the cover page TOC */
@@ -272,7 +272,7 @@ class ExcelExportService {
    * Main entry point - generates the complete Excel report
    * Sheet order: Contents -> F90 Report -> Room Segments -> Hotel Total -> Department tabs
    */
-  async generateReport(config: ExcelExportConfig, savePath: string): Promise<void> {
+  async generateReport(config: ProteaReportPackConfig, savePath: string): Promise<void> {
     const workbook = new ExcelJS.Workbook();
 
     workbook.creator = 'PS Loader';
@@ -330,7 +330,7 @@ class ExcelExportService {
    */
   private async createF90Worksheet(
     workbook: ExcelJS.Workbook,
-    config: ExcelExportConfig
+    config: ProteaReportPackConfig
   ): Promise<void> {
     const sheet = workbook.addWorksheet('F90 Report', { properties: { tabColor: TAB_COLOR_REPORT } });
 
@@ -465,7 +465,7 @@ class ExcelExportService {
    */
   private async createHotelTotalWorksheet(
     workbook: ExcelJS.Workbook,
-    config: ExcelExportConfig
+    config: ProteaReportPackConfig
   ): Promise<void> {
     // Fetch hotel-wide totals across all Lodging Operations departments (excluding non-reportable depts)
     const excludedDepts = [...EXCEL_EXCLUDED_DEPARTMENTS];
@@ -540,7 +540,7 @@ class ExcelExportService {
    */
   private async createDepartmentWorksheets(
     workbook: ExcelJS.Workbook,
-    config: ExcelExportConfig,
+    config: ProteaReportPackConfig,
     departments: Array<{ baseDepartment: string; departmentName: string; level7Group: string | null }>
   ): Promise<void> {
     // Group departments by level_7
@@ -609,7 +609,7 @@ class ExcelExportService {
    */
   private async createGroupSummaryWorksheet(
     workbook: ExcelJS.Workbook,
-    config: ExcelExportConfig,
+    config: ProteaReportPackConfig,
     groupName: string,
     groupDepts: Array<{ baseDepartment: string; departmentName: string; level7Group: string | null }>,
     usedSheetNames: Set<string>
@@ -703,7 +703,7 @@ class ExcelExportService {
    */
   private async createSingleDepartmentWorksheet(
     workbook: ExcelJS.Workbook,
-    config: ExcelExportConfig,
+    config: ProteaReportPackConfig,
     dept: { baseDepartment: string; departmentName: string; level7Group: string | null },
     usedSheetNames: Set<string>,
     nameOverride?: string
@@ -795,7 +795,7 @@ class ExcelExportService {
    */
   private createCoverPageWorksheet(
     workbook: ExcelJS.Workbook,
-    config: ExcelExportConfig
+    config: ProteaReportPackConfig
   ): void {
     const sheet = workbook.addWorksheet('Contents');
 
@@ -1248,7 +1248,7 @@ class ExcelExportService {
    */
   private async createRoomSegmentWorksheet(
     workbook: ExcelJS.Workbook,
-    config: ExcelExportConfig
+    config: ProteaReportPackConfig
   ): Promise<void> {
     const sheet = workbook.addWorksheet('Room Segments', { properties: { tabColor: TAB_COLOR_REPORT } });
     const TOTAL_COLS = 18;
@@ -1577,19 +1577,19 @@ class ExcelExportService {
   }
 
   /**
-   * Style the separator column (col 7) on department sheets
+   * Style separator column (10) with blue-gray fill
    */
-  private styleDeptSeparator(row: ExcelJS.Row): void {
-    const cell = row.getCell(7);
+  private styleRoomSegSeparators(row: ExcelJS.Row): void {
+    const cell = row.getCell(10);
     cell.fill = SEPARATOR_FILL;
     cell.value = '';
   }
 
   /**
-   * Style separator column (10) with blue-gray fill
+   * Style the separator column (col 7) on department sheets
    */
-  private styleRoomSegSeparators(row: ExcelJS.Row): void {
-    const cell = row.getCell(10);
+  private styleDeptSeparator(row: ExcelJS.Row): void {
+    const cell = row.getCell(7);
     cell.fill = SEPARATOR_FILL;
     cell.value = '';
   }
@@ -1628,4 +1628,4 @@ class ExcelExportService {
   }
 }
 
-export default new ExcelExportService();
+export default new ProteaReportPackService();

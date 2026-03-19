@@ -203,6 +203,10 @@ export const IPC_CHANNELS = {
   // Excel export channels
   EXCEL_GENERATE_REPORT: 'excel:generate-report',
   EXCEL_GET_DEPARTMENTS_FOR_OU: 'excel:get-departments-for-ou',
+
+  // Protea Report Pack channels
+  PROTEA_GENERATE_REPORT: 'protea:generate-report',
+  PROTEA_GET_DEPARTMENTS_FOR_OU: 'protea:get-departments-for-ou',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];

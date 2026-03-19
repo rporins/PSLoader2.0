@@ -4,7 +4,7 @@
  */
 
 import { ipcRegistry } from "./registry";
-import { createAuthHandlers, createDatabaseHandlers, createHardwareHandlers, createDataImportHandlers, createSettingsHandlers, createImportsHandlers, createValidationHandlers, createAppHandlers, createExcelExportHandlers, createTemplateExportHandlers } from "./handlers";
+import { createAuthHandlers, createDatabaseHandlers, createHardwareHandlers, createDataImportHandlers, createSettingsHandlers, createImportsHandlers, createValidationHandlers, createAppHandlers, createExcelExportHandlers, createTemplateExportHandlers, createProteaReportPackHandlers } from "./handlers";
 import {
   loggingMiddleware,
   errorHandlingMiddleware,
@@ -88,6 +88,12 @@ export function initializeIpc(
   // Register Template Export handlers
   const templateExportHandlers = createTemplateExportHandlers();
   Object.entries(templateExportHandlers).forEach(([channel, handler]) => {
+    ipcRegistry.register(channel, handler);
+  });
+
+  // Register Protea Report Pack handlers
+  const proteaReportPackHandlers = createProteaReportPackHandlers();
+  Object.entries(proteaReportPackHandlers).forEach(([channel, handler]) => {
     ipcRegistry.register(channel, handler);
   });
 

@@ -850,6 +850,15 @@ const handleSignOut = useCallback(async () => {
             </ListItemButton>
           </ListItem>
 
+          <ListItem key="protea-report-pack" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/protea-report-pack")}>
+              <ListItemIcon sx={listItemIconStyle}>
+                <DescriptionIcon />
+              </ListItemIcon>
+              <ListItemText primary="Protea Report Pack" sx={listItemTextStyle} />
+            </ListItemButton>
+          </ListItem>
+
           {/* Tools Section */}
           <Divider sx={{ my: 1 }} />
           {open && (

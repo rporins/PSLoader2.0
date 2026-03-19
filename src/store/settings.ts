@@ -25,6 +25,13 @@ type SettingsState = {
   excelExportYtdStartYear: number;
   excelExportYtdEndMonth: number;
   excelExportYtdEndYear: number;
+  // Protea Report Pack settings
+  proteaReportPackSelectedMonth: number;
+  proteaReportPackSelectedYear: number;
+  proteaReportPackYtdStartMonth: number;
+  proteaReportPackYtdStartYear: number;
+  proteaReportPackYtdEndMonth: number;
+  proteaReportPackYtdEndYear: number;
 
   // Loading state
   loading: boolean;
@@ -52,6 +59,13 @@ type SettingsState = {
   setExcelExportYtdStartYear: (year: number) => Promise<void>;
   setExcelExportYtdEndMonth: (month: number) => Promise<void>;
   setExcelExportYtdEndYear: (year: number) => Promise<void>;
+  // Protea Report Pack setters
+  setProteaReportPackSelectedMonth: (month: number) => Promise<void>;
+  setProteaReportPackSelectedYear: (year: number) => Promise<void>;
+  setProteaReportPackYtdStartMonth: (month: number) => Promise<void>;
+  setProteaReportPackYtdStartYear: (year: number) => Promise<void>;
+  setProteaReportPackYtdEndMonth: (month: number) => Promise<void>;
+  setProteaReportPackYtdEndYear: (year: number) => Promise<void>;
   updateMultipleSettings: (settings: Partial<AppSettings>) => Promise<void>;
 
   // Load and save
@@ -82,6 +96,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   excelExportYtdStartYear: new Date().getFullYear(),
   excelExportYtdEndMonth: new Date().getMonth() + 1,
   excelExportYtdEndYear: new Date().getFullYear(),
+  // Protea Report Pack defaults
+  proteaReportPackSelectedMonth: new Date().getMonth() + 1,
+  proteaReportPackSelectedYear: new Date().getFullYear(),
+  proteaReportPackYtdStartMonth: 1,
+  proteaReportPackYtdStartYear: new Date().getFullYear(),
+  proteaReportPackYtdEndMonth: new Date().getMonth() + 1,
+  proteaReportPackYtdEndYear: new Date().getFullYear(),
   loading: false,
   initialized: false,
 
@@ -342,6 +363,73 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
   },
 
+  // Protea Report Pack settings
+  setProteaReportPackSelectedMonth: async (month) => {
+    const previous = get().proteaReportPackSelectedMonth;
+    set({ proteaReportPackSelectedMonth: month });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.PROTEA_REPORT_PACK_SELECTED_MONTH, month);
+    } catch (error) {
+      console.error("Failed to save Protea report pack selected month:", error);
+      set({ proteaReportPackSelectedMonth: previous });
+    }
+  },
+
+  setProteaReportPackSelectedYear: async (year) => {
+    const previous = get().proteaReportPackSelectedYear;
+    set({ proteaReportPackSelectedYear: year });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.PROTEA_REPORT_PACK_SELECTED_YEAR, year);
+    } catch (error) {
+      console.error("Failed to save Protea report pack selected year:", error);
+      set({ proteaReportPackSelectedYear: previous });
+    }
+  },
+
+  setProteaReportPackYtdStartMonth: async (month) => {
+    const previous = get().proteaReportPackYtdStartMonth;
+    set({ proteaReportPackYtdStartMonth: month });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_START_MONTH, month);
+    } catch (error) {
+      console.error("Failed to save Protea report pack YTD start month:", error);
+      set({ proteaReportPackYtdStartMonth: previous });
+    }
+  },
+
+  setProteaReportPackYtdStartYear: async (year) => {
+    const previous = get().proteaReportPackYtdStartYear;
+    set({ proteaReportPackYtdStartYear: year });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_START_YEAR, year);
+    } catch (error) {
+      console.error("Failed to save Protea report pack YTD start year:", error);
+      set({ proteaReportPackYtdStartYear: previous });
+    }
+  },
+
+  setProteaReportPackYtdEndMonth: async (month) => {
+    const previous = get().proteaReportPackYtdEndMonth;
+    set({ proteaReportPackYtdEndMonth: month });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_MONTH, month);
+    } catch (error) {
+      console.error("Failed to save Protea report pack YTD end month:", error);
+      set({ proteaReportPackYtdEndMonth: previous });
+    }
+  },
+
+  setProteaReportPackYtdEndYear: async (year) => {
+    const previous = get().proteaReportPackYtdEndYear;
+    set({ proteaReportPackYtdEndYear: year });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_YEAR, year);
+    } catch (error) {
+      console.error("Failed to save Protea report pack YTD end year:", error);
+      set({ proteaReportPackYtdEndYear: previous });
+    }
+  },
+
   // Update multiple settings at once
   updateMultipleSettings: async (settings) => {
     // Store previous state for rollback
@@ -426,6 +514,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         excelExportYtdStartYear: settings[SETTINGS_KEYS.EXCEL_EXPORT_YTD_START_YEAR],
         excelExportYtdEndMonth: settings[SETTINGS_KEYS.EXCEL_EXPORT_YTD_END_MONTH],
         excelExportYtdEndYear: settings[SETTINGS_KEYS.EXCEL_EXPORT_YTD_END_YEAR],
+        // Protea Report Pack settings
+        proteaReportPackSelectedMonth: settings[SETTINGS_KEYS.PROTEA_REPORT_PACK_SELECTED_MONTH],
+        proteaReportPackSelectedYear: settings[SETTINGS_KEYS.PROTEA_REPORT_PACK_SELECTED_YEAR],
+        proteaReportPackYtdStartMonth: settings[SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_START_MONTH],
+        proteaReportPackYtdStartYear: settings[SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_START_YEAR],
+        proteaReportPackYtdEndMonth: settings[SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_MONTH],
+        proteaReportPackYtdEndYear: settings[SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_YEAR],
         initialized: true,
       });
 

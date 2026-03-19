@@ -28,6 +28,13 @@ export const SETTINGS_KEYS = {
   EXCEL_EXPORT_YTD_START_YEAR: 'excelExportYtdStartYear',
   EXCEL_EXPORT_YTD_END_MONTH: 'excelExportYtdEndMonth',
   EXCEL_EXPORT_YTD_END_YEAR: 'excelExportYtdEndYear',
+  // Protea Report Pack settings
+  PROTEA_REPORT_PACK_SELECTED_MONTH: 'proteaReportPackSelectedMonth',
+  PROTEA_REPORT_PACK_SELECTED_YEAR: 'proteaReportPackSelectedYear',
+  PROTEA_REPORT_PACK_YTD_START_MONTH: 'proteaReportPackYtdStartMonth',
+  PROTEA_REPORT_PACK_YTD_START_YEAR: 'proteaReportPackYtdStartYear',
+  PROTEA_REPORT_PACK_YTD_END_MONTH: 'proteaReportPackYtdEndMonth',
+  PROTEA_REPORT_PACK_YTD_END_YEAR: 'proteaReportPackYtdEndYear',
   // Add more settings keys as needed
 } as const;
 
@@ -55,6 +62,13 @@ export interface AppSettings {
   [SETTINGS_KEYS.EXCEL_EXPORT_YTD_START_YEAR]: number;
   [SETTINGS_KEYS.EXCEL_EXPORT_YTD_END_MONTH]: number;
   [SETTINGS_KEYS.EXCEL_EXPORT_YTD_END_YEAR]: number;
+  // Protea Report Pack settings
+  [SETTINGS_KEYS.PROTEA_REPORT_PACK_SELECTED_MONTH]: number;
+  [SETTINGS_KEYS.PROTEA_REPORT_PACK_SELECTED_YEAR]: number;
+  [SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_START_MONTH]: number;
+  [SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_START_YEAR]: number;
+  [SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_MONTH]: number;
+  [SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_YEAR]: number;
   // Add more settings types as needed
 }
 
@@ -83,6 +97,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   [SETTINGS_KEYS.EXCEL_EXPORT_YTD_START_YEAR]: currentYear,
   [SETTINGS_KEYS.EXCEL_EXPORT_YTD_END_MONTH]: currentMonth,
   [SETTINGS_KEYS.EXCEL_EXPORT_YTD_END_YEAR]: currentYear,
+  // Protea Report Pack defaults
+  [SETTINGS_KEYS.PROTEA_REPORT_PACK_SELECTED_MONTH]: currentMonth,
+  [SETTINGS_KEYS.PROTEA_REPORT_PACK_SELECTED_YEAR]: currentYear,
+  [SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_START_MONTH]: 1,
+  [SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_START_YEAR]: currentYear,
+  [SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_MONTH]: currentMonth,
+  [SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_YEAR]: currentYear,
 };
 
 // Type-safe partial settings for updates

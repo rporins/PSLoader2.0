@@ -33,6 +33,7 @@ import SummaryPL from "./routes/nestedPages/summaryPL";
 import F90PL from "./routes/nestedPages/f90PL";
 import RoomSegmentReview from "./routes/nestedPages/roomSegmentReview";
 import ExcelExport from "./routes/nestedPages/excelExport";
+import ProteaReportPack from "./routes/nestedPages/proteaReportPack";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 // define the route
@@ -128,6 +129,11 @@ const router = createHashRouter([
         path: "excel-export",
         element: <ExcelExport />,
         handle: { title: "Excel Export" },
+      },
+      {
+        path: "protea-report-pack",
+        element: <ProteaReportPack />,
+        handle: { title: "Protea Report Pack" },
       },
       {
         path: "coa",

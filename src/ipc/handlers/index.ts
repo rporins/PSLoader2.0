@@ -13,6 +13,7 @@ export * from "./validations";
 export * from "./app";
 export * from "./excelExport";
 export * from "./templateExport";
+export * from "./proteaReportPack";
 
 // You can add more handler modules here as your application grows:
 // export * from "./file-system";
