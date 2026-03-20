@@ -133,6 +133,13 @@ const DATA_FONT: Partial<ExcelJS.Font> = {
   size: 10
 };
 
+const TOTAL_ROW_BORDER: Partial<ExcelJS.Borders> = {
+  top: { style: 'thin', color: { argb: 'FF000000' } },
+  left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+  bottom: { style: 'thin', color: { argb: 'FF000000' } },
+  right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
+};
+
 const BORDER_STYLE: Partial<ExcelJS.Borders> = {
   top: { style: 'thin', color: { argb: 'FFD0D0D0' } },
   left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
@@ -207,6 +214,12 @@ function applyCategorySubtotalStyle(row: ExcelJS.Row): void {
   row.height = 22;
 }
 
+function applyTotalRowBorder(row: ExcelJS.Row): void {
+  row.eachCell({ includeEmpty: true }, (cell) => {
+    cell.border = TOTAL_ROW_BORDER;
+  });
+}
+
 function formatNumber(value: number | null, decimals: number = 0): number | string {
   if (value === null || value === undefined) return '';
   return Math.round(value * Math.pow(10, decimals)) / Math.pow(10, decimals);
@@ -259,6 +272,7 @@ const EXCEL_EXCLUDED_DEPARTMENTS = new Set(['D1468', 'D3095', 'D0376']);
 
 class ExcelExportService {
   private accpacDescriptions: Map<string, string[]> = new Map();
+  private generatedAt: string = '';
 
   /** Registry of sheets and group headers for the cover page TOC */
   private sheetRegistry: Array<{
@@ -284,6 +298,13 @@ class ExcelExportService {
 
     // Reset sheet registry for this report
     this.sheetRegistry = [];
+
+    // Capture generation timestamp once for all sheets
+    const now = new Date();
+    this.generatedAt = now.toLocaleString('en-ZA', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    });
 
     // Build AccPac description lookup once (used by Hotel Total and all department sheets)
     this.accpacDescriptions.clear();
@@ -326,6 +347,28 @@ class ExcelExportService {
   }
 
   /**
+   * Adds a title header block (hotel name + month, generation timestamp) to the top of a sheet.
+   * Inserts 2 rows before the existing column headers.
+   */
+  private addSheetTitleHeader(sheet: ExcelJS.Worksheet, config: ExcelExportConfig, totalCols: number): void {
+    // Row 1: Hotel name + selected month
+    const titleRow = sheet.addRow(new Array(totalCols).fill(''));
+    titleRow.getCell(1).value = `${config.hotelName}  —  ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
+    titleRow.getCell(1).font = { bold: true, size: 13, color: { argb: 'FF1E3A5F' } };
+    titleRow.getCell(1).alignment = { vertical: 'middle' };
+    titleRow.height = 26;
+    sheet.mergeCells(titleRow.number, 1, titleRow.number, totalCols);
+
+    // Row 2: Generation timestamp in small grey font
+    const tsRow = sheet.addRow(new Array(totalCols).fill(''));
+    tsRow.getCell(1).value = `Generated: ${this.generatedAt}`;
+    tsRow.getCell(1).font = { size: 8, color: { argb: 'FF999999' } };
+    tsRow.getCell(1).alignment = { vertical: 'middle' };
+    tsRow.height = 16;
+    sheet.mergeCells(tsRow.number, 1, tsRow.number, totalCols);
+  }
+
+  /**
    * Creates the F90 P&L Report worksheet
    */
   private async createF90Worksheet(
@@ -357,15 +400,18 @@ class ExcelExportService {
 
     const TOTAL_COLS = 17;
 
-    // Row 1: Period group headers
+    // Title header rows (hotel name + timestamp)
+    this.addSheetTitleHeader(sheet, config, TOTAL_COLS);
+
+    // Period group headers
     const groupRow = sheet.addRow(new Array(TOTAL_COLS).fill(''));
     groupRow.getCell(2).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
     groupRow.getCell(10).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
-    sheet.mergeCells(1, 2, 1, 8);
-    sheet.mergeCells(1, 10, 1, 16);
+    sheet.mergeCells(groupRow.number, 2, groupRow.number, 8);
+    sheet.mergeCells(groupRow.number, 10, groupRow.number, 16);
     applyHeaderStyle(groupRow);
 
-    // Row 2: Column sub-headers
+    // Column sub-headers
     const headerRow = sheet.addRow([
       'P&L Line',
       'Actuals', 'Budget', 'vs Bud', 'vs Bud %', 'LY', 'vs LY', 'vs LY %',
@@ -400,28 +446,50 @@ class ExcelExportService {
     // Add data rows with month and range side by side
     this.addF90DataRows(sheet, monthData, ytdData);
 
-    // Freeze panes (2 header rows)
-    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 2 }];
+    // Freeze panes (2 title rows + 2 header rows)
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 4 }];
   }
 
   /**
    * Helper to add F90 data rows with month and range data side by side
    */
+  // F90 rows that should receive total-row borders (add labels like 'GOP', 'EBITDA' as needed)
+  private static F90_TOTAL_BORDER_LABELS: string[] = [];
+
   private addF90DataRows(sheet: ExcelJS.Worksheet, monthData: PLCalculationResult[], rangeData: PLCalculationResult[]): void {
-    const maxLen = Math.max(monthData.length, rangeData.length);
-    for (let i = 0; i < maxLen; i++) {
-      const mRow = monthData[i];
-      const rRow = rangeData[i];
+    // Build a lookup map from range data keyed by label so that rows align
+    // correctly even when filterZeroRows removes different rows from each array.
+    const rangeByLabel = new Map<string, PLCalculationResult>();
+    for (const r of rangeData) {
+      if (r.label) rangeByLabel.set(r.label, r);
+    }
 
+    // Collect all unique labels in config order (month data drives the row list,
+    // then append any range-only rows that month didn't have)
+    const seen = new Set<string>();
+    const allRows: { mRow: PLCalculationResult | null; rRow: PLCalculationResult | null; primary: PLCalculationResult }[] = [];
+
+    for (const mRow of monthData) {
+      const rRow = mRow.label ? rangeByLabel.get(mRow.label) || null : null;
+      if (mRow.label) seen.add(mRow.label);
+      allRows.push({ mRow, rRow, primary: mRow });
+    }
+    // Add any range-only rows not present in month data
+    for (const rRow of rangeData) {
+      if (rRow.label && !seen.has(rRow.label)) {
+        allRows.push({ mRow: null, rRow, primary: rRow });
+      }
+    }
+
+    for (const { mRow, rRow, primary } of allRows) {
       // Skip empty spacing rows
-      const primaryRow = mRow || rRow;
-      if (primaryRow.type === 'header' && !primaryRow.label) continue;
+      if (primary.type === 'header' && !primary.label) continue;
 
-      const indent = '  '.repeat(primaryRow.indentLevel || 0);
-      const isPercentage = primaryRow.formatting === 'percentage';
+      const indent = '  '.repeat(primary.indentLevel || 0);
+      const isPercentage = primary.formatting === 'percentage';
 
       const excelRow = sheet.addRow({
-        label: indent + primaryRow.label,
+        label: indent + primary.label,
         mAct: mRow ? (isPercentage ? formatPercentage(mRow.actuals) : formatNumber(mRow.actuals)) : '',
         mBud: mRow ? (isPercentage ? formatPercentage(mRow.budget) : formatNumber(mRow.budget)) : '',
         mVsBud: mRow ? (isPercentage ? formatPercentage(mRow.vs_bud) : formatNumber(mRow.vs_bud)) : '',
@@ -440,7 +508,12 @@ class ExcelExportService {
         comments: ''
       });
 
-      applyDataRowStyle(excelRow, primaryRow.type === 'header');
+      applyDataRowStyle(excelRow, primary.type === 'header');
+
+      // Apply total-row borders to key summary rows (configured via F90_TOTAL_BORDER_LABELS)
+      if (ExcelExportService.F90_TOTAL_BORDER_LABELS.some(lbl => primary.label?.includes(lbl))) {
+        applyTotalRowBorder(excelRow);
+      }
 
       // Style separator column
       const sepCell = excelRow.getCell(9);
@@ -507,16 +580,19 @@ class ExcelExportService {
       { key: 'comments', width: 35 },
     ];
 
-    // Row 1: Period group headers
+    // Title header rows (hotel name + timestamp)
+    this.addSheetTitleHeader(sheet, config, totalCols);
+
+    // Period group headers
     const groupRow = sheet.addRow(new Array(totalCols).fill(''));
     groupRow.getCell(2).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
     groupRow.getCell(8).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
-    sheet.mergeCells(1, 2, 1, 6);
-    sheet.mergeCells(1, 8, 1, 12);
+    sheet.mergeCells(groupRow.number, 2, groupRow.number, 6);
+    sheet.mergeCells(groupRow.number, 8, groupRow.number, 12);
     applyHeaderStyle(groupRow);
     this.styleDeptSeparator(groupRow);
 
-    // Row 2: Column sub-headers
+    // Column sub-headers
     const headerRow = sheet.addRow([
       'Account',
       'Actuals', 'Budget', 'vs Bud', 'LY', 'vs LY',
@@ -530,7 +606,8 @@ class ExcelExportService {
     // Combined month + range data (side by side)
     this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols);
 
-    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 2 }];
+    // Freeze panes (2 title rows + 2 header rows)
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 4 }];
   }
 
   /**
@@ -616,26 +693,27 @@ class ExcelExportService {
   ): Promise<string | null> {
     const deptIds = groupDepts.map(d => d.baseDepartment);
 
-    // Fetch aggregated data for the group
-    const monthDetailData = await db.getGroupDepartmentDetailData(
-      config.ou,
-      deptIds,
-      config.selectedMonth,
-      config.selectedYear,
-      config.selectedMonth,
-      config.selectedYear,
-      config.version
-    );
-
-    const rangeDetailData = await db.getGroupDepartmentDetailData(
-      config.ou,
-      deptIds,
-      config.ytdStartMonth,
-      config.ytdStartYear,
-      config.ytdEndMonth,
-      config.ytdEndYear,
-      config.version
-    );
+    // Fetch aggregated data for the group (month + range in parallel)
+    const [monthDetailData, rangeDetailData] = await Promise.all([
+      db.getGroupDepartmentDetailData(
+        config.ou,
+        deptIds,
+        config.selectedMonth,
+        config.selectedYear,
+        config.selectedMonth,
+        config.selectedYear,
+        config.version
+      ),
+      db.getGroupDepartmentDetailData(
+        config.ou,
+        deptIds,
+        config.ytdStartMonth,
+        config.ytdStartYear,
+        config.ytdEndMonth,
+        config.ytdEndYear,
+        config.version
+      )
+    ]);
 
     if (rangeDetailData.length === 0 && monthDetailData.length === 0) {
       return null;
@@ -670,16 +748,19 @@ class ExcelExportService {
       { key: 'comments', width: 35 },
     ];
 
-    // Row 1: Period group headers
+    // Title header rows (hotel name + timestamp)
+    this.addSheetTitleHeader(sheet, config, totalCols);
+
+    // Period group headers
     const groupRow = sheet.addRow(new Array(totalCols).fill(''));
     groupRow.getCell(2).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
     groupRow.getCell(8).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
-    sheet.mergeCells(1, 2, 1, 6);
-    sheet.mergeCells(1, 8, 1, 12);
+    sheet.mergeCells(groupRow.number, 2, groupRow.number, 6);
+    sheet.mergeCells(groupRow.number, 8, groupRow.number, 12);
     applyHeaderStyle(groupRow);
     this.styleDeptSeparator(groupRow);
 
-    // Row 2: Column sub-headers
+    // Column sub-headers
     const headerRow = sheet.addRow([
       'Account',
       'Actuals', 'Budget', 'vs Bud', 'LY', 'vs LY',
@@ -693,7 +774,8 @@ class ExcelExportService {
     // Combined month + range data (side by side)
     this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols);
 
-    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 2 }];
+    // Freeze panes (2 title rows + 2 header rows)
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 4 }];
 
     return finalName;
   }
@@ -708,25 +790,26 @@ class ExcelExportService {
     usedSheetNames: Set<string>,
     nameOverride?: string
   ): Promise<string | null> {
-    const monthDetailData = await db.getDepartmentDetailData(
-      config.ou,
-      dept.baseDepartment,
-      config.selectedMonth,
-      config.selectedYear,
-      config.selectedMonth,
-      config.selectedYear,
-      config.version
-    );
-
-    const rangeDetailData = await db.getDepartmentDetailData(
-      config.ou,
-      dept.baseDepartment,
-      config.ytdStartMonth,
-      config.ytdStartYear,
-      config.ytdEndMonth,
-      config.ytdEndYear,
-      config.version
-    );
+    const [monthDetailData, rangeDetailData] = await Promise.all([
+      db.getDepartmentDetailData(
+        config.ou,
+        dept.baseDepartment,
+        config.selectedMonth,
+        config.selectedYear,
+        config.selectedMonth,
+        config.selectedYear,
+        config.version
+      ),
+      db.getDepartmentDetailData(
+        config.ou,
+        dept.baseDepartment,
+        config.ytdStartMonth,
+        config.ytdStartYear,
+        config.ytdEndMonth,
+        config.ytdEndYear,
+        config.version
+      )
+    ]);
 
     if (rangeDetailData.length === 0 && monthDetailData.length === 0) {
       return null;
@@ -761,16 +844,19 @@ class ExcelExportService {
       { key: 'comments', width: 35 },
     ];
 
-    // Row 1: Period group headers
+    // Title header rows (hotel name + timestamp)
+    this.addSheetTitleHeader(sheet, config, totalCols);
+
+    // Period group headers
     const groupRow = sheet.addRow(new Array(totalCols).fill(''));
     groupRow.getCell(2).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
     groupRow.getCell(8).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
-    sheet.mergeCells(1, 2, 1, 6);
-    sheet.mergeCells(1, 8, 1, 12);
+    sheet.mergeCells(groupRow.number, 2, groupRow.number, 6);
+    sheet.mergeCells(groupRow.number, 8, groupRow.number, 12);
     applyHeaderStyle(groupRow);
     this.styleDeptSeparator(groupRow);
 
-    // Row 2: Column sub-headers
+    // Column sub-headers
     const headerRow = sheet.addRow([
       'Account',
       'Actuals', 'Budget', 'vs Bud', 'LY', 'vs LY',
@@ -784,7 +870,8 @@ class ExcelExportService {
     // Combined month + range data (side by side)
     this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols);
 
-    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 2 }];
+    // Freeze panes (2 title rows + 2 header rows)
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 4 }];
 
     return finalName;
   }
@@ -939,22 +1026,25 @@ class ExcelExportService {
       rows.reduce((sum: number, r: any) => sum + (Number(r[field]) || 0), 0);
 
     // Helper: create a header row that carries aggregated totals from both month and range
+    // Revenue is stored as negative (credit-balance) in the DB.
+    // Flip sign for Revenue category so it displays as positive, consistent with F90.
     const addHeaderWithTotals = (
       label: string,
       mRows: any[],
       rRows: any[],
       styleFn: (row: ExcelJS.Row) => void,
-      isStats: boolean = false
+      isStats: boolean = false,
+      sign: number = 1
     ) => {
-      const mTotActuals = sumField(mRows, 'actuals');
-      const mTotBudget = sumField(mRows, 'budget');
-      const mTotLy = sumField(mRows, 'ly');
+      const mTotActuals = sumField(mRows, 'actuals') * sign;
+      const mTotBudget = sumField(mRows, 'budget') * sign;
+      const mTotLy = sumField(mRows, 'ly') * sign;
       const mTotVsBud = mTotActuals - mTotBudget;
       const mTotVsLy = mTotActuals - mTotLy;
 
-      const rTotActuals = sumField(rRows, 'actuals');
-      const rTotBudget = sumField(rRows, 'budget');
-      const rTotLy = sumField(rRows, 'ly');
+      const rTotActuals = sumField(rRows, 'actuals') * sign;
+      const rTotBudget = sumField(rRows, 'budget') * sign;
+      const rTotLy = sumField(rRows, 'ly') * sign;
       const rTotVsBud = rTotActuals - rTotBudget;
       const rTotVsLy = rTotActuals - rTotLy;
 
@@ -984,9 +1074,11 @@ class ExcelExportService {
       if (mCategoryRows.length === 0 && rCategoryRows.length === 0) continue;
 
       const isStats = category === 'Stats';
+      const isRevenue = category === 'Revenue';
+      const sign = isRevenue ? -1 : 1;
 
       // Category header row WITH totals
-      addHeaderWithTotals(`Total ${category}`, mCategoryRows, rCategoryRows, applyCategorySubtotalStyle, isStats);
+      addHeaderWithTotals(`Total ${category}`, mCategoryRows, rCategoryRows, applyCategorySubtotalStyle, isStats, sign);
 
       if (isStats) {
         // Stats: render flat without level_12 sub-grouping
@@ -1008,17 +1100,17 @@ class ExcelExportService {
 
           const excelRow = sheet.addRow({
             account: `    ${mRow.accountName || mRow.account}`,
-            mAct: formatNumber(mRow.actuals),
-            mBud: formatNumber(mRow.budget),
-            mVsBud: formatNumber(mRow.vsBud),
-            mLy: formatNumber(mRow.ly),
-            mVsLy: formatNumber(mRow.vsLy),
+            mAct: formatNumber(mRow.actuals * sign),
+            mBud: formatNumber(mRow.budget * sign),
+            mVsBud: formatNumber(mRow.vsBud * sign),
+            mLy: formatNumber(mRow.ly * sign),
+            mVsLy: formatNumber(mRow.vsLy * sign),
             sep: '',
-            rAct: formatNumber(rRow.actuals),
-            rBud: formatNumber(rRow.budget),
-            rVsBud: formatNumber(rRow.vsBud),
-            rLy: formatNumber(rRow.ly),
-            rVsLy: formatNumber(rRow.vsLy),
+            rAct: formatNumber(rRow.actuals * sign),
+            rBud: formatNumber(rRow.budget * sign),
+            rVsBud: formatNumber(rRow.vsBud * sign),
+            rLy: formatNumber(rRow.ly * sign),
+            rVsLy: formatNumber(rRow.vsLy * sign),
             comments: ''
           });
 
@@ -1060,7 +1152,7 @@ class ExcelExportService {
           const rGroupRows = rLevel12Map.get(groupName) || [];
 
           // level_12 group header WITH totals (indented 2 spaces)
-          addHeaderWithTotals(`  Total ${groupName}`, mGroupRows, rGroupRows, applyGroupSubtotalStyle);
+          addHeaderWithTotals(`  Total ${groupName}`, mGroupRows, rGroupRows, applyGroupSubtotalStyle, false, sign);
 
           // Account detail rows - merge accounts from both sides
           const allAccounts: string[] = [];
@@ -1082,17 +1174,17 @@ class ExcelExportService {
 
             const excelRow = sheet.addRow({
               account: `    ${displayName}`,
-              mAct: formatNumber(mRow.actuals),
-              mBud: formatNumber(mRow.budget),
-              mVsBud: formatNumber(mRow.vsBud),
-              mLy: formatNumber(mRow.ly),
-              mVsLy: formatNumber(mRow.vsLy),
+              mAct: formatNumber(mRow.actuals * sign),
+              mBud: formatNumber(mRow.budget * sign),
+              mVsBud: formatNumber(mRow.vsBud * sign),
+              mLy: formatNumber(mRow.ly * sign),
+              mVsLy: formatNumber(mRow.vsLy * sign),
               sep: '',
-              rAct: formatNumber(rRow.actuals),
-              rBud: formatNumber(rRow.budget),
-              rVsBud: formatNumber(rRow.vsBud),
-              rLy: formatNumber(rRow.ly),
-              rVsLy: formatNumber(rRow.vsLy),
+              rAct: formatNumber(rRow.actuals * sign),
+              rBud: formatNumber(rRow.budget * sign),
+              rVsBud: formatNumber(rRow.vsBud * sign),
+              rLy: formatNumber(rRow.ly * sign),
+              rVsLy: formatNumber(rRow.vsLy * sign),
               comments: ''
             });
 
@@ -1170,6 +1262,7 @@ class ExcelExportService {
         cell.border = BORDER_STYLE;
         cell.alignment = { vertical: 'middle' };
       });
+      applyTotalRowBorder(profitRow);
       this.styleDeptSeparator(profitRow);
       ABS_COLS.forEach(col => {
         const cell = profitRow.getCell(col);
@@ -1208,25 +1301,33 @@ class ExcelExportService {
         cell.border = BORDER_STYLE;
         cell.alignment = { vertical: 'middle' };
       });
+      applyTotalRowBorder(gopRow);
       this.styleDeptSeparator(gopRow);
     } else if (monthData.length > 0 || rangeData.length > 0) {
       // Non-revenue departments (e.g. Admin & General): simple Total row
       const mAllRows = monthData.filter(r => r.category !== 'Stats');
       const rAllRows = rangeData.filter(r => r.category !== 'Stats');
 
+      const mTotAct = sumField(mAllRows, 'actuals');
+      const mTotBud = sumField(mAllRows, 'budget');
+      const mTotLy  = sumField(mAllRows, 'ly');
+      const rTotAct = sumField(rAllRows, 'actuals');
+      const rTotBud = sumField(rAllRows, 'budget');
+      const rTotLy  = sumField(rAllRows, 'ly');
+
       const totalRow = sheet.addRow({
         account: 'Total',
-        mAct: formatNumber(sumField(mAllRows, 'actuals')),
-        mBud: formatNumber(sumField(mAllRows, 'budget')),
-        mVsBud: formatNumber(sumField(mAllRows, 'actuals') - sumField(mAllRows, 'budget')),
-        mLy: formatNumber(sumField(mAllRows, 'ly')),
-        mVsLy: formatNumber(sumField(mAllRows, 'actuals') - sumField(mAllRows, 'ly')),
+        mAct: formatNumber(mTotAct),
+        mBud: formatNumber(mTotBud),
+        mVsBud: formatNumber(mTotAct - mTotBud),
+        mLy: formatNumber(mTotLy),
+        mVsLy: formatNumber(mTotAct - mTotLy),
         sep: '',
-        rAct: formatNumber(sumField(rAllRows, 'actuals')),
-        rBud: formatNumber(sumField(rAllRows, 'budget')),
-        rVsBud: formatNumber(sumField(rAllRows, 'actuals') - sumField(rAllRows, 'budget')),
-        rLy: formatNumber(sumField(rAllRows, 'ly')),
-        rVsLy: formatNumber(sumField(rAllRows, 'actuals') - sumField(rAllRows, 'ly')),
+        rAct: formatNumber(rTotAct),
+        rBud: formatNumber(rTotBud),
+        rVsBud: formatNumber(rTotAct - rTotBud),
+        rLy: formatNumber(rTotLy),
+        rVsLy: formatNumber(rTotAct - rTotLy),
         comments: ''
       });
       totalRow.eachCell({ includeEmpty: true }, (cell) => {
@@ -1235,6 +1336,7 @@ class ExcelExportService {
         cell.border = BORDER_STYLE;
         cell.alignment = { vertical: 'middle' };
       });
+      applyTotalRowBorder(totalRow);
       this.styleDeptSeparator(totalRow);
       ABS_COLS.forEach(col => {
         const cell = totalRow.getCell(col);
@@ -1275,16 +1377,19 @@ class ExcelExportService {
       { key: 'comments', width: 35 },
     ];
 
-    // Row 1: Period group headers
+    // Title header rows (hotel name + timestamp)
+    this.addSheetTitleHeader(sheet, config, TOTAL_COLS);
+
+    // Period group headers
     const groupRow = sheet.addRow(new Array(TOTAL_COLS).fill(''));
     groupRow.getCell(3).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
     groupRow.getCell(11).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
-    sheet.mergeCells(1, 3, 1, 9);
-    sheet.mergeCells(1, 11, 1, 17);
+    sheet.mergeCells(groupRow.number, 3, groupRow.number, 9);
+    sheet.mergeCells(groupRow.number, 11, groupRow.number, 17);
     applyHeaderStyle(groupRow);
     this.styleRoomSegSeparators(groupRow);
 
-    // Row 2: Column sub-headers
+    // Column sub-headers
     const headerRow = sheet.addRow([
       'Segment', 'Category',
       'Actuals', 'Budget', 'vs Bud', 'vs Bud %', 'LY', 'vs LY', 'vs LY %',
@@ -1385,8 +1490,8 @@ class ExcelExportService {
 
     this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'adr', 'detail', TOTAL_COLS);
 
-    // Freeze panes (2 header rows)
-    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 2 }];
+    // Freeze panes (2 title rows + 2 header rows)
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 4 }];
   }
 
   /**
@@ -1398,14 +1503,16 @@ class ExcelExportService {
     metric: 'revenue' | 'nights' | 'adr'
   ): { actuals: number | null; budget: number | null; ly: number | null } {
     if (metric === 'revenue') {
-      return { actuals: row.revAct, budget: row.revBud, ly: row.revLy };
+      // Revenue is stored as negative (credit-balance); flip to positive for display
+      return { actuals: -row.revAct, budget: -row.revBud, ly: -row.revLy };
     } else if (metric === 'nights') {
       return { actuals: row.nightsAct, budget: row.nightsBud, ly: row.nightsLy };
     } else {
+      // ADR = revenue / nights; negate revenue so ADR displays as positive
       return {
-        actuals: row.nightsAct !== 0 ? row.revAct / row.nightsAct : null,
-        budget: row.nightsBud !== 0 ? row.revBud / row.nightsBud : null,
-        ly: row.nightsLy !== 0 ? row.revLy / row.nightsLy : null,
+        actuals: row.nightsAct !== 0 ? -row.revAct / row.nightsAct : null,
+        budget: row.nightsBud !== 0 ? -row.revBud / row.nightsBud : null,
+        ly: row.nightsLy !== 0 ? -row.revLy / row.nightsLy : null,
       };
     }
   }

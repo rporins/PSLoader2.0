@@ -2456,6 +2456,23 @@ export async function getCachedHotels(): Promise<string> {
   }
 }
 
+// Get hotel name by OU from cache
+export async function getHotelNameByOU(ou: string): Promise<string | null> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT hotel_name FROM hotels_cache WHERE ou = ?",
+      args: [ou]
+    });
+    if (result.rows.length > 0) {
+      return result.rows[0].hotel_name as string;
+    }
+    return null;
+  } catch (error) {
+    console.error("Error getting hotel name by OU:", error);
+    return null;
+  }
+}
+
 // Cache hotels data
 export async function cacheHotels(hotels: CachedHotel[]): Promise<string> {
   try {

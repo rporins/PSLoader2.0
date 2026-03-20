@@ -846,7 +846,7 @@ const handleSignOut = useCallback(async () => {
               <ListItemIcon sx={listItemIconStyle}>
                 <FileDownloadIcon />
               </ListItemIcon>
-              <ListItemText primary="Excel Export" sx={listItemTextStyle} />
+              <ListItemText primary="Marriott Report Pack" sx={listItemTextStyle} />
             </ListItemButton>
           </ListItem>
 

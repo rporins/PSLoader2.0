@@ -2139,6 +2139,82 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
       { type: 'dept_base', value: 'D0691' },
       { type: 'acc_level', level: 1, value: 'EBITDA' }
     ]
+  },
+
+  // F90 P&L - Fixed Expenses (D0490, D0480 with accounts starting A701 or A770)
+  fixed_expenses_act: {
+    id: 'fixed_expenses_act',
+    formula: 'CALCULATE',
+    filters: [
+      { type: 'dept_base', value: ['D0490', 'D0480'] },
+      { type: 'acc_prefix', value: ['A701', 'A770'] }
+    ]
+  },
+
+  // All Managed Fees in D0490 (for exclusion from Owner Expense)
+  f90_d0490_all_fees_act: {
+    id: 'f90_d0490_all_fees_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0490' },
+      { type: 'acc_level', level: 13, value: 'Managed Fees' }
+    ]
+  },
+
+  // All Managed Fees in D0480 (for exclusion from Abnormal Items)
+  f90_d0480_all_fees_act: {
+    id: 'f90_d0480_all_fees_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0480' },
+      { type: 'acc_level', level: 13, value: 'Managed Fees' }
+    ]
+  },
+
+  // Interest in D0490 (726xxx)
+  f90_d0490_interest_act: {
+    id: 'f90_d0490_interest_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0490' },
+      { type: 'acc_prefix', value: 'A726' }
+    ]
+  },
+
+  // Interest in D0480 (726xxx)
+  f90_d0480_interest_act: {
+    id: 'f90_d0480_interest_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0480' },
+      { type: 'acc_prefix', value: 'A726' }
+    ]
+  },
+
+  // Tax in D0490 (72090x)
+  f90_d0490_tax_act: {
+    id: 'f90_d0490_tax_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0490' },
+      { type: 'acc_prefix', value: 'A72090' }
+    ]
+  },
+
+  // Tax in D0480 (72090x)
+  f90_d0480_tax_act: {
+    id: 'f90_d0480_tax_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0480' },
+      { type: 'acc_prefix', value: 'A72090' }
+    ]
   }
 };
 
@@ -2702,6 +2778,32 @@ export const MEASURES: Record<string, Measure> = {
     subMeasures: ['total_other_dept_sales_act']
   },
 
+  // F90 P&L - Food Revenue (all F&B departments)
+  food_revenue: {
+    id: 'food_revenue',
+    type: 'simple',
+    subMeasures: ['food_rev_act']
+  },
+
+  // F90 P&L - Beverage Revenue (all F&B departments)
+  beverage_revenue: {
+    id: 'beverage_revenue',
+    type: 'simple',
+    subMeasures: ['bev_rev_act']
+  },
+
+  // F90 P&L - Sundry F&B Revenue (Total F&B minus Food minus Beverage)
+  sundry_fb_revenue: {
+    id: 'sundry_fb_revenue',
+    type: 'calculated',
+    subMeasures: ['total_fb_revenue_act', 'food_rev_act', 'bev_rev_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return (ctx.subMeasures.total_fb_revenue_act || 0)
+        - (ctx.subMeasures.food_rev_act || 0)
+        - (ctx.subMeasures.bev_rev_act || 0);
+    }
+  },
+
   // F90 P&L - Total Sales
   total_sales: {
     id: 'total_sales',
@@ -2938,6 +3040,17 @@ export const MEASURES: Record<string, Measure> = {
     id: 'info_telecom_systems_expense',
     type: 'simple',
     subMeasures: ['info_telecom_systems_expense_act']
+  },
+
+  // F90 P&L - Admin & General + IT combined
+  admin_general_and_it_expense: {
+    id: 'admin_general_and_it_expense',
+    type: 'calculated',
+    subMeasures: ['admin_general_dept_expense_act', 'info_telecom_systems_expense_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return (ctx.subMeasures.admin_general_dept_expense_act || 0)
+        + (ctx.subMeasures.info_telecom_systems_expense_act || 0);
+    }
   },
 
   // F90 P&L - Utilities Expense
@@ -3206,6 +3319,153 @@ export const MEASURES: Record<string, Measure> = {
       const ownerDepr = ctx.subMeasures.f90_d0690_all_act || 0;
       const ownerInterestTax = ctx.subMeasures.f90_d0691_all_act || 0;
       return ebitdaLessReserve + ownerDepr + ownerInterestTax;
+    }
+  },
+
+  // F90 P&L - Fixed Expenses
+  fixed_expenses: {
+    id: 'fixed_expenses',
+    type: 'simple',
+    subMeasures: ['fixed_expenses_act']
+  },
+
+  // F90 P&L - Hotel Profit Before Mgt Fees (MCP minus Fixed Expenses)
+  hotel_profit_before_mgt_fees: {
+    id: 'hotel_profit_before_mgt_fees',
+    type: 'calculated',
+    subMeasures: ['total_profit_act', 'fixed_expenses_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return (ctx.subMeasures.total_profit_act || 0)
+        - (ctx.subMeasures.fixed_expenses_act || 0);
+    }
+  },
+
+  // F90 P&L - Depreciation (D0690)
+  f90_depreciation: {
+    id: 'f90_depreciation',
+    type: 'simple',
+    subMeasures: ['f90_d0690_all_act']
+  },
+
+  // F90 P&L - Owner Expense (D0490 minus fees, interest, tax)
+  f90_protea_owner_expense: {
+    id: 'f90_protea_owner_expense',
+    type: 'calculated',
+    subMeasures: ['f90_d0490_all_act', 'f90_d0490_all_fees_act', 'f90_d0490_interest_act', 'f90_d0490_tax_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return (ctx.subMeasures.f90_d0490_all_act || 0)
+        - (ctx.subMeasures.f90_d0490_all_fees_act || 0)
+        - (ctx.subMeasures.f90_d0490_interest_act || 0)
+        - (ctx.subMeasures.f90_d0490_tax_act || 0);
+    }
+  },
+
+  // F90 P&L - Interest (726xxx in D0490 + D0480)
+  f90_interest: {
+    id: 'f90_interest',
+    type: 'calculated',
+    subMeasures: ['f90_d0490_interest_act', 'f90_d0480_interest_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return (ctx.subMeasures.f90_d0490_interest_act || 0)
+        + (ctx.subMeasures.f90_d0480_interest_act || 0);
+    }
+  },
+
+  // F90 P&L - Abnormal Items (D0480 minus fees, interest, tax)
+  f90_abnormal_items: {
+    id: 'f90_abnormal_items',
+    type: 'calculated',
+    subMeasures: ['f90_d0480_all_act', 'f90_d0480_all_fees_act', 'f90_d0480_interest_act', 'f90_d0480_tax_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return (ctx.subMeasures.f90_d0480_all_act || 0)
+        - (ctx.subMeasures.f90_d0480_all_fees_act || 0)
+        - (ctx.subMeasures.f90_d0480_interest_act || 0)
+        - (ctx.subMeasures.f90_d0480_tax_act || 0);
+    }
+  },
+
+  // F90 P&L - Profit Before Tax
+  f90_profit_before_tax: {
+    id: 'f90_profit_before_tax',
+    type: 'calculated',
+    subMeasures: [
+      'total_profit_act', 'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act', 'f90_incentive_fee_act',
+      'f90_d0690_all_act', 'f90_d0490_all_act', 'f90_d0490_all_fees_act', 'f90_d0490_interest_act', 'f90_d0490_tax_act',
+      'f90_d0480_all_act', 'f90_d0480_all_fees_act', 'f90_d0480_interest_act', 'f90_d0480_tax_act'
+    ],
+    evaluator: (ctx: MeasureContext) => {
+      const gop = ctx.subMeasures.total_profit_act || 0;
+      const baseMgmt = ctx.subMeasures.f90_base_mgmt_fee_act || 0;
+      const baseRoyalty = ctx.subMeasures.f90_base_royalty_fee_act || 0;
+      const incentive = ctx.subMeasures.f90_incentive_fee_act || 0;
+      const incomeBeforeNonOp = gop + baseMgmt + baseRoyalty + incentive;
+
+      const depreciation = ctx.subMeasures.f90_d0690_all_act || 0;
+
+      const d0490All = ctx.subMeasures.f90_d0490_all_act || 0;
+      const d0490Fees = ctx.subMeasures.f90_d0490_all_fees_act || 0;
+      const d0490Interest = ctx.subMeasures.f90_d0490_interest_act || 0;
+      const d0490Tax = ctx.subMeasures.f90_d0490_tax_act || 0;
+      const ownerExp = d0490All - d0490Fees - d0490Interest - d0490Tax;
+
+      const d0480Interest = ctx.subMeasures.f90_d0480_interest_act || 0;
+      const interest = d0490Interest + d0480Interest;
+
+      const d0480All = ctx.subMeasures.f90_d0480_all_act || 0;
+      const d0480Fees = ctx.subMeasures.f90_d0480_all_fees_act || 0;
+      const d0480Tax = ctx.subMeasures.f90_d0480_tax_act || 0;
+      const abnormal = d0480All - d0480Fees - d0480Interest - d0480Tax;
+
+      return incomeBeforeNonOp + depreciation + ownerExp + interest + abnormal;
+    }
+  },
+
+  // F90 P&L - Tax (72090x in D0490 + D0480)
+  f90_tax: {
+    id: 'f90_tax',
+    type: 'calculated',
+    subMeasures: ['f90_d0490_tax_act', 'f90_d0480_tax_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return (ctx.subMeasures.f90_d0490_tax_act || 0)
+        + (ctx.subMeasures.f90_d0480_tax_act || 0);
+    }
+  },
+
+  // F90 P&L - Net Profit
+  f90_net_profit: {
+    id: 'f90_net_profit',
+    type: 'calculated',
+    subMeasures: [
+      'total_profit_act', 'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act', 'f90_incentive_fee_act',
+      'f90_d0690_all_act', 'f90_d0490_all_act', 'f90_d0490_all_fees_act', 'f90_d0490_interest_act', 'f90_d0490_tax_act',
+      'f90_d0480_all_act', 'f90_d0480_all_fees_act', 'f90_d0480_interest_act', 'f90_d0480_tax_act'
+    ],
+    evaluator: (ctx: MeasureContext) => {
+      const gop = ctx.subMeasures.total_profit_act || 0;
+      const baseMgmt = ctx.subMeasures.f90_base_mgmt_fee_act || 0;
+      const baseRoyalty = ctx.subMeasures.f90_base_royalty_fee_act || 0;
+      const incentive = ctx.subMeasures.f90_incentive_fee_act || 0;
+      const incomeBeforeNonOp = gop + baseMgmt + baseRoyalty + incentive;
+
+      const depreciation = ctx.subMeasures.f90_d0690_all_act || 0;
+
+      const d0490All = ctx.subMeasures.f90_d0490_all_act || 0;
+      const d0490Fees = ctx.subMeasures.f90_d0490_all_fees_act || 0;
+      const d0490Interest = ctx.subMeasures.f90_d0490_interest_act || 0;
+      const d0490Tax = ctx.subMeasures.f90_d0490_tax_act || 0;
+      const ownerExp = d0490All - d0490Fees - d0490Interest - d0490Tax;
+
+      const d0480Interest = ctx.subMeasures.f90_d0480_interest_act || 0;
+      const interest = d0490Interest + d0480Interest;
+
+      const d0480All = ctx.subMeasures.f90_d0480_all_act || 0;
+      const d0480Fees = ctx.subMeasures.f90_d0480_all_fees_act || 0;
+      const d0480Tax = ctx.subMeasures.f90_d0480_tax_act || 0;
+      const abnormal = d0480All - d0480Fees - d0480Interest - d0480Tax;
+
+      const profitBeforeTax = incomeBeforeNonOp + depreciation + ownerExp + interest + abnormal;
+      const tax = d0490Tax + d0480Tax;
+      return profitBeforeTax + tax;
     }
   }
 };

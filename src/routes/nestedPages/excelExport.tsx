@@ -152,7 +152,7 @@ export default function ExcelExport() {
     <Box sx={{ p: 3, maxWidth: 1000 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
         <Typography variant="h4" sx={{ fontWeight: 600 }}>
-          Excel Export
+          Marriott Excel Report Pack
         </Typography>
         <CheckForUpdatesButton />
       </Box>
@@ -381,7 +381,7 @@ export default function ExcelExport() {
               onClick={handleGenerate}
               disabled={generating || !selectedHotelOu || !isDateRangeValid()}
             >
-              {generating ? 'Generating...' : 'Generate Excel Report'}
+              {generating ? 'Generating...' : 'Generate Marriott Report'}
             </GenerateButton>
           </Stack>
 

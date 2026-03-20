@@ -128,7 +128,7 @@ const router = createHashRouter([
       {
         path: "excel-export",
         element: <ExcelExport />,
-        handle: { title: "Excel Export" },
+        handle: { title: "Marriott Excel Report Pack" },
       },
       {
         path: "protea-report-pack",

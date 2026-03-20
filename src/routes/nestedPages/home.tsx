@@ -342,7 +342,7 @@ export default function Home() {
         </StyledCard>
       </Box>
 
-      {/* Generate Excel Export Card */}
+      {/* Generate Marriott Excel Report Pack Card */}
       <Box sx={{ mt: 2 }}>
         <StyledCard>
           <CardContent sx={{ p: 3 }}>
@@ -351,7 +351,7 @@ export default function Home() {
                 <FileDownloadIcon sx={{ fontSize: 40, color: "success.main" }} />
                 <Box>
                   <Typography variant="h6" fontWeight={600}>
-                    Generate Excel Export
+                    Marriott Excel Report Pack
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     Export F90 P&L, room segments, and department details to Excel

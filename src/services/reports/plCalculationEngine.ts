@@ -89,10 +89,23 @@ function buildFilterCondition(filter: MeasureFilter): string {
     return `am.base_account = ?`;
   }
 
+  if (type === 'acc_prefix') {
+    if (Array.isArray(value)) {
+      return `(${value.map(() => `am.base_account LIKE ?`).join(' OR ')})`;
+    }
+    return `am.base_account LIKE ?`;
+  }
+
   return '1=1';
 }
 
 function getFilterValues(filter: MeasureFilter): any[] {
+  if (filter.type === 'acc_prefix') {
+    if (Array.isArray(filter.value)) {
+      return filter.value.map(v => `${v}%`);
+    }
+    return [`${filter.value}%`];
+  }
   if (Array.isArray(filter.value)) {
     return filter.value;
   }

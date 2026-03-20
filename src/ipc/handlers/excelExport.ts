@@ -19,13 +19,20 @@ export class ExcelExportHandlers {
    */
   generateReportHandler: IpcHandler = async (event, request: ExcelExportConfig): Promise<IpcResult> => {
     try {
+      // Look up the actual hotel name from cache
+      const hotelName = await db.getHotelNameByOU(request.ou);
+      if (hotelName) {
+        request.hotelName = `${hotelName} (${request.ou})`;
+      }
+
       // Build default filename
       const monthStr = String(request.selectedMonth).padStart(2, '0');
-      const defaultFileName = `${request.hotelName}_F90_Report_${request.selectedYear}-${monthStr}.xlsx`;
+      const safeFileName = (hotelName || request.hotelName).replace(/[^a-zA-Z0-9]/g, '_');
+      const defaultFileName = `${safeFileName}_Marriott_Report_Pack_${request.selectedYear}-${monthStr}.xlsx`;
 
       // Show save dialog
       const result = await dialog.showSaveDialog({
-        title: 'Save Excel Report',
+        title: 'Save Marriott Excel Report Pack',
         defaultPath: defaultFileName,
         filters: [
           { name: 'Excel Files', extensions: ['xlsx'] },
