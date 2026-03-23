@@ -2206,6 +2206,17 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     ]
   },
 
+  // Dividends in D0490 (A701601)
+  f90_d0490_dividends_act: {
+    id: 'f90_d0490_dividends_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0490' },
+      { type: 'acc_base', value: 'A701601' }
+    ]
+  },
+
   // Tax in D0480 (72090x)
   f90_d0480_tax_act: {
     id: 'f90_d0480_tax_act',
@@ -3347,16 +3358,17 @@ export const MEASURES: Record<string, Measure> = {
     subMeasures: ['f90_d0690_all_act']
   },
 
-  // F90 P&L - Owner Expense (D0490 minus fees, interest, tax)
+  // F90 P&L - Owner Expense (D0490 minus fees, interest, tax, dividends)
   f90_protea_owner_expense: {
     id: 'f90_protea_owner_expense',
     type: 'calculated',
-    subMeasures: ['f90_d0490_all_act', 'f90_d0490_all_fees_act', 'f90_d0490_interest_act', 'f90_d0490_tax_act'],
+    subMeasures: ['f90_d0490_all_act', 'f90_d0490_all_fees_act', 'f90_d0490_interest_act', 'f90_d0490_tax_act', 'f90_d0490_dividends_act'],
     evaluator: (ctx: MeasureContext) => {
       return (ctx.subMeasures.f90_d0490_all_act || 0)
         - (ctx.subMeasures.f90_d0490_all_fees_act || 0)
         - (ctx.subMeasures.f90_d0490_interest_act || 0)
-        - (ctx.subMeasures.f90_d0490_tax_act || 0);
+        - (ctx.subMeasures.f90_d0490_tax_act || 0)
+        - (ctx.subMeasures.f90_d0490_dividends_act || 0);
     }
   },
 
@@ -3467,5 +3479,13 @@ export const MEASURES: Record<string, Measure> = {
       const tax = d0490Tax + d0480Tax;
       return profitBeforeTax + tax;
     }
+  },
+
+  // F90 P&L - Dividends (D0490 A701601)
+  f90_dividends: {
+    id: 'f90_dividends',
+    type: 'simple',
+    subMeasures: ['f90_d0490_dividends_act'],
+    primarySubMeasure: 'f90_d0490_dividends_act'
   }
 };

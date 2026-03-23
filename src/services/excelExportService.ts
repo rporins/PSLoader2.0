@@ -177,10 +177,10 @@ function applyCategoryHeaderStyle(row: ExcelJS.Row): void {
 }
 
 function applyDataRowStyle(row: ExcelJS.Row, isHeader: boolean = false): void {
-  row.eachCell({ includeEmpty: true }, (cell) => {
+  row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
     cell.font = isHeader ? { ...DATA_FONT, bold: true } : DATA_FONT;
     cell.border = BORDER_STYLE;
-    cell.alignment = { vertical: 'middle' };
+    cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
   });
 }
 
@@ -195,21 +195,21 @@ function applyGroupHeaderStyle(row: ExcelJS.Row): void {
 }
 
 function applyGroupSubtotalStyle(row: ExcelJS.Row): void {
-  row.eachCell({ includeEmpty: true }, (cell) => {
+  row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
     cell.fill = GROUP_SUBTOTAL_FILL;
     cell.font = GROUP_SUBTOTAL_FONT;
     cell.border = BORDER_STYLE;
-    cell.alignment = { vertical: 'middle' };
+    cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
   });
   row.height = 18;
 }
 
 function applyCategorySubtotalStyle(row: ExcelJS.Row): void {
-  row.eachCell({ includeEmpty: true }, (cell) => {
+  row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
     cell.fill = CATEGORY_TOTAL_FILL;
     cell.font = CATEGORY_TOTAL_FONT;
     cell.border = CATEGORY_TOTAL_BORDER;
-    cell.alignment = { vertical: 'middle' };
+    cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
   });
   row.height = 22;
 }
@@ -347,11 +347,19 @@ class ExcelExportService {
   }
 
   /**
-   * Adds a title header block (hotel name + month, generation timestamp) to the top of a sheet.
-   * Inserts 2 rows before the existing column headers.
+   * Adds a title header block (report name, hotel name + month, generation timestamp) to the top of a sheet.
+   * Inserts 3 rows before the existing column headers.
    */
-  private addSheetTitleHeader(sheet: ExcelJS.Worksheet, config: ExcelExportConfig, totalCols: number): void {
-    // Row 1: Hotel name + selected month
+  private addSheetTitleHeader(sheet: ExcelJS.Worksheet, config: ExcelExportConfig, totalCols: number, reportName: string): void {
+    // Row 1: Report name
+    const reportRow = sheet.addRow(new Array(totalCols).fill(''));
+    reportRow.getCell(1).value = reportName;
+    reportRow.getCell(1).font = { bold: true, size: 14, color: { argb: 'FF1E3A5F' } };
+    reportRow.getCell(1).alignment = { vertical: 'middle' };
+    reportRow.height = 28;
+    sheet.mergeCells(reportRow.number, 1, reportRow.number, totalCols);
+
+    // Row 2: Hotel name + selected month
     const titleRow = sheet.addRow(new Array(totalCols).fill(''));
     titleRow.getCell(1).value = `${config.hotelName}  —  ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
     titleRow.getCell(1).font = { bold: true, size: 13, color: { argb: 'FF1E3A5F' } };
@@ -359,7 +367,7 @@ class ExcelExportService {
     titleRow.height = 26;
     sheet.mergeCells(titleRow.number, 1, titleRow.number, totalCols);
 
-    // Row 2: Generation timestamp in small grey font
+    // Row 3: Generation timestamp in small grey font
     const tsRow = sheet.addRow(new Array(totalCols).fill(''));
     tsRow.getCell(1).value = `Generated: ${this.generatedAt}`;
     tsRow.getCell(1).font = { size: 8, color: { argb: 'FF999999' } };
@@ -400,8 +408,8 @@ class ExcelExportService {
 
     const TOTAL_COLS = 17;
 
-    // Title header rows (hotel name + timestamp)
-    this.addSheetTitleHeader(sheet, config, TOTAL_COLS);
+    // Title header rows (report name, hotel name + timestamp)
+    this.addSheetTitleHeader(sheet, config, TOTAL_COLS, 'F90 Report');
 
     // Period group headers
     const groupRow = sheet.addRow(new Array(TOTAL_COLS).fill(''));
@@ -447,7 +455,7 @@ class ExcelExportService {
     this.addF90DataRows(sheet, monthData, ytdData);
 
     // Freeze panes (2 title rows + 2 header rows)
-    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 4 }];
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
   }
 
   /**
@@ -580,8 +588,8 @@ class ExcelExportService {
       { key: 'comments', width: 35 },
     ];
 
-    // Title header rows (hotel name + timestamp)
-    this.addSheetTitleHeader(sheet, config, totalCols);
+    // Title header rows (report name, hotel name + timestamp)
+    this.addSheetTitleHeader(sheet, config, totalCols, 'Hotel Total');
 
     // Period group headers
     const groupRow = sheet.addRow(new Array(totalCols).fill(''));
@@ -607,7 +615,7 @@ class ExcelExportService {
     this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols);
 
     // Freeze panes (2 title rows + 2 header rows)
-    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 4 }];
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
   }
 
   /**
@@ -748,8 +756,8 @@ class ExcelExportService {
       { key: 'comments', width: 35 },
     ];
 
-    // Title header rows (hotel name + timestamp)
-    this.addSheetTitleHeader(sheet, config, totalCols);
+    // Title header rows (report name, hotel name + timestamp)
+    this.addSheetTitleHeader(sheet, config, totalCols, groupName);
 
     // Period group headers
     const groupRow = sheet.addRow(new Array(totalCols).fill(''));
@@ -775,7 +783,7 @@ class ExcelExportService {
     this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols);
 
     // Freeze panes (2 title rows + 2 header rows)
-    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 4 }];
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
 
     return finalName;
   }
@@ -844,8 +852,8 @@ class ExcelExportService {
       { key: 'comments', width: 35 },
     ];
 
-    // Title header rows (hotel name + timestamp)
-    this.addSheetTitleHeader(sheet, config, totalCols);
+    // Title header rows (report name, hotel name + timestamp)
+    this.addSheetTitleHeader(sheet, config, totalCols, nameOverride || dept.departmentName);
 
     // Period group headers
     const groupRow = sheet.addRow(new Array(totalCols).fill(''));
@@ -871,7 +879,7 @@ class ExcelExportService {
     this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols);
 
     // Freeze panes (2 title rows + 2 header rows)
-    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 4 }];
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
 
     return finalName;
   }
@@ -1256,11 +1264,11 @@ class ExcelExportService {
         rVsLy: formatNumber(rProfitAct - rProfitLy),
         comments: ''
       });
-      profitRow.eachCell({ includeEmpty: true }, (cell) => {
+      profitRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
         cell.fill = SUBTOTAL_FILL;
         cell.font = { ...DATA_FONT, bold: true };
         cell.border = BORDER_STYLE;
-        cell.alignment = { vertical: 'middle' };
+        cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
       });
       applyTotalRowBorder(profitRow);
       this.styleDeptSeparator(profitRow);
@@ -1295,11 +1303,11 @@ class ExcelExportService {
         rVsLy: `${(rGopAct - rGopLy).toFixed(1)} pts`,
         comments: ''
       });
-      gopRow.eachCell({ includeEmpty: true }, (cell) => {
+      gopRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
         cell.fill = SUBTOTAL_FILL;
         cell.font = { ...DATA_FONT, bold: true };
         cell.border = BORDER_STYLE;
-        cell.alignment = { vertical: 'middle' };
+        cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
       });
       applyTotalRowBorder(gopRow);
       this.styleDeptSeparator(gopRow);
@@ -1330,11 +1338,11 @@ class ExcelExportService {
         rVsLy: formatNumber(rTotAct - rTotLy),
         comments: ''
       });
-      totalRow.eachCell({ includeEmpty: true }, (cell) => {
+      totalRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
         cell.fill = SUBTOTAL_FILL;
         cell.font = { ...DATA_FONT, bold: true };
         cell.border = BORDER_STYLE;
-        cell.alignment = { vertical: 'middle' };
+        cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
       });
       applyTotalRowBorder(totalRow);
       this.styleDeptSeparator(totalRow);
@@ -1377,8 +1385,8 @@ class ExcelExportService {
       { key: 'comments', width: 35 },
     ];
 
-    // Title header rows (hotel name + timestamp)
-    this.addSheetTitleHeader(sheet, config, TOTAL_COLS);
+    // Title header rows (report name, hotel name + timestamp)
+    this.addSheetTitleHeader(sheet, config, TOTAL_COLS, 'Room Segments');
 
     // Period group headers
     const groupRow = sheet.addRow(new Array(TOTAL_COLS).fill(''));
@@ -1491,7 +1499,7 @@ class ExcelExportService {
     this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'adr', 'detail', TOTAL_COLS);
 
     // Freeze panes (2 title rows + 2 header rows)
-    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 4 }];
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
   }
 
   /**
@@ -1705,13 +1713,13 @@ class ExcelExportService {
    * Apply subtotal or grand total row styling
    */
   private applySubtotalRowStyle(row: ExcelJS.Row, isGrandTotal: boolean): void {
-    row.eachCell({ includeEmpty: true }, (cell) => {
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
       cell.fill = isGrandTotal ? SECTION_HEADER_FILL : SUBTOTAL_FILL;
       cell.font = isGrandTotal
         ? { bold: true, size: 11, color: { argb: 'FFFFFFFF' } }
         : { bold: true, size: 10 };
       cell.border = BORDER_STYLE;
-      cell.alignment = { vertical: 'middle' };
+      cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
     });
     row.height = isGrandTotal ? 22 : 20;
   }

@@ -5,7 +5,8 @@ import {
   QueryBuildResult,
   ScenarioType,
   MeasureFilter,
-  MeasureContext
+  MeasureContext,
+  PLRow
 } from '../../types/plReportTypes';
 import { SUB_MEASURES, MEASURES } from './plMeasureDefinitions';
 import { PL_ROW_CONFIG } from './plRowConfig';
@@ -402,7 +403,8 @@ export function calculateSummaryPLRows(
 export function calculateF90PLRows(
   actualsData: BaseQueryResult,
   budgetData: BaseQueryResult,
-  lyData: BaseQueryResult
+  lyData: BaseQueryResult,
+  rowConfig: PLRow[] = F90_PL_ROW_CONFIG
 ): PLCalculationResult[] {
   const actualsSubMeasures = evaluateSubMeasures(actualsData);
   const budgetSubMeasures = evaluateSubMeasures(budgetData);
@@ -411,16 +413,16 @@ export function calculateF90PLRows(
   const results: PLCalculationResult[] = [];
   let rowId = 1;
 
-  F90_PL_ROW_CONFIG.forEach(rowConfig => {
-    const measureId = rowConfig.measureId;
+  rowConfig.forEach(row => {
+    const measureId = row.measureId;
 
     // If no measureId, it's a spacing row - add it with null values
     if (!measureId) {
       results.push({
         rowId: rowId++,
-        type: rowConfig.type,
-        label: rowConfig.label,
-        indentLevel: rowConfig.indentLevel || 0,
+        type: row.type,
+        label: row.label,
+        indentLevel: row.indentLevel || 0,
         actuals: null,
         budget: null,
         vs_bud: null,
@@ -428,14 +430,14 @@ export function calculateF90PLRows(
         ly: null,
         vs_ly: null,
         vs_ly_pct: null,
-        formatting: rowConfig.formatting || 'number'
+        formatting: row.formatting || 'number'
       });
       return;
     }
 
     // Has measureId - calculate values regardless of type (header or measure)
     // Apply sign inversion for revenue (credits) and expense (debits) lines
-    const sign = rowConfig.invertSign ? -1 : 1;
+    const sign = row.invertSign ? -1 : 1;
     const actuals = evaluateMeasure(measureId, actualsSubMeasures, 'ACT') * sign;
     const budget = evaluateMeasure(measureId, budgetSubMeasures, 'BUD') * sign;
     const ly = evaluateMeasure(measureId, lySubMeasures, 'PY1') * sign;
@@ -447,9 +449,9 @@ export function calculateF90PLRows(
 
     results.push({
       rowId: rowId++,
-      type: rowConfig.type,
-      label: rowConfig.label,
-      indentLevel: rowConfig.indentLevel || 0,
+      type: row.type,
+      label: row.label,
+      indentLevel: row.indentLevel || 0,
       actuals,
       budget,
       vs_bud,
@@ -457,8 +459,8 @@ export function calculateF90PLRows(
       ly,
       vs_ly,
       vs_ly_pct,
-      formatting: rowConfig.formatting || 'number',
-      invertVariance: !!rowConfig.invertSign
+      formatting: row.formatting || 'number',
+      invertVariance: !!row.invertSign
     });
   });
 

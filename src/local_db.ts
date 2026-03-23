@@ -1468,7 +1468,8 @@ export async function getF90PLData(
   endMonth: number,
   endYear: number,
   ou?: string,
-  version: string = 'MAIN'
+  version: string = 'MAIN',
+  rowConfig?: any[]
 ): Promise<string> {
   try {
     // Auto-clean staging if its period has already been imported
@@ -1499,7 +1500,7 @@ export async function getF90PLData(
     const budgetData = budgetResult.rows[0] as any || {};
     const lyData = lyResult.rows[0] as any || {};
 
-    const plRows = calculateF90PLRows(actualsData, budgetData, lyData);
+    const plRows = calculateF90PLRows(actualsData, budgetData, lyData, rowConfig);
 
     return JSON.stringify(plRows);
   } catch (error) {

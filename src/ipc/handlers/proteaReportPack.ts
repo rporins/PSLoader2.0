@@ -22,7 +22,7 @@ export class ProteaReportPackHandlers {
       // Look up the actual hotel name from cache
       const hotelName = await db.getHotelNameByOU(request.ou);
       if (hotelName) {
-        request.hotelName = `${hotelName} (${request.ou})`;
+        request.hotelName = hotelName;
       }
 
       // Build default filename

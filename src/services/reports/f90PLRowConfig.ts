@@ -1,7 +1,7 @@
 import { PLRow } from '../../types/plReportTypes';
 
 // ============================================================================
-// F90 P&L ROW CONFIGURATION
+// F90 P&L ROW CONFIGURATION (MARRIOTT)
 // Defines the structure and ordering of the F90 P&L report
 //
 // SIGN CONVENTION RULES:
@@ -14,15 +14,25 @@ import { PLRow } from '../../types/plReportTypes';
 // ============================================================================
 
 export const F90_PL_ROW_CONFIG: PLRow[] = [
-  // Revenue Section — credit-balance accounts, no invertSign needed
-  { type: 'header', label: 'REVENUE', indentLevel: 0 },
+  // Sales Section — credit-balance accounts, no invertSign needed
+  { type: 'header', label: 'SALES', indentLevel: 0 },
   { type: 'measure', label: 'Rooms and Reservations', measureId: 'rooms_reservations_revenue', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Food', measureId: 'food_revenue', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Beverage', measureId: 'beverage_revenue', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Sundry F&B', measureId: 'sundry_fb_revenue', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Sundry Operating Depts', measureId: 'total_other_dept_sales', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Sundry Income', measureId: 'misc_income_revenue', formatting: 'number', indentLevel: 1 },
-  { type: 'header', label: 'TOTAL REVENUE', measureId: 'total_sales', formatting: 'number', indentLevel: 0 },
+  { type: 'measure', label: 'Gift Shops', measureId: 'gift_shop_revenue', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Restaurants and Rooms Service', measureId: 'restaurants_room_service_revenue', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Lounges', measureId: 'lounges_revenue', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Audio Visual', measureId: 'audio_visual_revenue', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Banquets', measureId: 'banquets_revenue', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Total F&B', measureId: 'total_fb_revenue', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Leisure & Recreation', measureId: 'leisure_recreation_revenue', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Golf', measureId: 'golf_revenue', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Spa', measureId: 'spa_revenue', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Casino', measureId: 'casino_revenue', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Miscellaneous Income', measureId: 'misc_income_revenue', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Drycleaning - In House', measureId: 'drycleaning_revenue', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Garage', measureId: 'garage_revenue', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Guest Communications', measureId: 'guest_communications_revenue', formatting: 'number', indentLevel: 1 },
+  { type: 'header', label: 'Total Other Departments Sales', measureId: 'total_other_dept_sales', formatting: 'number', indentLevel: 1 },
+  { type: 'header', label: 'TOTAL SALES', measureId: 'total_sales', formatting: 'number', indentLevel: 0 },
 
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
@@ -56,7 +66,12 @@ export const F90_PL_ROW_CONFIG: PLRow[] = [
   // the DB.  negate:true in the sub-measure flips them negative, so invertSign:true
   // IS required here to restore a positive display value.
   { type: 'header', label: 'UNDISTRIBUTED OPERATING EXPENSES', indentLevel: 0 },
-  { type: 'measure', label: 'Total Administrative & General', measureId: 'admin_general_and_it_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Administrative and General', measureId: 'admin_general_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Human Resources', measureId: 'human_resources_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Loss Prevention', measureId: 'loss_prevention_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Accounting', measureId: 'accounting_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'ADMINISTRATIVE & GENERAL', measureId: 'admin_general_dept_expense', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Information & Telecom Systems', measureId: 'info_telecom_systems_expense', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'measure', label: 'Utilities', measureId: 'utilities_expense', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'measure', label: 'Property Operation & Maint', measureId: 'property_operation_maint_expense', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'measure', label: 'Sales & Marketing', measureId: 'sales_marketing_expense', formatting: 'number', indentLevel: 1, invertSign: true },
@@ -65,30 +80,28 @@ export const F90_PL_ROW_CONFIG: PLRow[] = [
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
 
-  // Mgt Controllable Profit (formerly GOP) — credit-balance account, no invertSign needed
-  { type: 'header', label: 'MGT CONTROLLABLE PROFIT', measureId: 'gross_operating_profit', formatting: 'number', indentLevel: 0 },
+  // Gross Operating Profit — credit-balance account, no invertSign needed
+  { type: 'header', label: 'GROSS OPERATING PROFIT', measureId: 'gross_operating_profit', formatting: 'number', indentLevel: 0 },
 
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
 
-  // Management Fees — debit-balance accounts, invertSign:true needed
-  { type: 'measure', label: 'Base Mgmt Fee', measureId: 'f90_base_mgmt_fee', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Base Royalty Fee', measureId: 'f90_base_royalty_fee', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Incentive Fee', measureId: 'f90_incentive_fee', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'header', label: 'TOTAL MANAGEMENT FEES', measureId: 'f90_total_mgmt_fees', formatting: 'number', indentLevel: 0, invertSign: true },
-  { type: 'header', label: 'Hotel Profit/(Loss) Before Depr, Int and Owner Exp', measureId: 'f90_income_before_nonop', formatting: 'number', indentLevel: 0 },
+  // Management Fees — debit-balance accounts (same as expenses), invertSign:true needed
+  { type: 'header', label: 'MANAGEMENT FEES', indentLevel: 0 },
+  { type: 'measure', label: 'Base Management Fee', measureId: 'base_mgmt_fee', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Incentive Management Fee', measureId: 'incentive_mgmt_fee', formatting: 'number', indentLevel: 1, invertSign: true },
 
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
 
-  // Below-the-line items
-  { type: 'measure', label: 'Depreciation', measureId: 'f90_depreciation', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Owner Expense', measureId: 'f90_protea_owner_expense', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Interest', measureId: 'f90_interest', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Abnormal Items', measureId: 'f90_abnormal_items', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'header', label: 'PROFIT BEFORE TAX', measureId: 'f90_profit_before_tax', formatting: 'number', indentLevel: 0 },
-  { type: 'measure', label: 'Tax', measureId: 'f90_tax', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'header', label: 'NET PROFIT', measureId: 'f90_net_profit', formatting: 'number', indentLevel: 0 },
+  // EBITDA — credit-balance account, no invertSign needed
+  { type: 'header', label: 'EBITDA', measureId: 'ebitda', formatting: 'number', indentLevel: 0 },
+
+  // Spacing
+  { type: 'header', label: '', indentLevel: 0 },
+
+  // Net Due To/(From) Owner — credit-balance account, no invertSign needed
+  { type: 'measure', label: 'NET DUE TO/(FROM) OWNER', measureId: 'net_due_owner', formatting: 'number', indentLevel: 0 },
 
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
@@ -101,12 +114,8 @@ export const F90_PL_ROW_CONFIG: PLRow[] = [
   // ADR and RevPAR are derived from revenue sub-measures (already positive after negate:true),
   // so no invertSign needed.
   { type: 'measure', label: 'Average Rate', measureId: 'adr_act_sy', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'REVPAR', measureId: 'rev_par_act_sy', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'MCP %', measureId: 'gop_pct', formatting: 'percentage', indentLevel: 1 },
-  { type: 'measure', label: 'Fixed Expenses', measureId: 'fixed_expenses', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'HOTEL PROFIT BEFORE MGT FEES', measureId: 'hotel_profit_before_mgt_fees', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Rooms Dept Profit %', measureId: 'rooms_dept_profit_pct', formatting: 'percentage', indentLevel: 1 },
-  { type: 'measure', label: 'F&B Dept Profit %', measureId: 'fb_dept_profit_pct', formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'Room REVPAR', measureId: 'rev_par_act_sy', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Total REVPAR', measureId: 'all_rev_par_act_sy', formatting: 'number', indentLevel: 1 },
 
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
