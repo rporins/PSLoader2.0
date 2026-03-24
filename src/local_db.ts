@@ -1510,6 +1510,62 @@ export async function getF90PLData(
 }
 
 //------------------------------------------------------------------------------------------------------------------
+//--- GET PROTEA F90 P&L DATA (with account movement mutation) -----------------------------------------------------
+// Same as getF90PLData but applies applyProteaAccountMovement() to shift insurance/audit
+// accounts from D0480/D0490 into Admin & General before measure evaluation.
+export async function getProteaF90PLData(
+  startMonth: number,
+  startYear: number,
+  endMonth: number,
+  endYear: number,
+  ou?: string,
+  version: string = 'MAIN',
+  rowConfig?: any[]
+): Promise<string> {
+  try {
+    await autoCleanStagingIfImported();
+
+    const {
+      generatePeriods,
+      generateLYPeriods,
+      buildScenarioQuery,
+      calculateF90PLRows,
+      applyProteaAccountMovement
+    } = await import('./services/reports/plCalculationEngine');
+
+    const periodRange = { startMonth, startYear, endMonth, endYear };
+    const periods = generatePeriods(periodRange);
+    const lyPeriods = generateLYPeriods(periods);
+
+    const actualsQuery = buildScenarioQuery('ACT', periods, ou, 'MAIN');
+    const budgetQuery = buildScenarioQuery('BUD', periods, ou, version);
+    const lyQuery = buildScenarioQuery('ACT', lyPeriods, ou, 'MAIN');
+
+    const [actualsResult, budgetResult, lyResult] = await Promise.all([
+      client.execute({ sql: actualsQuery.sql, args: actualsQuery.params }),
+      client.execute({ sql: budgetQuery.sql, args: budgetQuery.params }),
+      client.execute({ sql: lyQuery.sql, args: lyQuery.params })
+    ]);
+
+    const actualsData = actualsResult.rows[0] as any || {};
+    const budgetData = budgetResult.rows[0] as any || {};
+    const lyData = lyResult.rows[0] as any || {};
+
+    // Apply Protea account movement before measure evaluation
+    applyProteaAccountMovement(actualsData);
+    applyProteaAccountMovement(budgetData);
+    applyProteaAccountMovement(lyData);
+
+    const plRows = calculateF90PLRows(actualsData, budgetData, lyData, rowConfig);
+
+    return JSON.stringify(plRows);
+  } catch (error) {
+    console.error("Error generating Protea F90 P&L data:", error);
+    throw error;
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------------
 //--- GET STAGING VS BUDGET DATA TABLE ---------------------------------------------------------------------------------
 export async function getStagingVsBudgetData(ou?: string, version: string = 'MAIN'): Promise<string> {
   try {

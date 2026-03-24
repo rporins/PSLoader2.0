@@ -400,6 +400,29 @@ export function calculateSummaryPLRows(
 // Uses the F90_PL_ROW_CONFIG instead of PL_ROW_CONFIG
 // ============================================================================
 
+// ============================================================================
+// PROTEA REPORT: ACCOUNT MOVEMENT MUTATION
+// Shifts insurance (A730xxx) and audit (A745xxx) accounts from D0480/D0490
+// into Admin & General (D0410) at the report level.  Mutates the raw query
+// result object IN-PLACE so that all downstream measure evaluators
+// automatically cascade the adjusted values.
+// ============================================================================
+
+export function applyProteaAccountMovement(queryResult: any): void {
+  const moved0480 = Number(queryResult.protea_moved_accounts_d0480_act) || 0;
+  const moved0490 = Number(queryResult.protea_moved_accounts_d0490_act) || 0;
+  const totalMoved = moved0480 + moved0490;
+
+  // Shift into UOE / Admin & General (increases expense, decreases profit)
+  queryResult.admin_general_dept_expense_act = (Number(queryResult.admin_general_dept_expense_act) || 0) + totalMoved;
+  queryResult.total_undist_op_exp_act = (Number(queryResult.total_undist_op_exp_act) || 0) + totalMoved;
+  queryResult.total_profit_act = (Number(queryResult.total_profit_act) || 0) + totalMoved;
+
+  // Remove from D0480/D0490 "all" aggregates (below-the-line)
+  queryResult.f90_d0480_all_act = (Number(queryResult.f90_d0480_all_act) || 0) - moved0480;
+  queryResult.f90_d0490_all_act = (Number(queryResult.f90_d0490_all_act) || 0) - moved0490;
+}
+
 export function calculateF90PLRows(
   actualsData: BaseQueryResult,
   budgetData: BaseQueryResult,

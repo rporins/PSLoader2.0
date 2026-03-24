@@ -2226,6 +2226,29 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
       { type: 'dept_base', value: 'D0480' },
       { type: 'acc_prefix', value: 'A72090' }
     ]
+  },
+
+  // Protea Report: Moved accounts (insurance A730xxx + audit A745xxx) on D0480
+  // Used by applyProteaAccountMovement() to shift these costs into Admin & General (D0410) at report level
+  protea_moved_accounts_d0480_act: {
+    id: 'protea_moved_accounts_d0480_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0480' },
+      { type: 'acc_prefix', value: ['A730', 'A745'] }
+    ]
+  },
+
+  // Protea Report: Moved accounts (insurance A730xxx + audit A745xxx) on D0490
+  protea_moved_accounts_d0490_act: {
+    id: 'protea_moved_accounts_d0490_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: 'D0490' },
+      { type: 'acc_prefix', value: ['A730', 'A745'] }
+    ]
   }
 };
 
@@ -3487,5 +3510,20 @@ export const MEASURES: Record<string, Measure> = {
     type: 'simple',
     subMeasures: ['f90_d0490_dividends_act'],
     primarySubMeasure: 'f90_d0490_dividends_act'
+  },
+
+  // Protea Report: Original GOP % (pre-movement, before insurance/audit accounts shift to Admin & General)
+  // After applyProteaAccountMovement() mutates total_profit_act, this reverses the adjustment to recover the original GOP.
+  protea_original_gop_pct: {
+    id: 'protea_original_gop_pct',
+    type: 'calculated',
+    subMeasures: ['total_profit_act', 'protea_moved_accounts_d0480_act', 'protea_moved_accounts_d0490_act', 'total_sales_act'],
+    evaluator: (ctx: MeasureContext) => {
+      const adjustedMcp = ctx.subMeasures.total_profit_act || 0;
+      const moved0480 = ctx.subMeasures.protea_moved_accounts_d0480_act || 0;
+      const moved0490 = ctx.subMeasures.protea_moved_accounts_d0490_act || 0;
+      const originalGop = adjustedMcp - moved0480 - moved0490;
+      return evaluateDivide(originalGop, ctx.subMeasures.total_sales_act || 0, 0) * 100;
+    }
   }
 };

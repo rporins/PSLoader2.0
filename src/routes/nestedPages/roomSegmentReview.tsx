@@ -327,6 +327,7 @@ function CustomToolbar() {
 
 export default function RoomSegmentReview() {
   const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
+  const includeDetailBreakdown = useSettingsStore((s) => s.includeDetailBreakdown);
 
   // State
   const [loading, setLoading] = useState(false);
@@ -641,16 +642,57 @@ export default function RoomSegmentReview() {
   );
 
   // ────────────────────────────────────────────────────────────
+  // CONSOLIDATED / DETAIL VIEW
+  // ────────────────────────────────────────────────────────────
+
+  const displayRows: SegmentRow[] = useMemo(() => {
+    if (includeDetailBreakdown) return rows;
+
+    // Aggregate Sun-Thur + Fri-Sat into "Transient"; Groups & Complimentary pass through
+    const map = new Map<string, SegmentRow>();
+    for (const row of rows) {
+      const isTransient = row.category === "Sun-Thur" || row.category === "Fri-Sat";
+      const consolidatedCategory = isTransient ? "Transient" : row.category;
+      // Strip day-type suffix to get consolidated name
+      const consolidatedName = isTransient
+        ? row.description
+            .replace(/\s+Sun-Thur[s]?$/i, "")
+            .replace(/\s+Sun-Thu$/i, "")
+            .replace(/\s+Fri-Sat$/i, "")
+            .replace(/\s+-\s*W[DE]$/i, "")
+        : row.description;
+      const key = `${consolidatedCategory}::${consolidatedName}`;
+
+      const existing = map.get(key);
+      if (existing) {
+        existing.revenue += row.revenue;
+        existing.stats += row.stats;
+      } else {
+        map.set(key, {
+          id: key,
+          revenueAccount: row.revenueAccount,
+          statAccount: row.statAccount,
+          description: consolidatedName,
+          revenue: row.revenue,
+          stats: row.stats,
+          category: consolidatedCategory,
+        });
+      }
+    }
+    return Array.from(map.values());
+  }, [rows, includeDetailBreakdown]);
+
+  // ────────────────────────────────────────────────────────────
   // SUMMARY & VALIDATION CALCULATIONS
   // ────────────────────────────────────────────────────────────
 
   const { summary, segmentErrors, totalsMismatch } = useMemo(() => {
-    const totalRevenue = rows.reduce((sum, r) => sum + r.revenue, 0);
-    const totalStats = rows.reduce((sum, r) => sum + r.stats, 0);
+    const totalRevenue = displayRows.reduce((sum, r) => sum + r.revenue, 0);
+    const totalStats = displayRows.reduce((sum, r) => sum + r.stats, 0);
 
     // Check revenue-to-stats mapping errors (only for rows that have a statAccount)
     const errors = new Set<string>();
-    rows.forEach((r) => {
+    displayRows.forEach((r) => {
       if (r.statAccount) {
         const hasRevenue = r.revenue !== 0;
         const hasStats = r.stats !== 0;
@@ -667,11 +709,11 @@ export default function RoomSegmentReview() {
     const mismatch = totalSoldRow ? totalSoldRow.value !== segmentStatsSum : false;
 
     return {
-      summary: { totalRevenue, totalStats, segmentCount: rows.length },
+      summary: { totalRevenue, totalStats, segmentCount: displayRows.length },
       segmentErrors: errors,
       totalsMismatch: mismatch,
     };
-  }, [rows, statsRows]);
+  }, [displayRows, statsRows]);
 
   // ────────────────────────────────────────────────────────────
   // RENDER
@@ -791,13 +833,13 @@ export default function RoomSegmentReview() {
         <SectionTitle>
           <Stack direction="row" alignItems="center" justifyContent="space-between">
             <Typography variant="subtitle2" fontWeight={600} color="text.secondary">
-              Revenue Segments ({rows.length})
+              Revenue Segments ({displayRows.length})
             </Typography>
           </Stack>
         </SectionTitle>
         <Box sx={{ flex: 1, minHeight: 0 }}>
           <StyledDataGrid
-            rows={rows}
+            rows={displayRows}
             columns={segmentColumns}
             loading={loading}
             density="compact"

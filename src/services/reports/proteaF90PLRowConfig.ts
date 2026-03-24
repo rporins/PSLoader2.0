@@ -97,6 +97,8 @@ export const PROTEA_F90_PL_ROW_CONFIG: PLRow[] = [
   { type: 'measure', label: 'Rooms Dept Profit %', measureId: 'rooms_dept_profit_pct', formatting: 'percentage', indentLevel: 1 },
   { type: 'measure', label: 'F&B Dept Profit %', measureId: 'fb_dept_profit_pct', formatting: 'percentage', indentLevel: 1 },
 
+  { type: 'measure', label: 'GOP %', measureId: 'protea_original_gop_pct', formatting: 'percentage', indentLevel: 1 },
+
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
 

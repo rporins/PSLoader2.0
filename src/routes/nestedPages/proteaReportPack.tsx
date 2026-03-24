@@ -22,6 +22,8 @@ import {
   Divider,
   Grid,
   Paper,
+  FormControlLabel,
+  Switch,
 } from "@mui/material";
 import { styled, alpha } from "@mui/material/styles";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
@@ -96,6 +98,8 @@ export default function ProteaReportPack() {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const includeDetailBreakdown = useSettingsStore((s) => s.includeDetailBreakdown);
+  const setIncludeDetailBreakdown = useSettingsStore((s) => s.setIncludeDetailBreakdown);
 
   // Validation: end period must be >= start period
   const isDateRangeValid = (): boolean => {
@@ -130,6 +134,7 @@ export default function ProteaReportPack() {
         ytdEndMonth,
         ytdEndYear,
         version: financialDataVersion || 'MAIN',
+        generateDetailTabs: includeDetailBreakdown,
       });
 
       if (response.success && response.data?.filePath) {
@@ -319,6 +324,24 @@ export default function ProteaReportPack() {
 
           <Divider sx={{ my: 3 }} />
 
+          {/* Detail Breakdown Toggle */}
+          <SectionPaper elevation={0}>
+            <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>
+              Detail Level
+            </Typography>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={includeDetailBreakdown}
+                  onChange={(e) => setIncludeDetailBreakdown(e.target.checked)}
+                />
+              }
+              label="Include detailed breakdown"
+            />
+          </SectionPaper>
+
+          <Divider sx={{ my: 3 }} />
+
           {/* Report Contents Info */}
           <SectionPaper elevation={0} sx={{ backgroundColor: (theme) =>
             theme.palette.mode === 'dark'
@@ -371,7 +394,7 @@ export default function ProteaReportPack() {
           )}
 
           {/* Generate Button */}
-          <Stack direction="row" justifyContent="center" sx={{ mt: 4 }}>
+          <Stack direction="row" justifyContent="center" sx={{ mt: 2 }}>
             <GenerateButton
               variant="contained"
               color="primary"

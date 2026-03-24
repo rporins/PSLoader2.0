@@ -32,6 +32,8 @@ type SettingsState = {
   proteaReportPackYtdStartYear: number;
   proteaReportPackYtdEndMonth: number;
   proteaReportPackYtdEndYear: number;
+  // Shared report settings
+  includeDetailBreakdown: boolean;
 
   // Loading state
   loading: boolean;
@@ -66,6 +68,8 @@ type SettingsState = {
   setProteaReportPackYtdStartYear: (year: number) => Promise<void>;
   setProteaReportPackYtdEndMonth: (month: number) => Promise<void>;
   setProteaReportPackYtdEndYear: (year: number) => Promise<void>;
+  // Shared report setters
+  setIncludeDetailBreakdown: (enabled: boolean) => Promise<void>;
   updateMultipleSettings: (settings: Partial<AppSettings>) => Promise<void>;
 
   // Load and save
@@ -103,6 +107,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   proteaReportPackYtdStartYear: new Date().getFullYear(),
   proteaReportPackYtdEndMonth: new Date().getMonth() + 1,
   proteaReportPackYtdEndYear: new Date().getFullYear(),
+  // Shared report defaults
+  includeDetailBreakdown: false,
   loading: false,
   initialized: false,
 
@@ -430,6 +436,18 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
   },
 
+  // Shared report settings
+  setIncludeDetailBreakdown: async (enabled) => {
+    const previous = get().includeDetailBreakdown;
+    set({ includeDetailBreakdown: enabled });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.INCLUDE_DETAIL_BREAKDOWN, enabled);
+    } catch (error) {
+      console.error("Failed to save include segment detail setting:", error);
+      set({ includeDetailBreakdown: previous });
+    }
+  },
+
   // Update multiple settings at once
   updateMultipleSettings: async (settings) => {
     // Store previous state for rollback
@@ -464,6 +482,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     if (SETTINGS_KEYS.DATE_FORMAT in settings) updates.dateFormat = settings[SETTINGS_KEYS.DATE_FORMAT]!;
     if (SETTINGS_KEYS.NUMBER_FORMAT in settings) updates.numberFormat = settings[SETTINGS_KEYS.NUMBER_FORMAT]!;
     if (SETTINGS_KEYS.FINANCIAL_DATA_VERSION in settings) updates.financialDataVersion = settings[SETTINGS_KEYS.FINANCIAL_DATA_VERSION]!;
+    if (SETTINGS_KEYS.INCLUDE_DETAIL_BREAKDOWN in settings) updates.includeDetailBreakdown = settings[SETTINGS_KEYS.INCLUDE_DETAIL_BREAKDOWN]!;
 
     set(updates);
 
@@ -521,6 +540,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         proteaReportPackYtdStartYear: settings[SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_START_YEAR],
         proteaReportPackYtdEndMonth: settings[SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_MONTH],
         proteaReportPackYtdEndYear: settings[SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_YEAR],
+        // Shared report settings
+        includeDetailBreakdown: settings[SETTINGS_KEYS.INCLUDE_DETAIL_BREAKDOWN],
         initialized: true,
       });
 
@@ -552,6 +573,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         [SETTINGS_KEYS.DATE_FORMAT]: state.dateFormat,
         [SETTINGS_KEYS.NUMBER_FORMAT]: state.numberFormat,
         [SETTINGS_KEYS.FINANCIAL_DATA_VERSION]: state.financialDataVersion,
+        [SETTINGS_KEYS.INCLUDE_DETAIL_BREAKDOWN]: state.includeDetailBreakdown,
       };
 
       await settingsService.setSettings(settings);
@@ -588,6 +610,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         dateFormat: settings[SETTINGS_KEYS.DATE_FORMAT],
         numberFormat: settings[SETTINGS_KEYS.NUMBER_FORMAT],
         financialDataVersion: settings[SETTINGS_KEYS.FINANCIAL_DATA_VERSION],
+        includeDetailBreakdown: settings[SETTINGS_KEYS.INCLUDE_DETAIL_BREAKDOWN],
       });
 
       // console.log("All settings reset to defaults");
@@ -614,3 +637,4 @@ export const useLanguage = () => useSettingsStore((s) => s.language);
 export const useCurrency = () => useSettingsStore((s) => s.currency);
 export const useDateFormat = () => useSettingsStore((s) => s.dateFormat);
 export const useNumberFormat = () => useSettingsStore((s) => s.numberFormat);
+export const useIncludeDetailBreakdown = () => useSettingsStore((s) => s.includeDetailBreakdown);

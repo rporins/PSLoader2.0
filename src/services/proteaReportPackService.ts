@@ -24,6 +24,7 @@ export interface ProteaReportPackConfig {
   ytdEndMonth: number;
   ytdEndYear: number;
   version: string;  // 'MAIN' or 'OWNR'
+  generateDetailTabs: boolean;  // Include individual department detail sheets (vs summary-only)
 }
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -34,7 +35,6 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 
 // Tab color scheme for worksheet tabs
 const TAB_COLOR_REPORT: Partial<ExcelJS.Color> = { argb: 'FF1E3A5F' };    // Dark blue - F90, Room Segments
-const TAB_COLOR_HOTEL_TOTAL: Partial<ExcelJS.Color> = { argb: 'FF4A4A4A' }; // Dark charcoal - Hotel Total
 const TAB_COLOR_GROUP_SUMMARY: Partial<ExcelJS.Color> = { argb: 'FF2D5F8A' }; // Medium navy - Group summaries
 const TAB_COLOR_DEPARTMENT: Partial<ExcelJS.Color> = { argb: 'FF8899AA' };   // Blue-gray - Individual departments
 
@@ -130,12 +130,19 @@ const CATEGORY_TOTAL_BORDER: Partial<ExcelJS.Borders> = {
   right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
 };
 
+const GROUP_SUBTOTAL_BORDER: Partial<ExcelJS.Borders> = {
+  top: { style: 'thin', color: { argb: 'FF1E3A5F' } },
+  left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+  bottom: { style: 'thin', color: { argb: 'FF1E3A5F' } },
+  right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
+};
+
 const DATA_FONT: Partial<ExcelJS.Font> = {
   size: 10
 };
 
 const TOTAL_ROW_BORDER: Partial<ExcelJS.Borders> = {
-  top: { style: 'thin', color: { argb: 'FF000000' } },
+  top: { style: 'medium', color: { argb: 'FF000000' } },
   left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
   bottom: { style: 'thin', color: { argb: 'FF000000' } },
   right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
@@ -199,7 +206,7 @@ function applyGroupSubtotalStyle(row: ExcelJS.Row): void {
   row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
     cell.fill = GROUP_SUBTOTAL_FILL;
     cell.font = GROUP_SUBTOTAL_FONT;
-    cell.border = BORDER_STYLE;
+    cell.border = GROUP_SUBTOTAL_BORDER;
     cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
   });
   row.height = 18;
@@ -213,12 +220,6 @@ function applyCategorySubtotalStyle(row: ExcelJS.Row): void {
     cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
   });
   row.height = 22;
-}
-
-function applyTotalRowBorder(row: ExcelJS.Row): void {
-  row.eachCell({ includeEmpty: true }, (cell) => {
-    cell.border = TOTAL_ROW_BORDER;
-  });
 }
 
 function formatNumber(value: number | null, decimals: number = 0): number | string {
@@ -271,6 +272,47 @@ function getRangeLabel(
 // Departments excluded from Excel export (non-operating depts with no reportable data)
 const EXCEL_EXCLUDED_DEPARTMENTS = new Set(['D1468', 'D3095', 'D0376']);
 
+// ============================================================================
+// PROTEA ACCOUNT MOVEMENT CONFIG
+// Insurance (A730xxx) and audit (A745xxx) accounts on D0480/D0490 are reported
+// as if they belong to D0410 (Admin & General).  This is a report-level-only
+// adjustment — the underlying data is unchanged.
+// ============================================================================
+const PROTEA_MOVED_ACCOUNT_PREFIXES = ['A730', 'A745'];
+const PROTEA_MOVEMENT_SOURCE_DEPTS = ['D0480', 'D0490'];
+const isMovedAccount = (acct: string) =>
+  PROTEA_MOVED_ACCOUNT_PREFIXES.some(p => acct.startsWith(p));
+
+// ============================================================================
+// PROTEA DEPARTMENT-LEVEL MOVEMENT CONFIG
+// Certain departments report under a different group in the Protea extract.
+// Report-level only — underlying data is unchanged.  The F90 is unaffected.
+// ============================================================================
+interface DepartmentMovement {
+  sourceDept: string;        // Department to move from its native level_7 group
+  targetGroup: string;       // level_7 group name it merges into
+  detailMergeTarget: string; // Department whose detail tab receives the merged data
+}
+
+const PROTEA_DEPARTMENT_MOVEMENTS: DepartmentMovement[] = [
+  { sourceDept: 'D0400', targetGroup: 'Administrative & General', detailMergeTarget: 'D0410' },
+  { sourceDept: 'D0690', targetGroup: 'Invest Factor Owner',     detailMergeTarget: 'D0490' },
+];
+
+/** Preferred display order for department groups in the Protea report pack.
+ *  Groups not listed here appear after these in their natural (alphabetical) order. */
+const PROTEA_GROUP_DISPLAY_ORDER: string[] = [
+  'Rooms and Reservation',
+  'Total Food & Beverage',
+  'Other Operated Departments',
+  'Administrative & General',
+];
+
+// Derived lookups for fast access
+const MOVED_DEPT_SET = new Set(PROTEA_DEPARTMENT_MOVEMENTS.map(m => m.sourceDept));
+const MOVED_DEPT_BY_SOURCE = new Map(PROTEA_DEPARTMENT_MOVEMENTS.map(m => [m.sourceDept, m]));
+const MOVEMENT_TARGET_GROUPS = new Set(PROTEA_DEPARTMENT_MOVEMENTS.map(m => m.targetGroup));
+
 class ProteaReportPackService {
   private accpacDescriptions: Map<string, string[]> = new Map();
   private generatedAt: string = '';
@@ -321,7 +363,7 @@ class ProteaReportPackService {
       }
     }
 
-    // 1. Create F90 Report worksheet
+    // 1. Create F90 Report worksheet (uses Protea account movement mutation)
     await this.createF90Worksheet(workbook, config);
     this.sheetRegistry.push({ type: 'sheet', sheetName: 'F90 Report', indent: false });
 
@@ -333,12 +375,50 @@ class ProteaReportPackService {
     const departments = (await db.getDepartmentsWithDataForOU(config.ou, config.version))
       .filter(d => !EXCEL_EXCLUDED_DEPARTMENTS.has(d.baseDepartment));
 
-    // 4. Create Hotel Total worksheet (queries all Lodging Operations departments directly)
-    await this.createHotelTotalWorksheet(workbook, config);
-    this.sheetRegistry.push({ type: 'sheet', sheetName: 'HOTEL TOTAL', indent: false });
+    // 4. Pre-fetch moved account detail data from D0480/D0490 (insurance/audit accounts
+    //    that will be reported under Admin & General) AND all department-level movements.
+    //    Fetched once and reused across group summary and individual department sheets.
+    const [movedAccountsMonth, movedAccountsRange] = await Promise.all([
+      db.getGroupDepartmentDetailData(
+        config.ou,
+        PROTEA_MOVEMENT_SOURCE_DEPTS,
+        config.selectedMonth, config.selectedYear,
+        config.selectedMonth, config.selectedYear,
+        config.version
+      ),
+      db.getGroupDepartmentDetailData(
+        config.ou,
+        PROTEA_MOVEMENT_SOURCE_DEPTS,
+        config.ytdStartMonth, config.ytdStartYear,
+        config.ytdEndMonth, config.ytdEndYear,
+        config.version
+      )
+    ]);
+    const movedMonth = movedAccountsMonth.filter(r => isMovedAccount(r.account));
+    const movedRange = movedAccountsRange.filter(r => isMovedAccount(r.account));
 
-    // 5. Create Department worksheets (using pre-fetched departments)
-    await this.createDepartmentWorksheets(workbook, config, departments);
+    // Pre-fetch all moved department data (D0400, D0690, etc.)
+    const movedDeptData = new Map<string, { month: any[]; range: any[] }>();
+    await Promise.all(PROTEA_DEPARTMENT_MOVEMENTS.map(async (mv) => {
+      const [month, range] = await Promise.all([
+        db.getDepartmentDetailData(
+          config.ou, mv.sourceDept,
+          config.selectedMonth, config.selectedYear,
+          config.selectedMonth, config.selectedYear,
+          config.version
+        ),
+        db.getDepartmentDetailData(
+          config.ou, mv.sourceDept,
+          config.ytdStartMonth, config.ytdStartYear,
+          config.ytdEndMonth, config.ytdEndYear,
+          config.version
+        ),
+      ]);
+      movedDeptData.set(mv.sourceDept, { month, range });
+    }));
+
+    // 5. Create Department worksheets (using pre-fetched departments + moved account/department data)
+    await this.createDepartmentWorksheets(workbook, config, departments, movedMonth, movedRange, movedDeptData);
 
     // 6. Create Cover Page (last to build, positioned first via orderNo)
     this.createCoverPageWorksheet(workbook, config);
@@ -430,8 +510,8 @@ class ProteaReportPackService {
     ]);
     applyHeaderStyle(headerRow);
 
-    // Fetch Selected Month data
-    const monthDataJson = await db.getF90PLData(
+    // Fetch Selected Month data (with Protea account movement applied)
+    const monthDataJson = await db.getProteaF90PLData(
       config.selectedMonth,
       config.selectedYear,
       config.selectedMonth,
@@ -442,8 +522,8 @@ class ProteaReportPackService {
     );
     const monthData: PLCalculationResult[] = JSON.parse(monthDataJson);
 
-    // Fetch YTD data
-    const ytdDataJson = await db.getF90PLData(
+    // Fetch YTD data (with Protea account movement applied)
+    const ytdDataJson = await db.getProteaF90PLData(
       config.ytdStartMonth,
       config.ytdStartYear,
       config.ytdEndMonth,
@@ -464,9 +544,6 @@ class ProteaReportPackService {
   /**
    * Helper to add F90 data rows with month and range data side by side
    */
-  // F90 rows that should receive total-row borders (add labels like 'GOP', 'EBITDA' as needed)
-  private static F90_TOTAL_BORDER_LABELS: string[] = [];
-
   private addF90DataRows(sheet: ExcelJS.Worksheet, monthData: PLCalculationResult[], rangeData: PLCalculationResult[]): void {
     // Build a lookup map from range data keyed by label so that rows align
     // correctly even when filterZeroRows removes different rows from each array.
@@ -519,11 +596,21 @@ class ProteaReportPackService {
         comments: ''
       });
 
-      applyDataRowStyle(excelRow, primary.type === 'header');
-
-      // Apply total-row borders to key summary rows (configured via F90_TOTAL_BORDER_LABELS)
-      if (ProteaReportPackService.F90_TOTAL_BORDER_LABELS.some(lbl => primary.label?.includes(lbl))) {
-        applyTotalRowBorder(excelRow);
+      // Apply styling — borders + bold for totals (no fills), light blue on section headers
+      if (primary.type === 'header' && primary.label) {
+        const hasData = primary.actuals !== null;
+        excelRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+          cell.font = { size: 10, bold: true };
+          if (!hasData) cell.fill = CATEGORY_HEADER_FILL;
+          cell.border = primary.indentLevel === 0 && hasData
+            ? CATEGORY_TOTAL_BORDER
+            : primary.indentLevel > 0 && hasData
+              ? GROUP_SUBTOTAL_BORDER
+              : BORDER_STYLE;
+          cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
+        });
+      } else {
+        applyDataRowStyle(excelRow, false);
       }
 
       // Style separator column
@@ -544,84 +631,6 @@ class ProteaReportPackService {
   }
 
   /**
-   * Creates the Hotel Total worksheet aggregating all lodging operations departments.
-   * Appears before individual department sheets as a hotel-wide summary.
-   */
-  private async createHotelTotalWorksheet(
-    workbook: ExcelJS.Workbook,
-    config: ProteaReportPackConfig
-  ): Promise<void> {
-    // Fetch hotel-wide totals across all Lodging Operations departments (excluding non-reportable depts)
-    const excludedDepts = [...EXCEL_EXCLUDED_DEPARTMENTS];
-    const [monthDetailData, rangeDetailData] = await Promise.all([
-      db.getAllDepartmentDetailData(
-        config.ou,
-        config.selectedMonth, config.selectedYear,
-        config.selectedMonth, config.selectedYear,
-        config.version,
-        excludedDepts
-      ),
-      db.getAllDepartmentDetailData(
-        config.ou,
-        config.ytdStartMonth, config.ytdStartYear,
-        config.ytdEndMonth, config.ytdEndYear,
-        config.version,
-        excludedDepts
-      )
-    ]);
-
-    if (rangeDetailData.length === 0 && monthDetailData.length === 0) return;
-
-    const sheet = workbook.addWorksheet('HOTEL TOTAL', { properties: { tabColor: TAB_COLOR_HOTEL_TOTAL } });
-    const totalCols = 13;
-
-    sheet.columns = [
-      { key: 'account', width: 45 },
-      { key: 'mAct', width: 14 },
-      { key: 'mBud', width: 14 },
-      { key: 'mVsBud', width: 14 },
-      { key: 'mLy', width: 14 },
-      { key: 'mVsLy', width: 14 },
-      { key: 'sep', width: 2 },
-      { key: 'rAct', width: 14 },
-      { key: 'rBud', width: 14 },
-      { key: 'rVsBud', width: 14 },
-      { key: 'rLy', width: 14 },
-      { key: 'rVsLy', width: 14 },
-      { key: 'comments', width: 35 },
-    ];
-
-    // Title header rows (report name, hotel name + timestamp)
-    this.addSheetTitleHeader(sheet, config, totalCols, 'Hotel Total');
-
-    // Period group headers
-    const groupRow = sheet.addRow(new Array(totalCols).fill(''));
-    groupRow.getCell(2).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
-    groupRow.getCell(8).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
-    sheet.mergeCells(groupRow.number, 2, groupRow.number, 6);
-    sheet.mergeCells(groupRow.number, 8, groupRow.number, 12);
-    applyHeaderStyle(groupRow);
-    this.styleDeptSeparator(groupRow);
-
-    // Column sub-headers
-    const headerRow = sheet.addRow([
-      'Account',
-      'Actuals', 'Budget', 'vs Bud', 'LY', 'vs LY',
-      '',
-      'Actuals', 'Budget', 'vs Bud', 'LY', 'vs LY',
-      'Comments'
-    ]);
-    applyHeaderStyle(headerRow);
-    this.styleDeptSeparator(headerRow);
-
-    // Combined month + range data (side by side)
-    this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols);
-
-    // Freeze panes (2 title rows + 2 header rows)
-    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
-  }
-
-  /**
    * Creates department worksheets grouped by level_7.
    * Multi-department groups get a summary sheet followed by individual detail sheets.
    * Single-department groups get only their detail sheet.
@@ -629,7 +638,10 @@ class ProteaReportPackService {
   private async createDepartmentWorksheets(
     workbook: ExcelJS.Workbook,
     config: ProteaReportPackConfig,
-    departments: Array<{ baseDepartment: string; departmentName: string; level7Group: string | null }>
+    departments: Array<{ baseDepartment: string; departmentName: string; level7Group: string | null }>,
+    movedMonth: any[] = [],
+    movedRange: any[] = [],
+    movedDeptData: Map<string, { month: any[]; range: any[] }> = new Map()
   ): Promise<void> {
     // Group departments by level_7
     const groupMap = new Map<string, typeof departments>();
@@ -641,11 +653,25 @@ class ProteaReportPackService {
       groupMap.get(groupKey)!.push(dept);
     }
 
+    // Sort groups: prioritised groups first (in defined order), then remaining alphabetically
+    const sortedGroups = [...groupMap.entries()].sort((a, b) => {
+      const idxA = PROTEA_GROUP_DISPLAY_ORDER.indexOf(a[0]);
+      const idxB = PROTEA_GROUP_DISPLAY_ORDER.indexOf(b[0]);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a[0].localeCompare(b[0]);
+    });
+
     // Track used sheet names to avoid duplicates
     const usedSheetNames = new Set<string>();
 
     // Iterate groups: summary sheet first (if multi-dept), then individual sheets
-    for (const [groupName, groupDepts] of groupMap) {
+    for (const [groupName, groupDepts] of sortedGroups) {
+      // Skip group entirely if it only contains moved departments
+      const nonMovedDepts = groupDepts.filter(d => !MOVED_DEPT_SET.has(d.baseDepartment));
+      if (nonMovedDepts.length === 0 && !MOVEMENT_TARGET_GROUPS.has(groupName)) continue;
+
       const isMultiDeptGroup = groupDepts.length > 1;
 
       // Register group header in TOC for every group (including singletons)
@@ -654,39 +680,49 @@ class ProteaReportPackService {
       if (isMultiDeptGroup) {
         // Create group summary sheet for multi-department groups
         const summaryName = await this.createGroupSummaryWorksheet(
-          workbook, config, groupName, groupDepts, usedSheetNames
+          workbook, config, groupName, groupDepts, usedSheetNames, movedMonth, movedRange, movedDeptData
         );
         if (summaryName) {
           this.sheetRegistry.push({ type: 'sheet', sheetName: summaryName, indent: true });
         }
 
-        // Create individual department detail sheets
-        for (const dept of groupDepts) {
-          const deptSheetName = await this.createSingleDepartmentWorksheet(
-            workbook, config, dept, usedSheetNames
-          );
-          if (deptSheetName) {
-            this.sheetRegistry.push({ type: 'sheet', sheetName: deptSheetName, indent: true });
+        // Create individual department detail sheets (only when detail tabs enabled)
+        if (config.generateDetailTabs) {
+          for (const dept of groupDepts) {
+            // Suppress moved department detail tabs — their accounts are merged into their target group
+            if (MOVED_DEPT_SET.has(dept.baseDepartment)) continue;
+
+            const deptSheetName = await this.createSingleDepartmentWorksheet(
+              workbook, config, dept, usedSheetNames, undefined, movedMonth, movedRange, movedDeptData
+            );
+            if (deptSheetName) {
+              this.sheetRegistry.push({ type: 'sheet', sheetName: deptSheetName, indent: true });
+            }
           }
         }
       } else {
-        // Singleton group: create both summary + individual sheet for consistent pattern
+        // Singleton group: always create summary sheet
         const dept = groupDepts[0];
 
         // Group summary sheet (uses same data as the single dept)
         const summaryName = await this.createGroupSummaryWorksheet(
-          workbook, config, groupName, groupDepts, usedSheetNames
+          workbook, config, groupName, groupDepts, usedSheetNames, movedMonth, movedRange, movedDeptData
         );
         if (summaryName) {
           this.sheetRegistry.push({ type: 'sheet', sheetName: summaryName, indent: true });
         }
 
-        // Individual department detail sheet
-        const deptSheetName = await this.createSingleDepartmentWorksheet(
-          workbook, config, dept, usedSheetNames
-        );
-        if (deptSheetName) {
-          this.sheetRegistry.push({ type: 'sheet', sheetName: deptSheetName, indent: true });
+        // Individual department detail sheet (only when detail tabs enabled)
+        if (config.generateDetailTabs) {
+          // Suppress moved department detail tabs — their accounts are merged into their target group
+          if (!MOVED_DEPT_SET.has(dept.baseDepartment)) {
+            const deptSheetName = await this.createSingleDepartmentWorksheet(
+              workbook, config, dept, usedSheetNames, undefined, movedMonth, movedRange, movedDeptData
+            );
+            if (deptSheetName) {
+              this.sheetRegistry.push({ type: 'sheet', sheetName: deptSheetName, indent: true });
+            }
+          }
         }
       }
     }
@@ -700,15 +736,30 @@ class ProteaReportPackService {
     config: ProteaReportPackConfig,
     groupName: string,
     groupDepts: Array<{ baseDepartment: string; departmentName: string; level7Group: string | null }>,
-    usedSheetNames: Set<string>
+    usedSheetNames: Set<string>,
+    movedMonth: any[] = [],
+    movedRange: any[] = [],
+    movedDeptData: Map<string, { month: any[]; range: any[] }> = new Map()
   ): Promise<string | null> {
     const deptIds = groupDepts.map(d => d.baseDepartment);
 
+    // --- Protea department movement: exclude moved depts from their native groups ---
+    // Moved dept data is pre-fetched separately and merged into their target groups below.
+    let effectiveDeptIds = deptIds.filter(id => {
+      const mv = MOVED_DEPT_BY_SOURCE.get(id);
+      if (!mv) return true;              // not a moved dept — keep it
+      return mv.targetGroup === groupName; // only keep if this IS its target group
+    });
+    if (effectiveDeptIds.length === 0 && !MOVEMENT_TARGET_GROUPS.has(groupName)) {
+      // All depts were moved out and this isn't a target group — suppress entirely
+      return null;
+    }
+
     // Fetch aggregated data for the group (month + range in parallel)
-    const [monthDetailData, rangeDetailData] = await Promise.all([
+    let [monthDetailData, rangeDetailData] = await Promise.all([
       db.getGroupDepartmentDetailData(
         config.ou,
-        deptIds,
+        effectiveDeptIds,
         config.selectedMonth,
         config.selectedYear,
         config.selectedMonth,
@@ -717,7 +768,7 @@ class ProteaReportPackService {
       ),
       db.getGroupDepartmentDetailData(
         config.ou,
-        deptIds,
+        effectiveDeptIds,
         config.ytdStartMonth,
         config.ytdStartYear,
         config.ytdEndMonth,
@@ -725,6 +776,32 @@ class ProteaReportPackService {
         config.version
       )
     ]);
+
+    // --- Protea account movement: adjust group summary data ---
+    const groupContainsSourceDept = effectiveDeptIds.some(id => PROTEA_MOVEMENT_SOURCE_DEPTS.includes(id));
+
+    if (groupContainsSourceDept) {
+      // Remove moved accounts from source department groups (D0480/D0490)
+      monthDetailData = monthDetailData.filter(r => !isMovedAccount(r.account));
+      rangeDetailData = rangeDetailData.filter(r => !isMovedAccount(r.account));
+    }
+
+    // Merge moved account-level data (A730/A745) into Admin & General
+    if (groupName === 'Administrative & General') {
+      monthDetailData = [...monthDetailData, ...movedMonth];
+      rangeDetailData = [...rangeDetailData, ...movedRange];
+    }
+
+    // Merge moved department data into their respective target groups
+    for (const mv of PROTEA_DEPARTMENT_MOVEMENTS) {
+      if (mv.targetGroup === groupName) {
+        const data = movedDeptData.get(mv.sourceDept);
+        if (data) {
+          monthDetailData = [...monthDetailData, ...data.month];
+          rangeDetailData = [...rangeDetailData, ...data.range];
+        }
+      }
+    }
 
     if (rangeDetailData.length === 0 && monthDetailData.length === 0) {
       return null;
@@ -799,9 +876,12 @@ class ProteaReportPackService {
     config: ProteaReportPackConfig,
     dept: { baseDepartment: string; departmentName: string; level7Group: string | null },
     usedSheetNames: Set<string>,
-    nameOverride?: string
+    nameOverride?: string,
+    movedMonth: any[] = [],
+    movedRange: any[] = [],
+    movedDeptData: Map<string, { month: any[]; range: any[] }> = new Map()
   ): Promise<string | null> {
-    const [monthDetailData, rangeDetailData] = await Promise.all([
+    let [monthDetailData, rangeDetailData] = await Promise.all([
       db.getDepartmentDetailData(
         config.ou,
         dept.baseDepartment,
@@ -821,6 +901,39 @@ class ProteaReportPackService {
         config.version
       )
     ]);
+
+    // Protea account movement: filter out moved accounts from D0480/D0490 individual sheets
+    if (PROTEA_MOVEMENT_SOURCE_DEPTS.includes(dept.baseDepartment)) {
+      monthDetailData = monthDetailData.filter(r => !isMovedAccount(r.account));
+      rangeDetailData = rangeDetailData.filter(r => !isMovedAccount(r.account));
+    }
+
+    // Protea movement: merge moved accounts (A730/A745) into D0410 detail sheet
+    let movedAccountSources: Map<string, string> | undefined;
+    if (dept.baseDepartment === 'D0410') {
+      monthDetailData = [...monthDetailData, ...movedMonth];
+      rangeDetailData = [...rangeDetailData, ...movedRange];
+      movedAccountSources = new Map<string, string>();
+      for (const row of movedMonth) movedAccountSources.set(row.account, 'D0480/D0490');
+      for (const row of movedRange) movedAccountSources.set(row.account, 'D0480/D0490');
+    }
+
+    // Protea department movement: merge moved department data into their detail merge targets
+    const incomingMovements = PROTEA_DEPARTMENT_MOVEMENTS.filter(
+      mv => mv.detailMergeTarget === dept.baseDepartment
+    );
+    if (incomingMovements.length > 0) {
+      if (!movedAccountSources) movedAccountSources = new Map<string, string>();
+      for (const mv of incomingMovements) {
+        const data = movedDeptData.get(mv.sourceDept);
+        if (data) {
+          monthDetailData = [...monthDetailData, ...data.month];
+          rangeDetailData = [...rangeDetailData, ...data.range];
+          for (const row of data.month) movedAccountSources.set(row.account, mv.sourceDept);
+          for (const row of data.range) movedAccountSources.set(row.account, mv.sourceDept);
+        }
+      }
+    }
 
     if (rangeDetailData.length === 0 && monthDetailData.length === 0) {
       return null;
@@ -878,8 +991,8 @@ class ProteaReportPackService {
     applyHeaderStyle(headerRow);
     this.styleDeptSeparator(headerRow);
 
-    // Combined month + range data (side by side)
-    this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols);
+    // Combined month + range data (side by side), with optional moved-account annotations
+    this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols, movedAccountSources);
 
     // Freeze panes (2 title rows + 2 header rows)
     sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
@@ -969,15 +1082,21 @@ class ProteaReportPackService {
    * Returns a rich text value with the AccPac description in light grey brackets,
    * or a plain string if no AccPac description exists.
    */
-  private buildAccountLabel(displayName: string, accountCode: string): string | ExcelJS.CellRichTextValue {
+  private buildAccountLabel(displayName: string, accountCode: string, movedFrom?: string): string | ExcelJS.CellRichTextValue {
     const descriptions = this.accpacDescriptions.get(accountCode);
-    if (descriptions && descriptions.length > 0) {
-      return {
-        richText: [
-          { font: { size: 10 }, text: displayName },
-          { font: { size: 10, color: { argb: 'FF999999' } }, text: ` [${descriptions.join(', ')}]` },
-        ]
-      };
+    const hasDescriptions = descriptions && descriptions.length > 0;
+
+    if (hasDescriptions || movedFrom) {
+      const parts: ExcelJS.RichText[] = [
+        { font: { size: 10 }, text: displayName },
+      ];
+      if (hasDescriptions) {
+        parts.push({ font: { size: 10, color: { argb: 'FF999999' } }, text: ` [${descriptions!.join(', ')}]` });
+      }
+      if (movedFrom) {
+        parts.push({ font: { size: 9, italic: true, color: { argb: 'FFB0B0B0' } }, text: ` [moved from ${movedFrom}]` });
+      }
+      return { richText: parts };
     }
     return displayName;
   }
@@ -1019,7 +1138,8 @@ class ProteaReportPackService {
     sheet: ExcelJS.Worksheet,
     monthData: any[],
     rangeData: any[],
-    totalCols: number
+    totalCols: number,
+    movedAccountSources?: Map<string, string>
   ): void {
     const categories = ['Revenue', 'Cost of Sales', 'Payroll', 'Controllables', 'Other', 'Stats'];
     const ABS_COLS = [2, 3, 4, 5, 6, 8, 9, 10, 11, 12]; // absolute value column indices (both sides)
@@ -1125,7 +1245,8 @@ class ProteaReportPackService {
             comments: ''
           });
 
-          const accountLabel = this.buildAccountLabel(mRow.accountName || mRow.account, mRow.account);
+          const movedFrom = movedAccountSources?.get(mRow.account);
+          const accountLabel = this.buildAccountLabel(mRow.accountName || mRow.account, mRow.account, movedFrom);
           if (typeof accountLabel !== 'string') {
             excelRow.getCell(1).value = { richText: [{ font: { size: 10 }, text: '    ' }, ...accountLabel.richText] };
           }
@@ -1199,8 +1320,9 @@ class ProteaReportPackService {
               comments: ''
             });
 
-            // Override account cell with rich text if AccPac description exists
-            const accountLabel = this.buildAccountLabel(displayName, mRow.account);
+            // Override account cell with rich text if AccPac description or moved annotation exists
+            const movedFrom = movedAccountSources?.get(mRow.account);
+            const accountLabel = this.buildAccountLabel(displayName, mRow.account, movedFrom);
             if (typeof accountLabel !== 'string') {
               excelRow.getCell(1).value = { richText: [{ font: { size: 10 }, text: '    ' }, ...accountLabel.richText] };
             }
@@ -1270,10 +1392,9 @@ class ProteaReportPackService {
       profitRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
         cell.fill = SUBTOTAL_FILL;
         cell.font = { ...DATA_FONT, bold: true };
-        cell.border = BORDER_STYLE;
+        cell.border = TOTAL_ROW_BORDER;
         cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
       });
-      applyTotalRowBorder(profitRow);
       this.styleDeptSeparator(profitRow);
       ABS_COLS.forEach(col => {
         const cell = profitRow.getCell(col);
@@ -1309,10 +1430,9 @@ class ProteaReportPackService {
       gopRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
         cell.fill = SUBTOTAL_FILL;
         cell.font = { ...DATA_FONT, bold: true };
-        cell.border = BORDER_STYLE;
+        cell.border = TOTAL_ROW_BORDER;
         cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
       });
-      applyTotalRowBorder(gopRow);
       this.styleDeptSeparator(gopRow);
     } else if (monthData.length > 0 || rangeData.length > 0) {
       // Non-revenue departments (e.g. Admin & General): simple Total row
@@ -1344,10 +1464,9 @@ class ProteaReportPackService {
       totalRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
         cell.fill = SUBTOTAL_FILL;
         cell.font = { ...DATA_FONT, bold: true };
-        cell.border = BORDER_STYLE;
+        cell.border = TOTAL_ROW_BORDER;
         cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
       });
-      applyTotalRowBorder(totalRow);
       this.styleDeptSeparator(totalRow);
       ABS_COLS.forEach(col => {
         const cell = totalRow.getCell(col);
@@ -1444,14 +1563,16 @@ class ProteaReportPackService {
 
     this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'revenue', 'consolidated', TOTAL_COLS);
 
-    this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
+    if (config.generateDetailTabs) {
+      this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
 
-    const revDetailHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
-    revDetailHeader.getCell(1).value = 'Detail by Day Type';
-    applySectionHeaderStyle(revDetailHeader);
-    sheet.mergeCells(revDetailHeader.number, 1, revDetailHeader.number, TOTAL_COLS);
+      const revDetailHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
+      revDetailHeader.getCell(1).value = 'Detail by Day Type';
+      applySectionHeaderStyle(revDetailHeader);
+      sheet.mergeCells(revDetailHeader.number, 1, revDetailHeader.number, TOTAL_COLS);
 
-    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'revenue', 'detail', TOTAL_COLS);
+      this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'revenue', 'detail', TOTAL_COLS);
+    }
 
     this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
 
@@ -1468,14 +1589,16 @@ class ProteaReportPackService {
 
     this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'nights', 'consolidated', TOTAL_COLS);
 
-    this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
+    if (config.generateDetailTabs) {
+      this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
 
-    const nightsDetailHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
-    nightsDetailHeader.getCell(1).value = 'Detail by Day Type';
-    applySectionHeaderStyle(nightsDetailHeader);
-    sheet.mergeCells(nightsDetailHeader.number, 1, nightsDetailHeader.number, TOTAL_COLS);
+      const nightsDetailHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
+      nightsDetailHeader.getCell(1).value = 'Detail by Day Type';
+      applySectionHeaderStyle(nightsDetailHeader);
+      sheet.mergeCells(nightsDetailHeader.number, 1, nightsDetailHeader.number, TOTAL_COLS);
 
-    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'nights', 'detail', TOTAL_COLS);
+      this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'nights', 'detail', TOTAL_COLS);
+    }
 
     this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
 
@@ -1492,14 +1615,16 @@ class ProteaReportPackService {
 
     this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'adr', 'consolidated', TOTAL_COLS);
 
-    this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
+    if (config.generateDetailTabs) {
+      this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
 
-    const adrDetailHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
-    adrDetailHeader.getCell(1).value = 'Detail by Day Type';
-    applySectionHeaderStyle(adrDetailHeader);
-    sheet.mergeCells(adrDetailHeader.number, 1, adrDetailHeader.number, TOTAL_COLS);
+      const adrDetailHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
+      adrDetailHeader.getCell(1).value = 'Detail by Day Type';
+      applySectionHeaderStyle(adrDetailHeader);
+      sheet.mergeCells(adrDetailHeader.number, 1, adrDetailHeader.number, TOTAL_COLS);
 
-    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'adr', 'detail', TOTAL_COLS);
+      this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'adr', 'detail', TOTAL_COLS);
+    }
 
     // Freeze panes (2 title rows + 2 header rows)
     sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
@@ -1721,7 +1846,7 @@ class ProteaReportPackService {
       cell.font = isGrandTotal
         ? { bold: true, size: 11, color: { argb: 'FFFFFFFF' } }
         : { bold: true, size: 10 };
-      cell.border = BORDER_STYLE;
+      cell.border = isGrandTotal ? TOTAL_ROW_BORDER : GROUP_SUBTOTAL_BORDER;
       cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
     });
     row.height = isGrandTotal ? 22 : 20;

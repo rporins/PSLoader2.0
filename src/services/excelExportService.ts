@@ -23,6 +23,7 @@ export interface ExcelExportConfig {
   ytdEndMonth: number;
   ytdEndYear: number;
   version: string;  // 'MAIN' or 'OWNR'
+  generateDetailTabs: boolean;  // Include individual department detail sheets (vs summary-only)
 }
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -129,12 +130,19 @@ const CATEGORY_TOTAL_BORDER: Partial<ExcelJS.Borders> = {
   right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
 };
 
+const GROUP_SUBTOTAL_BORDER: Partial<ExcelJS.Borders> = {
+  top: { style: 'thin', color: { argb: 'FF1E3A5F' } },
+  left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+  bottom: { style: 'thin', color: { argb: 'FF1E3A5F' } },
+  right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
+};
+
 const DATA_FONT: Partial<ExcelJS.Font> = {
   size: 10
 };
 
 const TOTAL_ROW_BORDER: Partial<ExcelJS.Borders> = {
-  top: { style: 'thin', color: { argb: 'FF000000' } },
+  top: { style: 'medium', color: { argb: 'FF000000' } },
   left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
   bottom: { style: 'thin', color: { argb: 'FF000000' } },
   right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
@@ -198,7 +206,7 @@ function applyGroupSubtotalStyle(row: ExcelJS.Row): void {
   row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
     cell.fill = GROUP_SUBTOTAL_FILL;
     cell.font = GROUP_SUBTOTAL_FONT;
-    cell.border = BORDER_STYLE;
+    cell.border = GROUP_SUBTOTAL_BORDER;
     cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
   });
   row.height = 18;
@@ -212,12 +220,6 @@ function applyCategorySubtotalStyle(row: ExcelJS.Row): void {
     cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
   });
   row.height = 22;
-}
-
-function applyTotalRowBorder(row: ExcelJS.Row): void {
-  row.eachCell({ includeEmpty: true }, (cell) => {
-    cell.border = TOTAL_ROW_BORDER;
-  });
 }
 
 function formatNumber(value: number | null, decimals: number = 0): number | string {
@@ -461,9 +463,6 @@ class ExcelExportService {
   /**
    * Helper to add F90 data rows with month and range data side by side
    */
-  // F90 rows that should receive total-row borders (add labels like 'GOP', 'EBITDA' as needed)
-  private static F90_TOTAL_BORDER_LABELS: string[] = [];
-
   private addF90DataRows(sheet: ExcelJS.Worksheet, monthData: PLCalculationResult[], rangeData: PLCalculationResult[]): void {
     // Build a lookup map from range data keyed by label so that rows align
     // correctly even when filterZeroRows removes different rows from each array.
@@ -516,11 +515,21 @@ class ExcelExportService {
         comments: ''
       });
 
-      applyDataRowStyle(excelRow, primary.type === 'header');
-
-      // Apply total-row borders to key summary rows (configured via F90_TOTAL_BORDER_LABELS)
-      if (ExcelExportService.F90_TOTAL_BORDER_LABELS.some(lbl => primary.label?.includes(lbl))) {
-        applyTotalRowBorder(excelRow);
+      // Apply styling — borders + bold for totals (no fills), light blue on section headers
+      if (primary.type === 'header' && primary.label) {
+        const hasData = primary.actuals !== null;
+        excelRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+          cell.font = { size: 10, bold: true };
+          if (!hasData) cell.fill = CATEGORY_HEADER_FILL;
+          cell.border = primary.indentLevel === 0 && hasData
+            ? CATEGORY_TOTAL_BORDER
+            : primary.indentLevel > 0 && hasData
+              ? GROUP_SUBTOTAL_BORDER
+              : BORDER_STYLE;
+          cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
+        });
+      } else {
+        applyDataRowStyle(excelRow, false);
       }
 
       // Style separator column
@@ -657,17 +666,19 @@ class ExcelExportService {
           this.sheetRegistry.push({ type: 'sheet', sheetName: summaryName, indent: true });
         }
 
-        // Create individual department detail sheets
-        for (const dept of groupDepts) {
-          const deptSheetName = await this.createSingleDepartmentWorksheet(
-            workbook, config, dept, usedSheetNames
-          );
-          if (deptSheetName) {
-            this.sheetRegistry.push({ type: 'sheet', sheetName: deptSheetName, indent: true });
+        // Create individual department detail sheets (only when detail tabs enabled)
+        if (config.generateDetailTabs) {
+          for (const dept of groupDepts) {
+            const deptSheetName = await this.createSingleDepartmentWorksheet(
+              workbook, config, dept, usedSheetNames
+            );
+            if (deptSheetName) {
+              this.sheetRegistry.push({ type: 'sheet', sheetName: deptSheetName, indent: true });
+            }
           }
         }
       } else {
-        // Singleton group: create both summary + individual sheet for consistent pattern
+        // Singleton group: always create summary sheet
         const dept = groupDepts[0];
 
         // Group summary sheet (uses same data as the single dept)
@@ -678,12 +689,14 @@ class ExcelExportService {
           this.sheetRegistry.push({ type: 'sheet', sheetName: summaryName, indent: true });
         }
 
-        // Individual department detail sheet
-        const deptSheetName = await this.createSingleDepartmentWorksheet(
-          workbook, config, dept, usedSheetNames
-        );
-        if (deptSheetName) {
-          this.sheetRegistry.push({ type: 'sheet', sheetName: deptSheetName, indent: true });
+        // Individual department detail sheet (only when detail tabs enabled)
+        if (config.generateDetailTabs) {
+          const deptSheetName = await this.createSingleDepartmentWorksheet(
+            workbook, config, dept, usedSheetNames
+          );
+          if (deptSheetName) {
+            this.sheetRegistry.push({ type: 'sheet', sheetName: deptSheetName, indent: true });
+          }
         }
       }
     }
@@ -1267,10 +1280,9 @@ class ExcelExportService {
       profitRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
         cell.fill = SUBTOTAL_FILL;
         cell.font = { ...DATA_FONT, bold: true };
-        cell.border = BORDER_STYLE;
+        cell.border = TOTAL_ROW_BORDER;
         cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
       });
-      applyTotalRowBorder(profitRow);
       this.styleDeptSeparator(profitRow);
       ABS_COLS.forEach(col => {
         const cell = profitRow.getCell(col);
@@ -1306,10 +1318,9 @@ class ExcelExportService {
       gopRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
         cell.fill = SUBTOTAL_FILL;
         cell.font = { ...DATA_FONT, bold: true };
-        cell.border = BORDER_STYLE;
+        cell.border = TOTAL_ROW_BORDER;
         cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
       });
-      applyTotalRowBorder(gopRow);
       this.styleDeptSeparator(gopRow);
     } else if (monthData.length > 0 || rangeData.length > 0) {
       // Non-revenue departments (e.g. Admin & General): simple Total row
@@ -1341,10 +1352,9 @@ class ExcelExportService {
       totalRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
         cell.fill = SUBTOTAL_FILL;
         cell.font = { ...DATA_FONT, bold: true };
-        cell.border = BORDER_STYLE;
+        cell.border = TOTAL_ROW_BORDER;
         cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
       });
-      applyTotalRowBorder(totalRow);
       this.styleDeptSeparator(totalRow);
       ABS_COLS.forEach(col => {
         const cell = totalRow.getCell(col);
@@ -1441,14 +1451,16 @@ class ExcelExportService {
 
     this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'revenue', 'consolidated', TOTAL_COLS);
 
-    this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
+    if (config.generateDetailTabs) {
+      this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
 
-    const revDetailHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
-    revDetailHeader.getCell(1).value = 'Detail by Day Type';
-    applySectionHeaderStyle(revDetailHeader);
-    sheet.mergeCells(revDetailHeader.number, 1, revDetailHeader.number, TOTAL_COLS);
+      const revDetailHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
+      revDetailHeader.getCell(1).value = 'Detail by Day Type';
+      applySectionHeaderStyle(revDetailHeader);
+      sheet.mergeCells(revDetailHeader.number, 1, revDetailHeader.number, TOTAL_COLS);
 
-    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'revenue', 'detail', TOTAL_COLS);
+      this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'revenue', 'detail', TOTAL_COLS);
+    }
 
     this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
 
@@ -1465,14 +1477,16 @@ class ExcelExportService {
 
     this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'nights', 'consolidated', TOTAL_COLS);
 
-    this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
+    if (config.generateDetailTabs) {
+      this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
 
-    const nightsDetailHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
-    nightsDetailHeader.getCell(1).value = 'Detail by Day Type';
-    applySectionHeaderStyle(nightsDetailHeader);
-    sheet.mergeCells(nightsDetailHeader.number, 1, nightsDetailHeader.number, TOTAL_COLS);
+      const nightsDetailHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
+      nightsDetailHeader.getCell(1).value = 'Detail by Day Type';
+      applySectionHeaderStyle(nightsDetailHeader);
+      sheet.mergeCells(nightsDetailHeader.number, 1, nightsDetailHeader.number, TOTAL_COLS);
 
-    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'nights', 'detail', TOTAL_COLS);
+      this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'nights', 'detail', TOTAL_COLS);
+    }
 
     this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
 
@@ -1489,14 +1503,16 @@ class ExcelExportService {
 
     this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'adr', 'consolidated', TOTAL_COLS);
 
-    this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
+    if (config.generateDetailTabs) {
+      this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
 
-    const adrDetailHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
-    adrDetailHeader.getCell(1).value = 'Detail by Day Type';
-    applySectionHeaderStyle(adrDetailHeader);
-    sheet.mergeCells(adrDetailHeader.number, 1, adrDetailHeader.number, TOTAL_COLS);
+      const adrDetailHeader = sheet.addRow(new Array(TOTAL_COLS).fill(''));
+      adrDetailHeader.getCell(1).value = 'Detail by Day Type';
+      applySectionHeaderStyle(adrDetailHeader);
+      sheet.mergeCells(adrDetailHeader.number, 1, adrDetailHeader.number, TOTAL_COLS);
 
-    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'adr', 'detail', TOTAL_COLS);
+      this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'adr', 'detail', TOTAL_COLS);
+    }
 
     // Freeze panes (2 title rows + 2 header rows)
     sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
@@ -1718,7 +1734,7 @@ class ExcelExportService {
       cell.font = isGrandTotal
         ? { bold: true, size: 11, color: { argb: 'FFFFFFFF' } }
         : { bold: true, size: 10 };
-      cell.border = BORDER_STYLE;
+      cell.border = isGrandTotal ? TOTAL_ROW_BORDER : GROUP_SUBTOTAL_BORDER;
       cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
     });
     row.height = isGrandTotal ? 22 : 20;
