@@ -469,25 +469,23 @@ class ProteaReportPackService {
     // Set column widths
     sheet.columns = [
       { key: 'label', width: 45 },
+      { key: 'mLy', width: 14 },
+      { key: 'mVsLyPct', width: 12 },
       { key: 'mAct', width: 14 },
       { key: 'mBud', width: 14 },
       { key: 'mVsBud', width: 14 },
       { key: 'mVsBudPct', width: 12 },
-      { key: 'mLy', width: 14 },
-      { key: 'mVsLy', width: 14 },
-      { key: 'mVsLyPct', width: 12 },
       { key: 'sep', width: 2 },
+      { key: 'rLy', width: 14 },
+      { key: 'rVsLyPct', width: 12 },
       { key: 'rAct', width: 14 },
       { key: 'rBud', width: 14 },
       { key: 'rVsBud', width: 14 },
       { key: 'rVsBudPct', width: 12 },
-      { key: 'rLy', width: 14 },
-      { key: 'rVsLy', width: 14 },
-      { key: 'rVsLyPct', width: 12 },
       { key: 'comments', width: 35 },
     ];
 
-    const TOTAL_COLS = 17;
+    const TOTAL_COLS = 15;
 
     // Title header rows (report name, hotel name + timestamp)
     this.addSheetTitleHeader(sheet, config, TOTAL_COLS, 'F90 Report');
@@ -495,17 +493,17 @@ class ProteaReportPackService {
     // Period group headers
     const groupRow = sheet.addRow(new Array(TOTAL_COLS).fill(''));
     groupRow.getCell(2).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
-    groupRow.getCell(10).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
-    sheet.mergeCells(groupRow.number, 2, groupRow.number, 8);
-    sheet.mergeCells(groupRow.number, 10, groupRow.number, 16);
+    groupRow.getCell(9).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
+    sheet.mergeCells(groupRow.number, 2, groupRow.number, 7);
+    sheet.mergeCells(groupRow.number, 9, groupRow.number, 14);
     applyHeaderStyle(groupRow);
 
     // Column sub-headers
     const headerRow = sheet.addRow([
       'P&L Line',
-      'Actuals', 'Budget', 'vs Bud', 'vs Bud %', 'LY', 'vs LY', 'vs LY %',
+      'LY', 'vs LY %', 'Actuals', 'Budget', 'vs Bud', 'vs Bud %',
       '',
-      'Actuals', 'Budget', 'vs Bud', 'vs Bud %', 'LY', 'vs LY', 'vs LY %',
+      'LY', 'vs LY %', 'Actuals', 'Budget', 'vs Bud', 'vs Bud %',
       'Comments'
     ]);
     applyHeaderStyle(headerRow);
@@ -578,21 +576,19 @@ class ProteaReportPackService {
 
       const excelRow = sheet.addRow({
         label: indent + primary.label,
+        mLy: mRow ? (isPercentage ? formatPercentage(mRow.ly) : formatNumber(mRow.ly)) : '',
+        mVsLyPct: mRow ? formatPercentage(mRow.vs_ly_pct) : '',
         mAct: mRow ? (isPercentage ? formatPercentage(mRow.actuals) : formatNumber(mRow.actuals)) : '',
         mBud: mRow ? (isPercentage ? formatPercentage(mRow.budget) : formatNumber(mRow.budget)) : '',
         mVsBud: mRow ? (isPercentage ? formatPercentage(mRow.vs_bud) : formatNumber(mRow.vs_bud)) : '',
         mVsBudPct: mRow ? formatPercentage(mRow.vs_bud_pct) : '',
-        mLy: mRow ? (isPercentage ? formatPercentage(mRow.ly) : formatNumber(mRow.ly)) : '',
-        mVsLy: mRow ? (isPercentage ? formatPercentage(mRow.vs_ly) : formatNumber(mRow.vs_ly)) : '',
-        mVsLyPct: mRow ? formatPercentage(mRow.vs_ly_pct) : '',
         sep: '',
+        rLy: rRow ? (isPercentage ? formatPercentage(rRow.ly) : formatNumber(rRow.ly)) : '',
+        rVsLyPct: rRow ? formatPercentage(rRow.vs_ly_pct) : '',
         rAct: rRow ? (isPercentage ? formatPercentage(rRow.actuals) : formatNumber(rRow.actuals)) : '',
         rBud: rRow ? (isPercentage ? formatPercentage(rRow.budget) : formatNumber(rRow.budget)) : '',
         rVsBud: rRow ? (isPercentage ? formatPercentage(rRow.vs_bud) : formatNumber(rRow.vs_bud)) : '',
         rVsBudPct: rRow ? formatPercentage(rRow.vs_bud_pct) : '',
-        rLy: rRow ? (isPercentage ? formatPercentage(rRow.ly) : formatNumber(rRow.ly)) : '',
-        rVsLy: rRow ? (isPercentage ? formatPercentage(rRow.vs_ly) : formatNumber(rRow.vs_ly)) : '',
-        rVsLyPct: rRow ? formatPercentage(rRow.vs_ly_pct) : '',
         comments: ''
       });
 
@@ -614,13 +610,13 @@ class ProteaReportPackService {
       }
 
       // Style separator column
-      const sepCell = excelRow.getCell(9);
+      const sepCell = excelRow.getCell(8);
       sepCell.fill = SEPARATOR_FILL;
       sepCell.value = '';
 
       // Apply number formatting to both sides
       if (!isPercentage) {
-        [2, 3, 4, 6, 7, 10, 11, 12, 14, 15].forEach(col => {
+        [2, 4, 5, 6, 9, 11, 12, 13].forEach(col => {
           const cell = excelRow.getCell(col);
           if (typeof cell.value === 'number') {
             cell.numFmt = '#,##0';
@@ -818,21 +814,23 @@ class ProteaReportPackService {
     usedSheetNames.add(finalName.toLowerCase());
 
     const sheet = workbook.addWorksheet(finalName, { properties: { tabColor: TAB_COLOR_GROUP_SUMMARY } });
-    const totalCols = 13;
+    const totalCols = 15;
 
     sheet.columns = [
       { key: 'account', width: 45 },
+      { key: 'mLy', width: 14 },
+      { key: 'mVsLyPct', width: 12 },
       { key: 'mAct', width: 14 },
       { key: 'mBud', width: 14 },
       { key: 'mVsBud', width: 14 },
-      { key: 'mLy', width: 14 },
-      { key: 'mVsLy', width: 14 },
+      { key: 'mVsBudPct', width: 12 },
       { key: 'sep', width: 2 },
+      { key: 'rLy', width: 14 },
+      { key: 'rVsLyPct', width: 12 },
       { key: 'rAct', width: 14 },
       { key: 'rBud', width: 14 },
       { key: 'rVsBud', width: 14 },
-      { key: 'rLy', width: 14 },
-      { key: 'rVsLy', width: 14 },
+      { key: 'rVsBudPct', width: 12 },
       { key: 'comments', width: 35 },
     ];
 
@@ -842,18 +840,18 @@ class ProteaReportPackService {
     // Period group headers
     const groupRow = sheet.addRow(new Array(totalCols).fill(''));
     groupRow.getCell(2).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
-    groupRow.getCell(8).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
-    sheet.mergeCells(groupRow.number, 2, groupRow.number, 6);
-    sheet.mergeCells(groupRow.number, 8, groupRow.number, 12);
+    groupRow.getCell(9).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
+    sheet.mergeCells(groupRow.number, 2, groupRow.number, 7);
+    sheet.mergeCells(groupRow.number, 9, groupRow.number, 14);
     applyHeaderStyle(groupRow);
     this.styleDeptSeparator(groupRow);
 
     // Column sub-headers
     const headerRow = sheet.addRow([
       'Account',
-      'Actuals', 'Budget', 'vs Bud', 'LY', 'vs LY',
+      'LY', 'vs LY %', 'Actuals', 'Budget', 'vs Bud', 'vs Bud %',
       '',
-      'Actuals', 'Budget', 'vs Bud', 'LY', 'vs LY',
+      'LY', 'vs LY %', 'Actuals', 'Budget', 'vs Bud', 'vs Bud %',
       'Comments'
     ]);
     applyHeaderStyle(headerRow);
@@ -956,21 +954,23 @@ class ProteaReportPackService {
     usedSheetNames.add(finalName.toLowerCase());
 
     const sheet = workbook.addWorksheet(finalName, { properties: { tabColor: TAB_COLOR_DEPARTMENT } });
-    const totalCols = 13;
+    const totalCols = 15;
 
     sheet.columns = [
       { key: 'account', width: 45 },
+      { key: 'mLy', width: 14 },
+      { key: 'mVsLyPct', width: 12 },
       { key: 'mAct', width: 14 },
       { key: 'mBud', width: 14 },
       { key: 'mVsBud', width: 14 },
-      { key: 'mLy', width: 14 },
-      { key: 'mVsLy', width: 14 },
+      { key: 'mVsBudPct', width: 12 },
       { key: 'sep', width: 2 },
+      { key: 'rLy', width: 14 },
+      { key: 'rVsLyPct', width: 12 },
       { key: 'rAct', width: 14 },
       { key: 'rBud', width: 14 },
       { key: 'rVsBud', width: 14 },
-      { key: 'rLy', width: 14 },
-      { key: 'rVsLy', width: 14 },
+      { key: 'rVsBudPct', width: 12 },
       { key: 'comments', width: 35 },
     ];
 
@@ -980,18 +980,18 @@ class ProteaReportPackService {
     // Period group headers
     const groupRow = sheet.addRow(new Array(totalCols).fill(''));
     groupRow.getCell(2).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
-    groupRow.getCell(8).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
-    sheet.mergeCells(groupRow.number, 2, groupRow.number, 6);
-    sheet.mergeCells(groupRow.number, 8, groupRow.number, 12);
+    groupRow.getCell(9).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
+    sheet.mergeCells(groupRow.number, 2, groupRow.number, 7);
+    sheet.mergeCells(groupRow.number, 9, groupRow.number, 14);
     applyHeaderStyle(groupRow);
     this.styleDeptSeparator(groupRow);
 
     // Column sub-headers
     const headerRow = sheet.addRow([
       'Account',
-      'Actuals', 'Budget', 'vs Bud', 'LY', 'vs LY',
+      'LY', 'vs LY %', 'Actuals', 'Budget', 'vs Bud', 'vs Bud %',
       '',
-      'Actuals', 'Budget', 'vs Bud', 'LY', 'vs LY',
+      'LY', 'vs LY %', 'Actuals', 'Budget', 'vs Bud', 'vs Bud %',
       'Comments'
     ]);
     applyHeaderStyle(headerRow);
@@ -1136,6 +1136,8 @@ class ProteaReportPackService {
       this.styleDeptSeparator(row);
     };
 
+    const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : null;
+
     if (mRevenueRows.length > 0 || rRevenueRows.length > 0) {
       const mRevAct = sumField(mRevenueRows, 'actuals');
       const mRevBud = sumField(mRevenueRows, 'budget');
@@ -1157,16 +1159,25 @@ class ProteaReportPackService {
       const rProfitBud = -(rRevBud + rExpBud);
       const rProfitLy = -(rRevLy + rExpLy);
 
+      const mProfitVsBud = mProfitAct - mProfitBud;
+      const mProfitVsLy = mProfitAct - mProfitLy;
+      const rProfitVsBud = rProfitAct - rProfitBud;
+      const rProfitVsLy = rProfitAct - rProfitLy;
+
       // Department Profit row
       const profitRow = sheet.addRow({
         account: 'Department Profit',
+        mLy: formatNumber(mProfitLy),
+        mVsLyPct: formatPercentage(pct(mProfitVsLy, mProfitLy)),
         mAct: formatNumber(mProfitAct), mBud: formatNumber(mProfitBud),
-        mVsBud: formatNumber(mProfitAct - mProfitBud),
-        mLy: formatNumber(mProfitLy), mVsLy: formatNumber(mProfitAct - mProfitLy),
+        mVsBud: formatNumber(mProfitVsBud),
+        mVsBudPct: formatPercentage(pct(mProfitVsBud, mProfitBud)),
         sep: '',
+        rLy: formatNumber(rProfitLy),
+        rVsLyPct: formatPercentage(pct(rProfitVsLy, rProfitLy)),
         rAct: formatNumber(rProfitAct), rBud: formatNumber(rProfitBud),
-        rVsBud: formatNumber(rProfitAct - rProfitBud),
-        rLy: formatNumber(rProfitLy), rVsLy: formatNumber(rProfitAct - rProfitLy),
+        rVsBud: formatNumber(rProfitVsBud),
+        rVsBudPct: formatPercentage(pct(rProfitVsBud, rProfitBud)),
         comments: ''
       });
       applySubtotalStyle(profitRow);
@@ -1187,13 +1198,17 @@ class ProteaReportPackService {
 
       const gopRow = sheet.addRow({
         account: 'GOP %',
+        mLy: formatPercentage(mGopLy),
+        mVsLyPct: `${(mGopAct - mGopLy).toFixed(1)} pts`,
         mAct: formatPercentage(mGopAct), mBud: formatPercentage(mGopBud),
         mVsBud: `${(mGopAct - mGopBud).toFixed(1)} pts`,
-        mLy: formatPercentage(mGopLy), mVsLy: `${(mGopAct - mGopLy).toFixed(1)} pts`,
+        mVsBudPct: '',
         sep: '',
+        rLy: formatPercentage(rGopLy),
+        rVsLyPct: `${(rGopAct - rGopLy).toFixed(1)} pts`,
         rAct: formatPercentage(rGopAct), rBud: formatPercentage(rGopBud),
         rVsBud: `${(rGopAct - rGopBud).toFixed(1)} pts`,
-        rLy: formatPercentage(rGopLy), rVsLy: `${(rGopAct - rGopLy).toFixed(1)} pts`,
+        rVsBudPct: '',
         comments: ''
       });
       applySubtotalStyle(gopRow);
@@ -1208,15 +1223,24 @@ class ProteaReportPackService {
       const rTotBud = sumField(rAllRows, 'budget');
       const rTotLy  = sumField(rAllRows, 'ly');
 
+      const mTotVsBud = mTotAct - mTotBud;
+      const mTotVsLy = mTotAct - mTotLy;
+      const rTotVsBud = rTotAct - rTotBud;
+      const rTotVsLy = rTotAct - rTotLy;
+
       const totalRow = sheet.addRow({
         account: 'Total',
+        mLy: formatNumber(mTotLy),
+        mVsLyPct: formatPercentage(pct(mTotVsLy, mTotLy)),
         mAct: formatNumber(mTotAct), mBud: formatNumber(mTotBud),
-        mVsBud: formatNumber(mTotAct - mTotBud),
-        mLy: formatNumber(mTotLy), mVsLy: formatNumber(mTotAct - mTotLy),
+        mVsBud: formatNumber(mTotVsBud),
+        mVsBudPct: formatPercentage(pct(mTotVsBud, mTotBud)),
         sep: '',
+        rLy: formatNumber(rTotLy),
+        rVsLyPct: formatPercentage(pct(rTotVsLy, rTotLy)),
         rAct: formatNumber(rTotAct), rBud: formatNumber(rTotBud),
-        rVsBud: formatNumber(rTotAct - rTotBud),
-        rLy: formatNumber(rTotLy), rVsLy: formatNumber(rTotAct - rTotLy),
+        rVsBud: formatNumber(rTotVsBud),
+        rVsBudPct: formatPercentage(pct(rTotVsBud, rTotBud)),
         comments: ''
       });
       applySubtotalStyle(totalRow);
@@ -1269,7 +1293,7 @@ class ProteaReportPackService {
     options?: { collapseRevenueDetail?: boolean; suppressStats?: boolean; showDeptProfit?: boolean }
   ): void {
     const categories = ['Revenue', 'Cost of Sales', 'Payroll', 'Controllables', 'Other', 'Stats'];
-    const ABS_COLS = [2, 3, 4, 5, 6, 8, 9, 10, 11, 12]; // absolute value column indices (both sides)
+    const ABS_COLS = [2, 4, 5, 6, 9, 11, 12, 13]; // absolute value column indices (both sides, excludes pct cols)
 
     // Helper: apply number formatting to absolute columns
     const applyNumberFormats = (row: ExcelJS.Row) => {
@@ -1282,6 +1306,9 @@ class ProteaReportPackService {
     // Helper: sum a numeric field across rows
     const sumField = (rows: any[], field: string) =>
       rows.reduce((sum: number, r: any) => sum + (Number(r[field]) || 0), 0);
+
+    // Helper: compute percentage variance
+    const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : null;
 
     // Helper: create a header row that carries aggregated totals from both month and range
     // Revenue is stored as negative (credit-balance) in the DB.
@@ -1308,17 +1335,19 @@ class ProteaReportPackService {
 
       const headerRow = sheet.addRow({
         account: label,
+        mLy: formatNumber(mTotLy),
+        mVsLyPct: formatPercentage(pct(mTotVsLy, mTotLy)),
         mAct: formatNumber(mTotActuals),
         mBud: formatNumber(mTotBudget),
         mVsBud: formatNumber(mTotVsBud),
-        mLy: formatNumber(mTotLy),
-        mVsLy: formatNumber(mTotVsLy),
+        mVsBudPct: formatPercentage(pct(mTotVsBud, mTotBudget)),
         sep: '',
+        rLy: formatNumber(rTotLy),
+        rVsLyPct: formatPercentage(pct(rTotVsLy, rTotLy)),
         rAct: formatNumber(rTotActuals),
         rBud: formatNumber(rTotBudget),
         rVsBud: formatNumber(rTotVsBud),
-        rLy: formatNumber(rTotLy),
-        rVsLy: formatNumber(rTotVsLy),
+        rVsBudPct: formatPercentage(pct(rTotVsBud, rTotBudget)),
         comments: ''
       });
       styleFn(headerRow);
@@ -1377,17 +1406,19 @@ class ProteaReportPackService {
 
           const excelRow = sheet.addRow({
             account: `    ${mRow.accountName || mRow.account}`,
+            mLy: formatNumber(mRow.ly * sign),
+            mVsLyPct: formatPercentage(pct(mRow.vsLy * sign, mRow.ly * sign)),
             mAct: formatNumber(mRow.actuals * sign),
             mBud: formatNumber(mRow.budget * sign),
             mVsBud: formatNumber(mRow.vsBud * sign),
-            mLy: formatNumber(mRow.ly * sign),
-            mVsLy: formatNumber(mRow.vsLy * sign),
+            mVsBudPct: formatPercentage(pct(mRow.vsBud * sign, mRow.budget * sign)),
             sep: '',
+            rLy: formatNumber(rRow.ly * sign),
+            rVsLyPct: formatPercentage(pct(rRow.vsLy * sign, rRow.ly * sign)),
             rAct: formatNumber(rRow.actuals * sign),
             rBud: formatNumber(rRow.budget * sign),
             rVsBud: formatNumber(rRow.vsBud * sign),
-            rLy: formatNumber(rRow.ly * sign),
-            rVsLy: formatNumber(rRow.vsLy * sign),
+            rVsBudPct: formatPercentage(pct(rRow.vsBud * sign, rRow.budget * sign)),
             comments: ''
           });
 
@@ -1453,17 +1484,19 @@ class ProteaReportPackService {
 
             const excelRow = sheet.addRow({
               account: `    ${displayName}`,
+              mLy: formatNumber(mRow.ly * sign),
+              mVsLyPct: formatPercentage(pct(mRow.vsLy * sign, mRow.ly * sign)),
               mAct: formatNumber(mRow.actuals * sign),
               mBud: formatNumber(mRow.budget * sign),
               mVsBud: formatNumber(mRow.vsBud * sign),
-              mLy: formatNumber(mRow.ly * sign),
-              mVsLy: formatNumber(mRow.vsLy * sign),
+              mVsBudPct: formatPercentage(pct(mRow.vsBud * sign, mRow.budget * sign)),
               sep: '',
+              rLy: formatNumber(rRow.ly * sign),
+              rVsLyPct: formatPercentage(pct(rRow.vsLy * sign, rRow.ly * sign)),
               rAct: formatNumber(rRow.actuals * sign),
               rBud: formatNumber(rRow.budget * sign),
               rVsBud: formatNumber(rRow.vsBud * sign),
-              rLy: formatNumber(rRow.ly * sign),
-              rVsLy: formatNumber(rRow.vsLy * sign),
+              rVsBudPct: formatPercentage(pct(rRow.vsBud * sign, rRow.budget * sign)),
               comments: ''
             });
 
@@ -1503,27 +1536,25 @@ class ProteaReportPackService {
     config: ProteaReportPackConfig
   ): Promise<void> {
     const sheet = workbook.addWorksheet('Room Segments', { properties: { tabColor: TAB_COLOR_REPORT } });
-    const TOTAL_COLS = 18;
+    const TOTAL_COLS = 16;
 
-    // 18 columns: Segment, Category, Month(7), Sep, Range(7), Comments
+    // 16 columns: Segment, Category, Month(6), Sep, Range(6), Comments
     sheet.columns = [
       { key: 'segment', width: 35 },
       { key: 'category', width: 15 },
+      { key: 'mLy', width: 14 },
+      { key: 'mVsLyPct', width: 12 },
       { key: 'mAct', width: 14 },
       { key: 'mBud', width: 14 },
       { key: 'mVsBud', width: 14 },
       { key: 'mVsBudPct', width: 12 },
-      { key: 'mLy', width: 14 },
-      { key: 'mVsLy', width: 14 },
-      { key: 'mVsLyPct', width: 12 },
       { key: 'sep', width: 2 },
+      { key: 'rLy', width: 14 },
+      { key: 'rVsLyPct', width: 12 },
       { key: 'rAct', width: 14 },
       { key: 'rBud', width: 14 },
       { key: 'rVsBud', width: 14 },
       { key: 'rVsBudPct', width: 12 },
-      { key: 'rLy', width: 14 },
-      { key: 'rVsLy', width: 14 },
-      { key: 'rVsLyPct', width: 12 },
       { key: 'comments', width: 35 },
     ];
 
@@ -1533,18 +1564,18 @@ class ProteaReportPackService {
     // Period group headers
     const groupRow = sheet.addRow(new Array(TOTAL_COLS).fill(''));
     groupRow.getCell(3).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
-    groupRow.getCell(11).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
-    sheet.mergeCells(groupRow.number, 3, groupRow.number, 9);
-    sheet.mergeCells(groupRow.number, 11, groupRow.number, 17);
+    groupRow.getCell(10).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
+    sheet.mergeCells(groupRow.number, 3, groupRow.number, 8);
+    sheet.mergeCells(groupRow.number, 10, groupRow.number, 15);
     applyHeaderStyle(groupRow);
     this.styleRoomSegSeparators(groupRow);
 
     // Column sub-headers
     const headerRow = sheet.addRow([
       'Segment', 'Category',
-      'Actuals', 'Budget', 'vs Bud', 'vs Bud %', 'LY', 'vs LY', 'vs LY %',
+      'LY', 'vs LY %', 'Actuals', 'Budget', 'vs Bud', 'vs Bud %',
       '',
-      'Actuals', 'Budget', 'vs Bud', 'vs Bud %', 'LY', 'vs LY', 'vs LY %',
+      'LY', 'vs LY %', 'Actuals', 'Budget', 'vs Bud', 'vs Bud %',
       'Comments'
     ]);
     applyHeaderStyle(headerRow);
@@ -1704,15 +1735,13 @@ class ProteaReportPackService {
 
     return [
       description, category,
+      formatNumber(monthVals.ly, decimals), formatPercentage(mVar.vsLyPct),
       formatNumber(monthVals.actuals, decimals), formatNumber(monthVals.budget, decimals),
       formatNumber(mVar.vsBud, decimals), formatPercentage(mVar.vsBudPct),
-      formatNumber(monthVals.ly, decimals), formatNumber(mVar.vsLy, decimals),
-      formatPercentage(mVar.vsLyPct),
       '',
+      formatNumber(rangeVals.ly, decimals), formatPercentage(rVar.vsLyPct),
       formatNumber(rangeVals.actuals, decimals), formatNumber(rangeVals.budget, decimals),
       formatNumber(rVar.vsBud, decimals), formatPercentage(rVar.vsBudPct),
-      formatNumber(rangeVals.ly, decimals), formatNumber(rVar.vsLy, decimals),
-      formatPercentage(rVar.vsLyPct),
       ''
     ];
   }
@@ -1843,7 +1872,7 @@ class ProteaReportPackService {
    * Style separator column (10) with blue-gray fill
    */
   private styleRoomSegSeparators(row: ExcelJS.Row): void {
-    const cell = row.getCell(10);
+    const cell = row.getCell(9);
     cell.fill = SEPARATOR_FILL;
     cell.value = '';
   }
@@ -1852,7 +1881,7 @@ class ProteaReportPackService {
    * Style the separator column (col 7) on department sheets
    */
   private styleDeptSeparator(row: ExcelJS.Row): void {
-    const cell = row.getCell(7);
+    const cell = row.getCell(8);
     cell.fill = SEPARATOR_FILL;
     cell.value = '';
   }
@@ -1878,13 +1907,13 @@ class ProteaReportPackService {
    */
   private applyRoomSegNumFormats(row: ExcelJS.Row, metric?: 'revenue' | 'nights' | 'adr'): void {
     const fmt = metric === 'adr' ? '#,##0.00' : '#,##0';
-    // Month side: cols 3-5, 7-8 (actuals, budget, vsBud, ly, vsLy)
-    [3, 4, 5, 7, 8].forEach(col => {
+    // Month side: cols 3, 5-7 (ly, actuals, budget, vsBud)
+    [3, 5, 6, 7].forEach(col => {
       const cell = row.getCell(col);
       if (typeof cell.value === 'number') cell.numFmt = fmt;
     });
-    // Range side: cols 11-13, 15-16 (actuals, budget, vsBud, ly, vsLy)
-    [11, 12, 13, 15, 16].forEach(col => {
+    // Range side: cols 10, 12-14 (ly, actuals, budget, vsBud)
+    [10, 12, 13, 14].forEach(col => {
       const cell = row.getCell(col);
       if (typeof cell.value === 'number') cell.numFmt = fmt;
     });

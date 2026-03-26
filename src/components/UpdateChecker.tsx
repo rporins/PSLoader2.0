@@ -294,7 +294,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
                   </linearGradient>
                 </defs>
               </svg>
-              {status === 'checking' && <div className="pulse-ring" />}
+              {(status === 'checking' || status === 'downloading') && <div className="pulse-ring" />}
             </div>
           )}
         </div>
@@ -410,9 +410,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
             gap: '16px',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{ position: 'relative', width: '32px', height: '32px', flexShrink: 0 }}>
-                <div className="pulse-ring" />
-              </div>
+              <div className="inline-spinner" />
               <span style={{ fontWeight: 500 }}>Downloading update...</span>
             </div>
             <div style={{
@@ -446,9 +444,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ onUpdateComplete }) => {
             justifyContent: 'center',
             gap: '12px',
           }}>
-            <div style={{ position: 'relative', width: '32px', height: '32px', flexShrink: 0 }}>
-              <div className="pulse-ring" />
-            </div>
+            <div className="inline-spinner" />
             <span style={{ fontWeight: 500 }}>Installing update...</span>
           </div>
         )}

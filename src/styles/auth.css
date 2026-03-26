@@ -152,6 +152,16 @@
   }
 }
 
+.inline-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2.5px solid rgba(0, 122, 255, 0.15);
+  border-top-color: var(--primary-blue);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
 .check-mark {
   stroke-dasharray: 100;
   stroke-dashoffset: 100;
