@@ -55,7 +55,6 @@ export const PROTEA_F90_PL_ROW_CONFIG: PLRow[] = [
 
   // Mgt Controllable Profit — credit-balance account, no invertSign needed
   { type: 'header', label: 'MGT CONTROLLABLE PROFIT', measureId: 'gross_operating_profit', formatting: 'number', indentLevel: 0 },
-  { type: 'measure', label: 'MCP %', measureId: 'gop_pct', formatting: 'percentage', indentLevel: 1 },
   { type: 'measure', label: 'Fixed Expenses', measureId: 'fixed_expenses', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'header', label: 'HOTEL PROFIT BEFORE MGT FEES', measureId: 'hotel_profit_before_mgt_fees', formatting: 'number', indentLevel: 0 },
 
@@ -81,6 +80,7 @@ export const PROTEA_F90_PL_ROW_CONFIG: PLRow[] = [
   { type: 'measure', label: 'Tax', measureId: 'f90_tax', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'header', label: 'NET PROFIT', measureId: 'f90_net_profit', formatting: 'number', indentLevel: 0 },
   { type: 'measure', label: 'Dividends', measureId: 'f90_dividends', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'header', label: 'Hotel Profit/(Loss) After Dividends', measureId: 'f90_profit_after_dividends', formatting: 'number', indentLevel: 0 },
 
   // Spacing
   { type: 'header', label: '', indentLevel: 0 },
@@ -90,19 +90,16 @@ export const PROTEA_F90_PL_ROW_CONFIG: PLRow[] = [
   { type: 'measure', label: 'Total Rooms', measureId: 'total_rooms', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Rooms SOLD', measureId: 'sold_rooms', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Total Occupancy', measureId: 'occupancy_rooms_act_sy', formatting: 'percentage', indentLevel: 1 },
-  // ADR and RevPAR are derived from revenue sub-measures (already positive after negate:true),
-  // so no invertSign needed.
   { type: 'measure', label: 'Average Rate', measureId: 'adr_act_sy', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'REVPAR', measureId: 'rev_par_act_sy', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Rooms Dept Profit %', measureId: 'rooms_dept_profit_pct', formatting: 'percentage', indentLevel: 1 },
-  { type: 'measure', label: 'F&B Dept Profit %', measureId: 'fb_dept_profit_pct', formatting: 'percentage', indentLevel: 1 },
-
+  { type: 'measure', label: 'MCP %', measureId: 'gop_pct', formatting: 'percentage', indentLevel: 1 },
   { type: 'measure', label: 'GOP %', measureId: 'protea_original_gop_pct', formatting: 'percentage', indentLevel: 1 },
 
-  // Spacing
-  { type: 'header', label: '', indentLevel: 0 },
-
-  // Cost of Sales Percentages — ratios, no sign inversion needed
+  // F&B KPIs
+  { type: 'header', label: 'F&B KPIS', indentLevel: 0 },
+  { type: 'measure', label: 'F&B Dept Profit %', measureId: 'fb_dept_profit_pct', formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'F&B revenue as % of total Revenue', measureId: 'fb_revenue_pct_total', formatting: 'percentage', indentLevel: 1 },
   { type: 'measure', label: '% Food COS', measureId: 'food_cost_pct_sales', formatting: 'percentage', indentLevel: 1 },
   { type: 'measure', label: '% Beverage COS', measureId: 'bev_cost_pct_sales', formatting: 'percentage', indentLevel: 1 }
 ];

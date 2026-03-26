@@ -2957,6 +2957,20 @@ export const MEASURES: Record<string, Measure> = {
     }
   },
 
+  // F&B Revenue as % of Total Revenue
+  fb_revenue_pct_total: {
+    id: 'fb_revenue_pct_total',
+    type: 'calculated',
+    subMeasures: ['total_fb_revenue_act', 'total_revenue_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return evaluateDivide(
+        ctx.subMeasures.total_fb_revenue_act || 0,
+        ctx.subMeasures.total_revenue_act || 0,
+        0
+      ) * 100;
+    }
+  },
+
   // F90 P&L - Total F&B Profit
   total_fb_profit: {
     id: 'total_fb_profit',
@@ -3425,7 +3439,7 @@ export const MEASURES: Record<string, Measure> = {
     type: 'calculated',
     subMeasures: [
       'total_profit_act', 'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act', 'f90_incentive_fee_act',
-      'f90_d0690_all_act', 'f90_d0490_all_act', 'f90_d0490_all_fees_act', 'f90_d0490_interest_act', 'f90_d0490_tax_act',
+      'f90_d0690_all_act', 'f90_d0490_all_act', 'f90_d0490_all_fees_act', 'f90_d0490_interest_act', 'f90_d0490_tax_act', 'f90_d0490_dividends_act',
       'f90_d0480_all_act', 'f90_d0480_all_fees_act', 'f90_d0480_interest_act', 'f90_d0480_tax_act'
     ],
     evaluator: (ctx: MeasureContext) => {
@@ -3441,7 +3455,8 @@ export const MEASURES: Record<string, Measure> = {
       const d0490Fees = ctx.subMeasures.f90_d0490_all_fees_act || 0;
       const d0490Interest = ctx.subMeasures.f90_d0490_interest_act || 0;
       const d0490Tax = ctx.subMeasures.f90_d0490_tax_act || 0;
-      const ownerExp = d0490All - d0490Fees - d0490Interest - d0490Tax;
+      const d0490Dividends = ctx.subMeasures.f90_d0490_dividends_act || 0;
+      const ownerExp = d0490All - d0490Fees - d0490Interest - d0490Tax - d0490Dividends;
 
       const d0480Interest = ctx.subMeasures.f90_d0480_interest_act || 0;
       const interest = d0490Interest + d0480Interest;
@@ -3472,7 +3487,7 @@ export const MEASURES: Record<string, Measure> = {
     type: 'calculated',
     subMeasures: [
       'total_profit_act', 'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act', 'f90_incentive_fee_act',
-      'f90_d0690_all_act', 'f90_d0490_all_act', 'f90_d0490_all_fees_act', 'f90_d0490_interest_act', 'f90_d0490_tax_act',
+      'f90_d0690_all_act', 'f90_d0490_all_act', 'f90_d0490_all_fees_act', 'f90_d0490_interest_act', 'f90_d0490_tax_act', 'f90_d0490_dividends_act',
       'f90_d0480_all_act', 'f90_d0480_all_fees_act', 'f90_d0480_interest_act', 'f90_d0480_tax_act'
     ],
     evaluator: (ctx: MeasureContext) => {
@@ -3488,7 +3503,8 @@ export const MEASURES: Record<string, Measure> = {
       const d0490Fees = ctx.subMeasures.f90_d0490_all_fees_act || 0;
       const d0490Interest = ctx.subMeasures.f90_d0490_interest_act || 0;
       const d0490Tax = ctx.subMeasures.f90_d0490_tax_act || 0;
-      const ownerExp = d0490All - d0490Fees - d0490Interest - d0490Tax;
+      const d0490Dividends = ctx.subMeasures.f90_d0490_dividends_act || 0;
+      const ownerExp = d0490All - d0490Fees - d0490Interest - d0490Tax - d0490Dividends;
 
       const d0480Interest = ctx.subMeasures.f90_d0480_interest_act || 0;
       const interest = d0490Interest + d0480Interest;
@@ -3510,6 +3526,46 @@ export const MEASURES: Record<string, Measure> = {
     type: 'simple',
     subMeasures: ['f90_d0490_dividends_act'],
     primarySubMeasure: 'f90_d0490_dividends_act'
+  },
+
+  // F90 P&L - Hotel Profit/(Loss) After Dividends = Net Profit + Dividends (dividends are negative/negate)
+  f90_profit_after_dividends: {
+    id: 'f90_profit_after_dividends',
+    type: 'calculated',
+    subMeasures: [
+      'total_profit_act', 'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act', 'f90_incentive_fee_act',
+      'f90_d0690_all_act', 'f90_d0490_all_act', 'f90_d0490_all_fees_act', 'f90_d0490_interest_act', 'f90_d0490_tax_act', 'f90_d0490_dividends_act',
+      'f90_d0480_all_act', 'f90_d0480_all_fees_act', 'f90_d0480_interest_act', 'f90_d0480_tax_act'
+    ],
+    evaluator: (ctx: MeasureContext) => {
+      const gop = ctx.subMeasures.total_profit_act || 0;
+      const baseMgmt = ctx.subMeasures.f90_base_mgmt_fee_act || 0;
+      const baseRoyalty = ctx.subMeasures.f90_base_royalty_fee_act || 0;
+      const incentive = ctx.subMeasures.f90_incentive_fee_act || 0;
+      const incomeBeforeNonOp = gop + baseMgmt + baseRoyalty + incentive;
+
+      const depreciation = ctx.subMeasures.f90_d0690_all_act || 0;
+
+      const d0490All = ctx.subMeasures.f90_d0490_all_act || 0;
+      const d0490Fees = ctx.subMeasures.f90_d0490_all_fees_act || 0;
+      const d0490Interest = ctx.subMeasures.f90_d0490_interest_act || 0;
+      const d0490Tax = ctx.subMeasures.f90_d0490_tax_act || 0;
+      const d0490Dividends = ctx.subMeasures.f90_d0490_dividends_act || 0;
+      const ownerExp = d0490All - d0490Fees - d0490Interest - d0490Tax - d0490Dividends;
+
+      const d0480Interest = ctx.subMeasures.f90_d0480_interest_act || 0;
+      const interest = d0490Interest + d0480Interest;
+
+      const d0480All = ctx.subMeasures.f90_d0480_all_act || 0;
+      const d0480Fees = ctx.subMeasures.f90_d0480_all_fees_act || 0;
+      const d0480Tax = ctx.subMeasures.f90_d0480_tax_act || 0;
+      const abnormal = d0480All - d0480Fees - d0480Interest - d0480Tax;
+
+      const profitBeforeTax = incomeBeforeNonOp + depreciation + ownerExp + interest + abnormal;
+      const tax = d0490Tax + d0480Tax;
+      const netProfit = profitBeforeTax + tax;
+      return netProfit + d0490Dividends;
+    }
   },
 
   // Protea Report: Original GOP % (pre-movement, before insurance/audit accounts shift to Admin & General)

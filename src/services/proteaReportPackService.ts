@@ -860,7 +860,13 @@ class ProteaReportPackService {
     this.styleDeptSeparator(headerRow);
 
     // Combined month + range data (side by side)
-    this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols);
+    const STATS_KEEP_GROUPS = new Set(['Total Food & Beverage', 'Utilities Dept']);
+    const keepStats = STATS_KEEP_GROUPS.has(groupName);
+    this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols, undefined, {
+      collapseRevenueDetail: !config.generateDetailTabs && groupName === 'Rooms and Reservation',
+      suppressStats: !keepStats,
+      showDeptProfit: keepStats
+    });
 
     // Freeze panes (2 title rows + 2 header rows)
     sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
@@ -1102,6 +1108,126 @@ class ProteaReportPackService {
   }
 
   /**
+   * Renders Department Profit and GOP % summary rows.
+   * For revenue departments: shows profit and profit margin.
+   * For non-revenue departments (e.g. Admin & General): shows a simple total.
+   */
+  private addDeptProfitRows(
+    sheet: ExcelJS.Worksheet,
+    monthData: any[],
+    rangeData: any[],
+    sumField: (rows: any[], field: string) => number,
+    ABS_COLS: number[],
+    totalCols: number
+  ): void {
+    const mRevenueRows = monthData.filter(r => r.category === 'Revenue');
+    const rRevenueRows = rangeData.filter(r => r.category === 'Revenue');
+    const expenseCategories = ['Cost of Sales', 'Payroll', 'Controllables', 'Other'];
+    const mExpenseRows = monthData.filter(r => expenseCategories.includes(r.category));
+    const rExpenseRows = rangeData.filter(r => expenseCategories.includes(r.category));
+
+    const applySubtotalStyle = (row: ExcelJS.Row) => {
+      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        cell.fill = SUBTOTAL_FILL;
+        cell.font = { ...DATA_FONT, bold: true };
+        cell.border = TOTAL_ROW_BORDER;
+        cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
+      });
+      this.styleDeptSeparator(row);
+    };
+
+    if (mRevenueRows.length > 0 || rRevenueRows.length > 0) {
+      const mRevAct = sumField(mRevenueRows, 'actuals');
+      const mRevBud = sumField(mRevenueRows, 'budget');
+      const mRevLy = sumField(mRevenueRows, 'ly');
+      const mExpAct = sumField(mExpenseRows, 'actuals');
+      const mExpBud = sumField(mExpenseRows, 'budget');
+      const mExpLy = sumField(mExpenseRows, 'ly');
+      const mProfitAct = -(mRevAct + mExpAct);
+      const mProfitBud = -(mRevBud + mExpBud);
+      const mProfitLy = -(mRevLy + mExpLy);
+
+      const rRevAct = sumField(rRevenueRows, 'actuals');
+      const rRevBud = sumField(rRevenueRows, 'budget');
+      const rRevLy = sumField(rRevenueRows, 'ly');
+      const rExpAct = sumField(rExpenseRows, 'actuals');
+      const rExpBud = sumField(rExpenseRows, 'budget');
+      const rExpLy = sumField(rExpenseRows, 'ly');
+      const rProfitAct = -(rRevAct + rExpAct);
+      const rProfitBud = -(rRevBud + rExpBud);
+      const rProfitLy = -(rRevLy + rExpLy);
+
+      // Department Profit row
+      const profitRow = sheet.addRow({
+        account: 'Department Profit',
+        mAct: formatNumber(mProfitAct), mBud: formatNumber(mProfitBud),
+        mVsBud: formatNumber(mProfitAct - mProfitBud),
+        mLy: formatNumber(mProfitLy), mVsLy: formatNumber(mProfitAct - mProfitLy),
+        sep: '',
+        rAct: formatNumber(rProfitAct), rBud: formatNumber(rProfitBud),
+        rVsBud: formatNumber(rProfitAct - rProfitBud),
+        rLy: formatNumber(rProfitLy), rVsLy: formatNumber(rProfitAct - rProfitLy),
+        comments: ''
+      });
+      applySubtotalStyle(profitRow);
+      ABS_COLS.forEach(col => {
+        const cell = profitRow.getCell(col);
+        if (typeof cell.value === 'number') cell.numFmt = '#,##0';
+      });
+
+      // GOP % row
+      const mRevTotal = -mRevAct;
+      const mGopAct = mRevTotal !== 0 ? (mProfitAct / mRevTotal) * 100 : 0;
+      const mGopBud = -mRevBud !== 0 ? (mProfitBud / -mRevBud) * 100 : 0;
+      const mGopLy = -mRevLy !== 0 ? (mProfitLy / -mRevLy) * 100 : 0;
+      const rRevTotal = -rRevAct;
+      const rGopAct = rRevTotal !== 0 ? (rProfitAct / rRevTotal) * 100 : 0;
+      const rGopBud = -rRevBud !== 0 ? (rProfitBud / -rRevBud) * 100 : 0;
+      const rGopLy = -rRevLy !== 0 ? (rProfitLy / -rRevLy) * 100 : 0;
+
+      const gopRow = sheet.addRow({
+        account: 'GOP %',
+        mAct: formatPercentage(mGopAct), mBud: formatPercentage(mGopBud),
+        mVsBud: `${(mGopAct - mGopBud).toFixed(1)} pts`,
+        mLy: formatPercentage(mGopLy), mVsLy: `${(mGopAct - mGopLy).toFixed(1)} pts`,
+        sep: '',
+        rAct: formatPercentage(rGopAct), rBud: formatPercentage(rGopBud),
+        rVsBud: `${(rGopAct - rGopBud).toFixed(1)} pts`,
+        rLy: formatPercentage(rGopLy), rVsLy: `${(rGopAct - rGopLy).toFixed(1)} pts`,
+        comments: ''
+      });
+      applySubtotalStyle(gopRow);
+    } else if (monthData.length > 0 || rangeData.length > 0) {
+      // Non-revenue departments (e.g. Admin & General): simple Total row
+      const mAllRows = monthData.filter(r => r.category !== 'Stats');
+      const rAllRows = rangeData.filter(r => r.category !== 'Stats');
+      const mTotAct = sumField(mAllRows, 'actuals');
+      const mTotBud = sumField(mAllRows, 'budget');
+      const mTotLy  = sumField(mAllRows, 'ly');
+      const rTotAct = sumField(rAllRows, 'actuals');
+      const rTotBud = sumField(rAllRows, 'budget');
+      const rTotLy  = sumField(rAllRows, 'ly');
+
+      const totalRow = sheet.addRow({
+        account: 'Total',
+        mAct: formatNumber(mTotAct), mBud: formatNumber(mTotBud),
+        mVsBud: formatNumber(mTotAct - mTotBud),
+        mLy: formatNumber(mTotLy), mVsLy: formatNumber(mTotAct - mTotLy),
+        sep: '',
+        rAct: formatNumber(rTotAct), rBud: formatNumber(rTotBud),
+        rVsBud: formatNumber(rTotAct - rTotBud),
+        rLy: formatNumber(rTotLy), rVsLy: formatNumber(rTotAct - rTotLy),
+        comments: ''
+      });
+      applySubtotalStyle(totalRow);
+      ABS_COLS.forEach(col => {
+        const cell = totalRow.getCell(col);
+        if (typeof cell.value === 'number') cell.numFmt = '#,##0';
+      });
+    }
+  }
+
+  /**
    * Adds a blank separator row with consistent formatting (borders, font, separator column).
    * Ensures the grid looks continuous even on empty rows.
    */
@@ -1139,7 +1265,8 @@ class ProteaReportPackService {
     monthData: any[],
     rangeData: any[],
     totalCols: number,
-    movedAccountSources?: Map<string, string>
+    movedAccountSources?: Map<string, string>,
+    options?: { collapseRevenueDetail?: boolean; suppressStats?: boolean; showDeptProfit?: boolean }
   ): void {
     const categories = ['Revenue', 'Cost of Sales', 'Payroll', 'Controllables', 'Other', 'Stats'];
     const ABS_COLS = [2, 3, 4, 5, 6, 8, 9, 10, 11, 12]; // absolute value column indices (both sides)
@@ -1199,6 +1326,8 @@ class ProteaReportPackService {
       applyNumberFormats(headerRow);
     };
 
+    let deptProfitRendered = false;
+
     for (const category of categories) {
       const mCategoryRows = monthData.filter(r => r.category === category);
       const rCategoryRows = rangeData.filter(r => r.category === category);
@@ -1208,8 +1337,25 @@ class ProteaReportPackService {
       const isRevenue = category === 'Revenue';
       const sign = isRevenue ? -1 : 1;
 
+      // For groups that show dept profit before stats, render it now
+      if (isStats && options?.showDeptProfit) {
+        this.addDeptProfitRows(sheet, monthData, rangeData, sumField, ABS_COLS, totalCols);
+        deptProfitRendered = true;
+      }
+
+      // Suppress Stats category entirely when requested
+      if (isStats && options?.suppressStats) {
+        continue;
+      }
+
       // Category header row WITH totals
       addHeaderWithTotals(`Total ${category}`, mCategoryRows, rCategoryRows, applyCategorySubtotalStyle, isStats, sign);
+
+      // When collapsing revenue detail, show only the total line
+      if (isRevenue && options?.collapseRevenueDetail) {
+        this.addBlankSeparatorRow(sheet, totalCols);
+        continue;
+      }
 
       if (isStats) {
         // Stats: render flat without level_12 sub-grouping
@@ -1255,6 +1401,7 @@ class ProteaReportPackService {
           this.styleDeptSeparator(excelRow);
           applyNumberFormats(excelRow);
         }
+
       } else {
         // Non-stats: group accounts by level_12
         const mLevel12Map = new Map<string, any[]>();
@@ -1342,136 +1489,9 @@ class ProteaReportPackService {
     }
 
     // --- Department Profit & GOP% ---
-    // Revenue is stored as negative (credit-balance), expenses as positive (debit-balance)
-    // Profit = -(Revenue + Expenses), displayed as positive when profitable
-    const mRevenueRows = monthData.filter(r => r.category === 'Revenue');
-    const rRevenueRows = rangeData.filter(r => r.category === 'Revenue');
-    const expenseCategories = ['Cost of Sales', 'Payroll', 'Controllables', 'Other'];
-    const mExpenseRows = monthData.filter(r => expenseCategories.includes(r.category));
-    const rExpenseRows = rangeData.filter(r => expenseCategories.includes(r.category));
-
-    if (mRevenueRows.length > 0 || rRevenueRows.length > 0) {
-      // Month profit
-      const mRevAct = sumField(mRevenueRows, 'actuals');
-      const mRevBud = sumField(mRevenueRows, 'budget');
-      const mRevLy = sumField(mRevenueRows, 'ly');
-      const mExpAct = sumField(mExpenseRows, 'actuals');
-      const mExpBud = sumField(mExpenseRows, 'budget');
-      const mExpLy = sumField(mExpenseRows, 'ly');
-      const mProfitAct = -(mRevAct + mExpAct);
-      const mProfitBud = -(mRevBud + mExpBud);
-      const mProfitLy = -(mRevLy + mExpLy);
-
-      // Range profit
-      const rRevAct = sumField(rRevenueRows, 'actuals');
-      const rRevBud = sumField(rRevenueRows, 'budget');
-      const rRevLy = sumField(rRevenueRows, 'ly');
-      const rExpAct = sumField(rExpenseRows, 'actuals');
-      const rExpBud = sumField(rExpenseRows, 'budget');
-      const rExpLy = sumField(rExpenseRows, 'ly');
-      const rProfitAct = -(rRevAct + rExpAct);
-      const rProfitBud = -(rRevBud + rExpBud);
-      const rProfitLy = -(rRevLy + rExpLy);
-
-      // Department Profit row (subtotal style)
-      const profitRow = sheet.addRow({
-        account: 'Department Profit',
-        mAct: formatNumber(mProfitAct),
-        mBud: formatNumber(mProfitBud),
-        mVsBud: formatNumber(mProfitAct - mProfitBud),
-        mLy: formatNumber(mProfitLy),
-        mVsLy: formatNumber(mProfitAct - mProfitLy),
-        sep: '',
-        rAct: formatNumber(rProfitAct),
-        rBud: formatNumber(rProfitBud),
-        rVsBud: formatNumber(rProfitAct - rProfitBud),
-        rLy: formatNumber(rProfitLy),
-        rVsLy: formatNumber(rProfitAct - rProfitLy),
-        comments: ''
-      });
-      profitRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-        cell.fill = SUBTOTAL_FILL;
-        cell.font = { ...DATA_FONT, bold: true };
-        cell.border = TOTAL_ROW_BORDER;
-        cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
-      });
-      this.styleDeptSeparator(profitRow);
-      ABS_COLS.forEach(col => {
-        const cell = profitRow.getCell(col);
-        if (typeof cell.value === 'number') cell.numFmt = '#,##0';
-      });
-
-      // GOP% row
-      const mRevTotal = -mRevAct;
-      const mGopAct = mRevTotal !== 0 ? (mProfitAct / mRevTotal) * 100 : 0;
-      const mGopBud = -mRevBud !== 0 ? (mProfitBud / -mRevBud) * 100 : 0;
-      const mGopLy = -mRevLy !== 0 ? (mProfitLy / -mRevLy) * 100 : 0;
-
-      const rRevTotal = -rRevAct;
-      const rGopAct = rRevTotal !== 0 ? (rProfitAct / rRevTotal) * 100 : 0;
-      const rGopBud = -rRevBud !== 0 ? (rProfitBud / -rRevBud) * 100 : 0;
-      const rGopLy = -rRevLy !== 0 ? (rProfitLy / -rRevLy) * 100 : 0;
-
-      const gopRow = sheet.addRow({
-        account: 'GOP %',
-        mAct: formatPercentage(mGopAct),
-        mBud: formatPercentage(mGopBud),
-        mVsBud: `${(mGopAct - mGopBud).toFixed(1)} pts`,
-        mLy: formatPercentage(mGopLy),
-        mVsLy: `${(mGopAct - mGopLy).toFixed(1)} pts`,
-        sep: '',
-        rAct: formatPercentage(rGopAct),
-        rBud: formatPercentage(rGopBud),
-        rVsBud: `${(rGopAct - rGopBud).toFixed(1)} pts`,
-        rLy: formatPercentage(rGopLy),
-        rVsLy: `${(rGopAct - rGopLy).toFixed(1)} pts`,
-        comments: ''
-      });
-      gopRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-        cell.fill = SUBTOTAL_FILL;
-        cell.font = { ...DATA_FONT, bold: true };
-        cell.border = TOTAL_ROW_BORDER;
-        cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
-      });
-      this.styleDeptSeparator(gopRow);
-    } else if (monthData.length > 0 || rangeData.length > 0) {
-      // Non-revenue departments (e.g. Admin & General): simple Total row
-      const mAllRows = monthData.filter(r => r.category !== 'Stats');
-      const rAllRows = rangeData.filter(r => r.category !== 'Stats');
-
-      const mTotAct = sumField(mAllRows, 'actuals');
-      const mTotBud = sumField(mAllRows, 'budget');
-      const mTotLy  = sumField(mAllRows, 'ly');
-      const rTotAct = sumField(rAllRows, 'actuals');
-      const rTotBud = sumField(rAllRows, 'budget');
-      const rTotLy  = sumField(rAllRows, 'ly');
-
-      const totalRow = sheet.addRow({
-        account: 'Total',
-        mAct: formatNumber(mTotAct),
-        mBud: formatNumber(mTotBud),
-        mVsBud: formatNumber(mTotAct - mTotBud),
-        mLy: formatNumber(mTotLy),
-        mVsLy: formatNumber(mTotAct - mTotLy),
-        sep: '',
-        rAct: formatNumber(rTotAct),
-        rBud: formatNumber(rTotBud),
-        rVsBud: formatNumber(rTotAct - rTotBud),
-        rLy: formatNumber(rTotLy),
-        rVsLy: formatNumber(rTotAct - rTotLy),
-        comments: ''
-      });
-      totalRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-        cell.fill = SUBTOTAL_FILL;
-        cell.font = { ...DATA_FONT, bold: true };
-        cell.border = TOTAL_ROW_BORDER;
-        cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
-      });
-      this.styleDeptSeparator(totalRow);
-      ABS_COLS.forEach(col => {
-        const cell = totalRow.getCell(col);
-        if (typeof cell.value === 'number') cell.numFmt = '#,##0';
-      });
+    // Rendered before Stats when showDeptProfit (F&B, Utilities), otherwise after all categories
+    if (!deptProfitRendered) {
+      this.addDeptProfitRows(sheet, monthData, rangeData, sumField, ABS_COLS, totalCols);
     }
   }
 

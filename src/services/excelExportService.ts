@@ -793,7 +793,9 @@ class ExcelExportService {
     this.styleDeptSeparator(headerRow);
 
     // Combined month + range data (side by side)
-    this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols);
+    this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols, {
+      collapseRevenueDetail: !config.generateDetailTabs && groupName === 'Rooms and Reservation'
+    });
 
     // Freeze panes (2 title rows + 2 header rows)
     sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
@@ -1029,7 +1031,8 @@ class ExcelExportService {
     sheet: ExcelJS.Worksheet,
     monthData: any[],
     rangeData: any[],
-    totalCols: number
+    totalCols: number,
+    options?: { collapseRevenueDetail?: boolean }
   ): void {
     const categories = ['Revenue', 'Cost of Sales', 'Payroll', 'Controllables', 'Other', 'Stats'];
     const ABS_COLS = [2, 3, 4, 5, 6, 8, 9, 10, 11, 12]; // absolute value column indices (both sides)
@@ -1100,6 +1103,12 @@ class ExcelExportService {
 
       // Category header row WITH totals
       addHeaderWithTotals(`Total ${category}`, mCategoryRows, rCategoryRows, applyCategorySubtotalStyle, isStats, sign);
+
+      // When collapsing revenue detail, show only the total line
+      if (isRevenue && options?.collapseRevenueDetail) {
+        this.addBlankSeparatorRow(sheet, totalCols);
+        continue;
+      }
 
       if (isStats) {
         // Stats: render flat without level_12 sub-grouping
