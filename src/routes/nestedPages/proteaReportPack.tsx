@@ -100,6 +100,8 @@ export default function ProteaReportPack() {
   const [success, setSuccess] = useState<string | null>(null);
   const includeDetailBreakdown = useSettingsStore((s) => s.includeDetailBreakdown);
   const setIncludeDetailBreakdown = useSettingsStore((s) => s.setIncludeDetailBreakdown);
+  const includeBanquetingBreakdown = useSettingsStore((s) => s.includeBanquetingBreakdown);
+  const setIncludeBanquetingBreakdown = useSettingsStore((s) => s.setIncludeBanquetingBreakdown);
 
   // Validation: end period must be >= start period
   const isDateRangeValid = (): boolean => {
@@ -135,6 +137,7 @@ export default function ProteaReportPack() {
         ytdEndYear,
         version: financialDataVersion || 'MAIN',
         generateDetailTabs: includeDetailBreakdown,
+        includeBanquetingBreakdown,
       });
 
       if (response.success && response.data?.filePath) {
@@ -324,11 +327,21 @@ export default function ProteaReportPack() {
 
           <Divider sx={{ my: 3 }} />
 
-          {/* Detail Breakdown Toggle */}
+          {/* Report Toggles */}
           <SectionPaper elevation={0}>
             <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>
               Detail Level
             </Typography>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={includeBanquetingBreakdown}
+                  onChange={(e) => setIncludeBanquetingBreakdown(e.target.checked)}
+                />
+              }
+              label="Banqueting breakdown"
+              sx={{ display: 'block', mb: 1 }}
+            />
             <FormControlLabel
               control={
                 <Switch

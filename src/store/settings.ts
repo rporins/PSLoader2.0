@@ -34,6 +34,7 @@ type SettingsState = {
   proteaReportPackYtdEndYear: number;
   // Shared report settings
   includeDetailBreakdown: boolean;
+  includeBanquetingBreakdown: boolean;
 
   // Loading state
   loading: boolean;
@@ -70,6 +71,7 @@ type SettingsState = {
   setProteaReportPackYtdEndYear: (year: number) => Promise<void>;
   // Shared report setters
   setIncludeDetailBreakdown: (enabled: boolean) => Promise<void>;
+  setIncludeBanquetingBreakdown: (enabled: boolean) => Promise<void>;
   updateMultipleSettings: (settings: Partial<AppSettings>) => Promise<void>;
 
   // Load and save
@@ -109,6 +111,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   proteaReportPackYtdEndYear: new Date().getFullYear(),
   // Shared report defaults
   includeDetailBreakdown: false,
+  includeBanquetingBreakdown: false,
   loading: false,
   initialized: false,
 
@@ -448,6 +451,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
   },
 
+  setIncludeBanquetingBreakdown: async (enabled) => {
+    const previous = get().includeBanquetingBreakdown;
+    set({ includeBanquetingBreakdown: enabled });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.INCLUDE_BANQUETING_BREAKDOWN, enabled);
+    } catch (error) {
+      console.error("Failed to save banqueting breakdown setting:", error);
+      set({ includeBanquetingBreakdown: previous });
+    }
+  },
+
   // Update multiple settings at once
   updateMultipleSettings: async (settings) => {
     // Store previous state for rollback
@@ -483,6 +497,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     if (SETTINGS_KEYS.NUMBER_FORMAT in settings) updates.numberFormat = settings[SETTINGS_KEYS.NUMBER_FORMAT]!;
     if (SETTINGS_KEYS.FINANCIAL_DATA_VERSION in settings) updates.financialDataVersion = settings[SETTINGS_KEYS.FINANCIAL_DATA_VERSION]!;
     if (SETTINGS_KEYS.INCLUDE_DETAIL_BREAKDOWN in settings) updates.includeDetailBreakdown = settings[SETTINGS_KEYS.INCLUDE_DETAIL_BREAKDOWN]!;
+    if (SETTINGS_KEYS.INCLUDE_BANQUETING_BREAKDOWN in settings) updates.includeBanquetingBreakdown = settings[SETTINGS_KEYS.INCLUDE_BANQUETING_BREAKDOWN]!;
 
     set(updates);
 
@@ -542,6 +557,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         proteaReportPackYtdEndYear: settings[SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_YEAR],
         // Shared report settings
         includeDetailBreakdown: settings[SETTINGS_KEYS.INCLUDE_DETAIL_BREAKDOWN],
+        includeBanquetingBreakdown: settings[SETTINGS_KEYS.INCLUDE_BANQUETING_BREAKDOWN],
         initialized: true,
       });
 
@@ -574,6 +590,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         [SETTINGS_KEYS.NUMBER_FORMAT]: state.numberFormat,
         [SETTINGS_KEYS.FINANCIAL_DATA_VERSION]: state.financialDataVersion,
         [SETTINGS_KEYS.INCLUDE_DETAIL_BREAKDOWN]: state.includeDetailBreakdown,
+        [SETTINGS_KEYS.INCLUDE_BANQUETING_BREAKDOWN]: state.includeBanquetingBreakdown,
       };
 
       await settingsService.setSettings(settings);
@@ -611,6 +628,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         numberFormat: settings[SETTINGS_KEYS.NUMBER_FORMAT],
         financialDataVersion: settings[SETTINGS_KEYS.FINANCIAL_DATA_VERSION],
         includeDetailBreakdown: settings[SETTINGS_KEYS.INCLUDE_DETAIL_BREAKDOWN],
+        includeBanquetingBreakdown: settings[SETTINGS_KEYS.INCLUDE_BANQUETING_BREAKDOWN],
       });
 
       // console.log("All settings reset to defaults");
@@ -638,3 +656,4 @@ export const useCurrency = () => useSettingsStore((s) => s.currency);
 export const useDateFormat = () => useSettingsStore((s) => s.dateFormat);
 export const useNumberFormat = () => useSettingsStore((s) => s.numberFormat);
 export const useIncludeDetailBreakdown = () => useSettingsStore((s) => s.includeDetailBreakdown);
+export const useIncludeBanquetingBreakdown = () => useSettingsStore((s) => s.includeBanquetingBreakdown);

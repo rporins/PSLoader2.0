@@ -37,6 +37,7 @@ export const SETTINGS_KEYS = {
   PROTEA_REPORT_PACK_YTD_END_YEAR: 'proteaReportPackYtdEndYear',
   // Shared report settings
   INCLUDE_DETAIL_BREAKDOWN: 'includeDetailBreakdown',
+  INCLUDE_BANQUETING_BREAKDOWN: 'includeBanquetingBreakdown',
 } as const;
 
 export type SettingsKey = typeof SETTINGS_KEYS[keyof typeof SETTINGS_KEYS];
@@ -72,6 +73,7 @@ export interface AppSettings {
   [SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_YEAR]: number;
   // Shared report settings
   [SETTINGS_KEYS.INCLUDE_DETAIL_BREAKDOWN]: boolean;
+  [SETTINGS_KEYS.INCLUDE_BANQUETING_BREAKDOWN]: boolean;
 }
 
 // Default values for all settings
@@ -108,6 +110,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   [SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_YEAR]: currentYear,
   // Shared report settings
   [SETTINGS_KEYS.INCLUDE_DETAIL_BREAKDOWN]: false,
+  [SETTINGS_KEYS.INCLUDE_BANQUETING_BREAKDOWN]: false,
 };
 
 // Type-safe partial settings for updates

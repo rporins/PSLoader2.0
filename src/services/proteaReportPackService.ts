@@ -8,7 +8,29 @@
 import ExcelJS from 'exceljs';
 import * as db from '../local_db';
 import { PLCalculationResult } from '../types/plReportTypes';
-import { PROTEA_F90_PL_ROW_CONFIG } from './reports/proteaF90PLRowConfig';
+import { PROTEA_F90_PL_ROW_CONFIG, PROTEA_F90_PL_ROW_CONFIG_WITH_BANQUETING } from './reports/proteaF90PLRowConfig';
+import { PLRow } from '../types/plReportTypes';
+
+// ============================================================================
+// KPI ROW CONFIGS — used to compute KPIs via the F90 calculation engine
+// instead of from raw department detail data (which can miss stats/categories)
+// ============================================================================
+
+const ROOMS_KPI_CONFIG: PLRow[] = [
+  { type: 'measure', label: 'Total Rooms', measureId: 'total_rooms', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Sold Rooms', measureId: 'sold_rooms', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Rooms Revenue', measureId: 'rooms_reservations_revenue', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Occupancy %', measureId: 'occupancy_rooms', formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'ADR', measureId: 'adr', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'RevPAR', measureId: 'rev_par', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Rooms Dept Profit %', measureId: 'rooms_dept_profit_pct', formatting: 'percentage', indentLevel: 1 },
+];
+
+const FB_KPI_CONFIG: PLRow[] = [
+  { type: 'measure', label: '% Food COS', measureId: 'food_cost_pct_sales', formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: '% Beverage COS', measureId: 'bev_cost_pct_sales', formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'F&B Dept Profit %', measureId: 'fb_dept_profit_pct', formatting: 'percentage', indentLevel: 1 },
+];
 
 // ============================================================================
 // TYPES
@@ -25,6 +47,7 @@ export interface ProteaReportPackConfig {
   ytdEndYear: number;
   version: string;  // 'MAIN' or 'OWNR'
   generateDetailTabs: boolean;  // Include individual department detail sheets (vs summary-only)
+  includeBanquetingBreakdown: boolean;  // Split banqueting depts (D0230/D0231/D0232) out of F&B
 }
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -274,14 +297,16 @@ const EXCEL_EXCLUDED_DEPARTMENTS = new Set(['D1468', 'D3095', 'D0376']);
 
 // ============================================================================
 // PROTEA ACCOUNT MOVEMENT CONFIG
-// Insurance (A730xxx) and audit (A745xxx) accounts on D0480/D0490 are reported
-// as if they belong to D0410 (Admin & General).  This is a report-level-only
-// adjustment — the underlying data is unchanged.
+// Insurance (A730xxx), audit (A745xxx), and A701603 accounts on D0480/D0490/D0690
+// are reported as if they belong to D0410 (Admin & General).  This is a
+// report-level-only adjustment — the underlying data is unchanged.
 // ============================================================================
 const PROTEA_MOVED_ACCOUNT_PREFIXES = ['A730', 'A745'];
-const PROTEA_MOVEMENT_SOURCE_DEPTS = ['D0480', 'D0490'];
+const PROTEA_MOVED_ACCOUNT_BASES = ['A701603'];
+const PROTEA_MOVEMENT_SOURCE_DEPTS = ['D0480', 'D0490', 'D0690'];
 const isMovedAccount = (acct: string) =>
-  PROTEA_MOVED_ACCOUNT_PREFIXES.some(p => acct.startsWith(p));
+  PROTEA_MOVED_ACCOUNT_PREFIXES.some(p => acct.startsWith(p)) ||
+  PROTEA_MOVED_ACCOUNT_BASES.includes(acct);
 
 // ============================================================================
 // PROTEA DEPARTMENT-LEVEL MOVEMENT CONFIG
@@ -296,14 +321,20 @@ interface DepartmentMovement {
 
 const PROTEA_DEPARTMENT_MOVEMENTS: DepartmentMovement[] = [
   { sourceDept: 'D0400', targetGroup: 'Administrative & General', detailMergeTarget: 'D0410' },
+  { sourceDept: 'D0480', targetGroup: 'Invest Factor Owner',     detailMergeTarget: 'D0490' },
   { sourceDept: 'D0690', targetGroup: 'Invest Factor Owner',     detailMergeTarget: 'D0490' },
 ];
 
+// Banqueting departments — split out of F&B when banqueting toggle is on
+const BANQUETING_DEPARTMENTS = new Set(['D0230', 'D0231', 'D0232']);
+
 /** Preferred display order for department groups in the Protea report pack.
- *  Groups not listed here appear after these in their natural (alphabetical) order. */
+ *  Groups not listed here appear after these in their natural (alphabetical) order.
+ *  'Total Banqueting' only appears when the banqueting toggle is enabled. */
 const PROTEA_GROUP_DISPLAY_ORDER: string[] = [
   'Rooms and Reservation',
   'Total Food & Beverage',
+  'Total Banqueting',
   'Other Operated Departments',
   'Administrative & General',
 ];
@@ -312,6 +343,33 @@ const PROTEA_GROUP_DISPLAY_ORDER: string[] = [
 const MOVED_DEPT_SET = new Set(PROTEA_DEPARTMENT_MOVEMENTS.map(m => m.sourceDept));
 const MOVED_DEPT_BY_SOURCE = new Map(PROTEA_DEPARTMENT_MOVEMENTS.map(m => [m.sourceDept, m]));
 const MOVEMENT_TARGET_GROUPS = new Set(PROTEA_DEPARTMENT_MOVEMENTS.map(m => m.targetGroup));
+
+// ============================================================================
+// INVEST FACTOR OWNER — CUSTOM SUBGROUP CONFIGURATION
+// Overrides level_12 grouping for the Invest detail tab.  Accounts are assigned
+// by priority: explicit accounts → deptFilter → level_13 hierarchy → accPrefixes → catch-all.
+// ============================================================================
+interface InvestSubgroupDef {
+  name: string;
+  accounts: string[];         // Explicit account codes (highest priority)
+  accPrefixes?: string[];     // F90-derived prefix patterns (2nd priority after level_13)
+  excludeAccounts?: string[]; // Accounts to exclude from prefix matches
+  useLevel13?: string;        // Match level_13 value (for Management Fees)
+  deptFilter?: string[];      // ALL accounts from these depts go here
+  isCatchAll?: boolean;       // Captures all unmatched accounts
+}
+
+const INVEST_CUSTOM_SUBGROUPS: InvestSubgroupDef[] = [
+  { name: 'Depreciation',    accounts: ['A766931', 'A710001', 'A711001'], deptFilter: ['D0690'] },
+  { name: 'Fixed Expenses',  accounts: ['A701025', 'A701728', 'A720901', 'A740002', 'A715103'],
+                              accPrefixes: ['A701', 'A770'] },
+  { name: 'Net Interest',    accounts: ['A726001', 'A726103'], accPrefixes: ['A726'] },
+  { name: 'Tax',             accounts: ['A720908'], accPrefixes: ['A72090'],
+                              excludeAccounts: ['A720901'] },
+  { name: 'Owners Expense',  accounts: ['A701601', 'A720701'] },
+  { name: 'Management Fees', accounts: [], useLevel13: 'Managed Fees' },
+  { name: 'Abnormal Items',  accounts: ['A701602', 'A701130'], isCatchAll: true },
+];
 
 class ProteaReportPackService {
   private accpacDescriptions: Map<string, string[]> = new Map();
@@ -414,7 +472,11 @@ class ProteaReportPackService {
           config.version
         ),
       ]);
-      movedDeptData.set(mv.sourceDept, { month, range });
+      // Filter out individually-moved accounts from department-level movement data
+      // (e.g., A701603 on D0690 goes to D0410, not to D0490 with the rest of D0690)
+      const filteredMonth = month.filter(r => !isMovedAccount(r.account));
+      const filteredRange = range.filter(r => !isMovedAccount(r.account));
+      movedDeptData.set(mv.sourceDept, { month: filteredMonth, range: filteredRange });
     }));
 
     // 5. Create Department worksheets (using pre-fetched departments + moved account/department data)
@@ -508,6 +570,11 @@ class ProteaReportPackService {
     ]);
     applyHeaderStyle(headerRow);
 
+    // Select row config based on banqueting toggle
+    const f90RowConfig = config.includeBanquetingBreakdown
+      ? PROTEA_F90_PL_ROW_CONFIG_WITH_BANQUETING
+      : PROTEA_F90_PL_ROW_CONFIG;
+
     // Fetch Selected Month data (with Protea account movement applied)
     const monthDataJson = await db.getProteaF90PLData(
       config.selectedMonth,
@@ -516,7 +583,7 @@ class ProteaReportPackService {
       config.selectedYear,
       config.ou,
       config.version,
-      PROTEA_F90_PL_ROW_CONFIG
+      f90RowConfig
     );
     const monthData: PLCalculationResult[] = JSON.parse(monthDataJson);
 
@@ -528,7 +595,7 @@ class ProteaReportPackService {
       config.ytdEndYear,
       config.ou,
       config.version,
-      PROTEA_F90_PL_ROW_CONFIG
+      f90RowConfig
     );
     const ytdData: PLCalculationResult[] = JSON.parse(ytdDataJson);
 
@@ -639,10 +706,13 @@ class ProteaReportPackService {
     movedRange: any[] = [],
     movedDeptData: Map<string, { month: any[]; range: any[] }> = new Map()
   ): Promise<void> {
-    // Group departments by level_7
+    // Group departments by level_7 (banqueting depts reclassified when toggle is on)
     const groupMap = new Map<string, typeof departments>();
     for (const dept of departments) {
-      const groupKey = dept.level7Group || dept.baseDepartment;
+      let groupKey = dept.level7Group || dept.baseDepartment;
+      if (config.includeBanquetingBreakdown && BANQUETING_DEPARTMENTS.has(dept.baseDepartment)) {
+        groupKey = 'Total Banqueting';
+      }
       if (!groupMap.has(groupKey)) {
         groupMap.set(groupKey, []);
       }
@@ -739,13 +809,10 @@ class ProteaReportPackService {
   ): Promise<string | null> {
     const deptIds = groupDepts.map(d => d.baseDepartment);
 
-    // --- Protea department movement: exclude moved depts from their native groups ---
+    // --- Protea department movement: exclude ALL moved depts from base query ---
     // Moved dept data is pre-fetched separately and merged into their target groups below.
-    let effectiveDeptIds = deptIds.filter(id => {
-      const mv = MOVED_DEPT_BY_SOURCE.get(id);
-      if (!mv) return true;              // not a moved dept — keep it
-      return mv.targetGroup === groupName; // only keep if this IS its target group
-    });
+    // Always exclude to prevent duplication when a dept's native group matches its target group.
+    let effectiveDeptIds = deptIds.filter(id => !MOVED_DEPT_SET.has(id));
     if (effectiveDeptIds.length === 0 && !MOVEMENT_TARGET_GROUPS.has(groupName)) {
       // All depts were moved out and this isn't a target group — suppress entirely
       return null;
@@ -789,10 +856,24 @@ class ProteaReportPackService {
     }
 
     // Merge moved department data into their respective target groups
+    // Build account → source department map for custom subgroup assignment
+    const accountDeptMap = new Map<string, string>();
+    const isInvestGroup = groupName === 'Invest Factor Owner';
+
+    if (isInvestGroup) {
+      // Tag base data accounts with the group's native department (D0490)
+      for (const row of monthDetailData) accountDeptMap.set(row.account, 'D0490');
+      for (const row of rangeDetailData) accountDeptMap.set(row.account, 'D0490');
+    }
+
     for (const mv of PROTEA_DEPARTMENT_MOVEMENTS) {
       if (mv.targetGroup === groupName) {
         const data = movedDeptData.get(mv.sourceDept);
         if (data) {
+          if (isInvestGroup) {
+            for (const row of data.month) accountDeptMap.set(row.account, mv.sourceDept);
+            for (const row of data.range) accountDeptMap.set(row.account, mv.sourceDept);
+          }
           monthDetailData = [...monthDetailData, ...data.month];
           rangeDetailData = [...rangeDetailData, ...data.range];
         }
@@ -858,13 +939,26 @@ class ProteaReportPackService {
     this.styleDeptSeparator(headerRow);
 
     // Combined month + range data (side by side)
-    const STATS_KEEP_GROUPS = new Set(['Total Food & Beverage', 'Utilities Dept']);
+    const STATS_KEEP_GROUPS = new Set(['Total Food & Beverage', 'Total Banqueting', 'Utilities Dept']);
     const keepStats = STATS_KEEP_GROUPS.has(groupName);
+    const isRoomsGroup = groupName === 'Rooms and Reservation';
     this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols, undefined, {
-      collapseRevenueDetail: !config.generateDetailTabs && groupName === 'Rooms and Reservation',
+      collapseRevenueDetail: !config.generateDetailTabs && isRoomsGroup,
       suppressStats: !keepStats,
-      showDeptProfit: keepStats
+      showDeptProfit: keepStats,
+      flattenCategories: !isInvestGroup ? ['Payroll', 'Controllables'] : undefined,
+      customSubgroups: isInvestGroup ? INVEST_CUSTOM_SUBGROUPS : undefined,
+      accountDeptMap: isInvestGroup ? accountDeptMap : undefined
     });
+
+    // Department-specific KPIs (after department profit) — computed via F90 engine
+    if (isRoomsGroup) {
+      const [monthKpi, rangeKpi] = await this.fetchKpiEngineData(config, ROOMS_KPI_CONFIG);
+      this.addRoomsKpiRows(sheet, monthDetailData, rangeDetailData, totalCols, monthKpi, rangeKpi);
+    } else if (groupName === 'Total Food & Beverage') {
+      const [monthKpi, rangeKpi] = await this.fetchKpiEngineData(config, FB_KPI_CONFIG);
+      this.addFbKpiRows(sheet, monthDetailData, rangeDetailData, totalCols, monthKpi, rangeKpi);
+    }
 
     // Freeze panes (2 title rows + 2 header rows)
     sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
@@ -912,20 +1006,29 @@ class ProteaReportPackService {
       rangeDetailData = rangeDetailData.filter(r => !isMovedAccount(r.account));
     }
 
-    // Protea movement: merge moved accounts (A730/A745) into D0410 detail sheet
+    // Protea movement: merge moved accounts (A730/A745/A701603) into D0410 detail sheet
     let movedAccountSources: Map<string, string> | undefined;
     if (dept.baseDepartment === 'D0410') {
       monthDetailData = [...monthDetailData, ...movedMonth];
       rangeDetailData = [...rangeDetailData, ...movedRange];
       movedAccountSources = new Map<string, string>();
-      for (const row of movedMonth) movedAccountSources.set(row.account, 'D0480/D0490');
-      for (const row of movedRange) movedAccountSources.set(row.account, 'D0480/D0490');
+      for (const row of movedMonth) movedAccountSources.set(row.account, 'D0480/D0490/D0690');
+      for (const row of movedRange) movedAccountSources.set(row.account, 'D0480/D0490/D0690');
     }
 
     // Protea department movement: merge moved department data into their detail merge targets
     const incomingMovements = PROTEA_DEPARTMENT_MOVEMENTS.filter(
       mv => mv.detailMergeTarget === dept.baseDepartment
     );
+    const isInvestDetail = dept.baseDepartment === 'D0490' && incomingMovements.length > 0;
+    const detailAccountDeptMap = isInvestDetail ? new Map<string, string>() : undefined;
+
+    // Tag base data with the host department for Invest subgroup assignment
+    if (detailAccountDeptMap) {
+      for (const row of monthDetailData) detailAccountDeptMap.set(row.account, dept.baseDepartment);
+      for (const row of rangeDetailData) detailAccountDeptMap.set(row.account, dept.baseDepartment);
+    }
+
     if (incomingMovements.length > 0) {
       if (!movedAccountSources) movedAccountSources = new Map<string, string>();
       for (const mv of incomingMovements) {
@@ -933,8 +1036,14 @@ class ProteaReportPackService {
         if (data) {
           monthDetailData = [...monthDetailData, ...data.month];
           rangeDetailData = [...rangeDetailData, ...data.range];
-          for (const row of data.month) movedAccountSources.set(row.account, mv.sourceDept);
-          for (const row of data.range) movedAccountSources.set(row.account, mv.sourceDept);
+          for (const row of data.month) {
+            movedAccountSources.set(row.account, mv.sourceDept);
+            detailAccountDeptMap?.set(row.account, mv.sourceDept);
+          }
+          for (const row of data.range) {
+            movedAccountSources.set(row.account, mv.sourceDept);
+            detailAccountDeptMap?.set(row.account, mv.sourceDept);
+          }
         }
       }
     }
@@ -998,7 +1107,10 @@ class ProteaReportPackService {
     this.styleDeptSeparator(headerRow);
 
     // Combined month + range data (side by side), with optional moved-account annotations
-    this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols, movedAccountSources);
+    this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols, movedAccountSources, {
+      customSubgroups: isInvestDetail ? INVEST_CUSTOM_SUBGROUPS : undefined,
+      accountDeptMap: detailAccountDeptMap
+    });
 
     // Freeze panes (2 title rows + 2 header rows)
     sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
@@ -1197,7 +1309,7 @@ class ProteaReportPackService {
       const rGopLy = -rRevLy !== 0 ? (rProfitLy / -rRevLy) * 100 : 0;
 
       const gopRow = sheet.addRow({
-        account: 'GOP %',
+        account: 'Department Profit %',
         mLy: formatPercentage(mGopLy),
         mVsLyPct: `${(mGopAct - mGopLy).toFixed(1)} pts`,
         mAct: formatPercentage(mGopAct), mBud: formatPercentage(mGopBud),
@@ -1252,6 +1364,385 @@ class ProteaReportPackService {
   }
 
   /**
+   * Renders Rooms & Reservation KPIs after Department Profit on the group summary sheet.
+   * KPIs: Occupancy%, ADR, RevPAR, RevPAR after TAC, then Cents per Room Night Sold metrics.
+   */
+  /**
+   * Fetches KPI values via the F90 calculation engine for both month and range periods.
+   * Returns a Map<label, PLCalculationResult> for each period.
+   */
+  private async fetchKpiEngineData(
+    config: ProteaReportPackConfig,
+    kpiConfig: PLRow[]
+  ): Promise<[Map<string, PLCalculationResult>, Map<string, PLCalculationResult>]> {
+    const [monthJson, rangeJson] = await Promise.all([
+      db.getProteaF90PLData(
+        config.selectedMonth, config.selectedYear,
+        config.selectedMonth, config.selectedYear,
+        config.ou, config.version, kpiConfig
+      ),
+      db.getProteaF90PLData(
+        config.ytdStartMonth, config.ytdStartYear,
+        config.ytdEndMonth, config.ytdEndYear,
+        config.ou, config.version, kpiConfig
+      )
+    ]);
+    const toMap = (json: string) => {
+      const rows: PLCalculationResult[] = JSON.parse(json);
+      const map = new Map<string, PLCalculationResult>();
+      for (const row of rows) if (row.type === 'measure') map.set(row.label, row);
+      return map;
+    };
+    return [toMap(monthJson), toMap(rangeJson)];
+  }
+
+  private addRoomsKpiRows(
+    sheet: ExcelJS.Worksheet,
+    monthData: any[],
+    rangeData: any[],
+    totalCols: number,
+    monthKpi: Map<string, PLCalculationResult> = new Map(),
+    rangeKpi: Map<string, PLCalculationResult> = new Map()
+  ): void {
+    const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : null;
+
+    // Helper: get engine KPI value (returns actuals/budget/ly from the calculation engine)
+    const kv = (kpi: Map<string, PLCalculationResult>, label: string) => kpi.get(label);
+
+    // Helper: get a single account's value from the raw dataset (for per-room expense metrics)
+    const acctVal = (data: any[], account: string, field: string): number => {
+      const row = data.find((r: any) => r.account === account);
+      return row ? (Number(row[field]) || 0) : 0;
+    };
+
+    // Gather expense account values from raw data (for cents-per-room-night)
+    const gatherExpenses = (data: any[]) => ({
+      opSupplies:    { act: acctVal(data, 'A610108', 'actuals'), bud: acctVal(data, 'A610108', 'budget'), ly: acctVal(data, 'A610108', 'ly') },
+      cleanSupplies: { act: acctVal(data, 'A610106', 'actuals'), bud: acctVal(data, 'A610106', 'budget'), ly: acctVal(data, 'A610106', 'ly') },
+      guestSupplies: { act: acctVal(data, 'A610201', 'actuals'), bud: acctVal(data, 'A610201', 'budget'), ly: acctVal(data, 'A610201', 'ly') },
+      printStat:     { act: acctVal(data, 'A606101', 'actuals'), bud: acctVal(data, 'A606101', 'budget'), ly: acctVal(data, 'A606101', 'ly') },
+      laundry:       { act: acctVal(data, 'A602406', 'actuals'), bud: acctVal(data, 'A602406', 'budget'), ly: acctVal(data, 'A602406', 'ly') },
+    });
+
+    const mExp = gatherExpenses(monthData);
+    const rExp = gatherExpenses(rangeData);
+
+    // Get engine-computed values for key KPIs
+    const mOcc = kv(monthKpi, 'Occupancy %');
+    const rOcc = kv(rangeKpi, 'Occupancy %');
+    const mAdr = kv(monthKpi, 'ADR');
+    const rAdr = kv(rangeKpi, 'ADR');
+    const mRevpar = kv(monthKpi, 'RevPAR');
+    const rRevpar = kv(rangeKpi, 'RevPAR');
+    const mSold = kv(monthKpi, 'Sold Rooms');
+    const rSold = kv(rangeKpi, 'Sold Rooms');
+    const mTotal = kv(monthKpi, 'Total Rooms');
+    const rTotal = kv(rangeKpi, 'Total Rooms');
+    const mRev = kv(monthKpi, 'Rooms Revenue');
+    const rRev = kv(rangeKpi, 'Rooms Revenue');
+
+    // Safe division
+    const div = (num: number, denom: number) => denom !== 0 ? num / denom : 0;
+
+    // Style helpers
+    const applyKpiHeaderStyle = (row: ExcelJS.Row) => {
+      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        cell.fill = SUBTOTAL_FILL;
+        cell.font = { ...DATA_FONT, bold: true };
+        cell.border = BORDER_STYLE;
+        cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
+      });
+      this.styleDeptSeparator(row);
+    };
+
+    const applyKpiDataStyle = (row: ExcelJS.Row) => {
+      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        cell.font = DATA_FONT;
+        cell.border = BORDER_STYLE;
+        cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
+      });
+      this.styleDeptSeparator(row);
+    };
+
+    // Helper: add a KPI row with percentage format
+    const addPctKpiRow = (label: string, mAct: number, mBud: number, mLy: number, rAct: number, rBud: number, rLy: number) => {
+      const row = sheet.addRow({
+        account: `  ${label}`,
+        mLy: formatPercentage(mLy), mVsLyPct: `${(mAct - mLy).toFixed(1)} pts`,
+        mAct: formatPercentage(mAct), mBud: formatPercentage(mBud),
+        mVsBud: `${(mAct - mBud).toFixed(1)} pts`, mVsBudPct: '',
+        sep: '',
+        rLy: formatPercentage(rLy), rVsLyPct: `${(rAct - rLy).toFixed(1)} pts`,
+        rAct: formatPercentage(rAct), rBud: formatPercentage(rBud),
+        rVsBud: `${(rAct - rBud).toFixed(1)} pts`, rVsBudPct: '',
+        comments: ''
+      });
+      applyKpiDataStyle(row);
+    };
+
+    // Helper: add a KPI row with number format (ADR, RevPAR, cents-per-room)
+    const addNumKpiRow = (label: string, mAct: number, mBud: number, mLy: number, rAct: number, rBud: number, rLy: number) => {
+      const mVsBud = mAct - mBud;
+      const mVsLy = mAct - mLy;
+      const rVsBud = rAct - rBud;
+      const rVsLy = rAct - rLy;
+      const row = sheet.addRow({
+        account: `  ${label}`,
+        mLy: formatNumber(mLy), mVsLyPct: formatPercentage(pct(mVsLy, mLy)),
+        mAct: formatNumber(mAct), mBud: formatNumber(mBud),
+        mVsBud: formatNumber(mVsBud), mVsBudPct: formatPercentage(pct(mVsBud, mBud)),
+        sep: '',
+        rLy: formatNumber(rLy), rVsLyPct: formatPercentage(pct(rVsLy, rLy)),
+        rAct: formatNumber(rAct), rBud: formatNumber(rBud),
+        rVsBud: formatNumber(rVsBud), rVsBudPct: formatPercentage(pct(rVsBud, rBud)),
+        comments: ''
+      });
+      applyKpiDataStyle(row);
+    };
+
+    // Helper: render a KPI from engine-computed PLCalculationResult
+    const addEngineKpiRow = (label: string, mResult: PLCalculationResult | undefined, rResult: PLCalculationResult | undefined, isPct: boolean) => {
+      if (isPct) {
+        addPctKpiRow(label,
+          mResult?.actuals || 0, mResult?.budget || 0, mResult?.ly || 0,
+          rResult?.actuals || 0, rResult?.budget || 0, rResult?.ly || 0);
+      } else {
+        addNumKpiRow(label,
+          mResult?.actuals || 0, mResult?.budget || 0, mResult?.ly || 0,
+          rResult?.actuals || 0, rResult?.budget || 0, rResult?.ly || 0);
+      }
+    };
+
+    // --- Blank separator ---
+    this.addBlankSeparatorRow(sheet, totalCols);
+
+    // --- Occupancy % (from engine) ---
+    addEngineKpiRow('Occupancy %', mOcc, rOcc, true);
+
+    // --- ADR (from engine) ---
+    addEngineKpiRow('ADR', mAdr, rAdr, false);
+
+    // --- RevPAR (from engine) ---
+    addEngineKpiRow('RevPAR', mRevpar, rRevpar, false);
+
+    // --- RevPAR after TAC (computed from engine revenue + raw TAC data) ---
+    if (mRev && rRev && mTotal && rTotal) {
+      const acctValRaw = (data: any[], account: string, field: string): number => {
+        const row = data.find((r: any) => r.account === account);
+        return row ? (Number(row[field]) || 0) : 0;
+      };
+      const mTac = acctValRaw(monthData, 'A608201', 'actuals');
+      const mTacBud = acctValRaw(monthData, 'A608201', 'budget');
+      const mTacLy = acctValRaw(monthData, 'A608201', 'ly');
+      const rTac = acctValRaw(rangeData, 'A608201', 'actuals');
+      const rTacBud = acctValRaw(rangeData, 'A608201', 'budget');
+      const rTacLy = acctValRaw(rangeData, 'A608201', 'ly');
+      addNumKpiRow('RevPAR after TAC',
+        div((mRev.actuals || 0) - mTac, mTotal.actuals || 0), div((mRev.budget || 0) - mTacBud, mTotal.budget || 0), div((mRev.ly || 0) - mTacLy, mTotal.ly || 0),
+        div((rRev.actuals || 0) - rTac, rTotal.actuals || 0), div((rRev.budget || 0) - rTacBud, rTotal.budget || 0), div((rRev.ly || 0) - rTacLy, rTotal.ly || 0));
+    }
+
+    // --- Blank separator + Cents per Room Night Sold header ---
+    this.addBlankSeparatorRow(sheet, totalCols);
+    const centsHeader = sheet.addRow(new Array(totalCols).fill(''));
+    centsHeader.getCell(1).value = 'Cents per Room Night Sold';
+    applyKpiHeaderStyle(centsHeader);
+
+    // Use engine-computed sold rooms for cents-per-room-night denominators
+    const mSoldAct = mSold?.actuals || 0, mSoldBud = mSold?.budget || 0, mSoldLy = mSold?.ly || 0;
+    const rSoldAct = rSold?.actuals || 0, rSoldBud = rSold?.budget || 0, rSoldLy = rSold?.ly || 0;
+
+    // Helper for cents-per-room-night rows (expense / sold rooms)
+    const addCentsRow = (label: string, mExpense: { act: number; bud: number; ly: number },
+      rExpense: { act: number; bud: number; ly: number }) => {
+      addNumKpiRow(label,
+        div(mExpense.act, mSoldAct), div(mExpense.bud, mSoldBud), div(mExpense.ly, mSoldLy),
+        div(rExpense.act, rSoldAct), div(rExpense.bud, rSoldBud), div(rExpense.ly, rSoldLy));
+    };
+
+    addCentsRow('Operating Supplies', mExp.opSupplies, rExp.opSupplies);
+    addCentsRow('Cleaning Supplies', mExp.cleanSupplies, rExp.cleanSupplies);
+    addCentsRow('Guest Supplies', mExp.guestSupplies, rExp.guestSupplies);
+    addCentsRow('Printing & Stationery', mExp.printStat, rExp.printStat);
+    addCentsRow('Laundry', mExp.laundry, rExp.laundry);
+  }
+
+  /**
+   * Renders Food & Beverage KPIs after Department Profit on the F&B group summary sheet.
+   * KPIs: Food COS%, Beverage COS%, Cost per Cover, then per-cover expense metrics.
+   */
+  private addFbKpiRows(
+    sheet: ExcelJS.Worksheet,
+    monthData: any[],
+    rangeData: any[],
+    totalCols: number,
+    monthKpi: Map<string, PLCalculationResult> = new Map(),
+    rangeKpi: Map<string, PLCalculationResult> = new Map()
+  ): void {
+    const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : null;
+    const div = (num: number, denom: number) => denom !== 0 ? num / denom : 0;
+
+    // Helper: get a single account's value from raw data
+    const acctVal = (data: any[], account: string, field: string): number => {
+      const row = data.find((r: any) => r.account === account);
+      return row ? (Number(row[field]) || 0) : 0;
+    };
+
+    // Helper: sum rows matching a filter
+    const sumWhere = (data: any[], filterFn: (r: any) => boolean, field: string): number =>
+      data.filter(filterFn).reduce((sum: number, r: any) => sum + (Number(r[field]) || 0), 0);
+
+    // Gather values from raw data (only for per-cover metrics that need account-level detail)
+    const gather = (data: any[]) => {
+      // Total COS (still from raw data for cost-per-cover)
+      const totalCos    = sumWhere(data, r => r.category === 'Cost of Sales', 'actuals');
+      const totalCosBud = sumWhere(data, r => r.category === 'Cost of Sales', 'budget');
+      const totalCosLy  = sumWhere(data, r => r.category === 'Cost of Sales', 'ly');
+
+      // Total covers (accounts starting with A91401)
+      const covers    = sumWhere(data, r => (r.account || '').startsWith('A91401'), 'actuals');
+      const coversBud = sumWhere(data, r => (r.account || '').startsWith('A91401'), 'budget');
+      const coversLy  = sumWhere(data, r => (r.account || '').startsWith('A91401'), 'ly');
+
+      return {
+        totalCos, totalCosBud, totalCosLy, covers, coversBud, coversLy,
+        // Expense accounts for per-cover metrics
+        opSupplies:    { act: acctVal(data, 'A610108', 'actuals'), bud: acctVal(data, 'A610108', 'budget'), ly: acctVal(data, 'A610108', 'ly') },
+        cleanSupplies: { act: acctVal(data, 'A610106', 'actuals'), bud: acctVal(data, 'A610106', 'budget'), ly: acctVal(data, 'A610106', 'ly') },
+        compServices:  { act: acctVal(data, 'A601101', 'actuals'), bud: acctVal(data, 'A601101', 'budget'), ly: acctVal(data, 'A601101', 'ly') },
+        laundry:       { act: acctVal(data, 'A602406', 'actuals'), bud: acctVal(data, 'A602406', 'budget'), ly: acctVal(data, 'A602406', 'ly') },
+        paperSupplies: { act: acctVal(data, 'A610104', 'actuals'), bud: acctVal(data, 'A610104', 'budget'), ly: acctVal(data, 'A610104', 'ly') },
+        printStat:     { act: acctVal(data, 'A606101', 'actuals'), bud: acctVal(data, 'A606101', 'budget'), ly: acctVal(data, 'A606101', 'ly') },
+        flatware:      { act: acctVal(data, 'A610102', 'actuals'), bud: acctVal(data, 'A610102', 'budget'), ly: acctVal(data, 'A610102', 'ly') },
+        china:         { act: acctVal(data, 'A610100', 'actuals'), bud: acctVal(data, 'A610100', 'budget'), ly: acctVal(data, 'A610100', 'ly') },
+        glassware:     { act: acctVal(data, 'A610402', 'actuals'), bud: acctVal(data, 'A610402', 'budget'), ly: acctVal(data, 'A610402', 'ly') },
+        linen:         { act: acctVal(data, 'A610105', 'actuals'), bud: acctVal(data, 'A610105', 'budget'), ly: acctVal(data, 'A610105', 'ly') },
+      };
+    };
+
+    const m = gather(monthData);
+    const r = gather(rangeData);
+
+    // Engine-computed KPIs
+    const mFoodCos = monthKpi.get('% Food COS');
+    const rFoodCos = rangeKpi.get('% Food COS');
+    const mBevCos = monthKpi.get('% Beverage COS');
+    const rBevCos = rangeKpi.get('% Beverage COS');
+    const mFbProfit = monthKpi.get('F&B Dept Profit %');
+    const rFbProfit = rangeKpi.get('F&B Dept Profit %');
+
+    // Style helpers
+    const applyKpiHeaderStyle = (row: ExcelJS.Row) => {
+      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        cell.fill = SUBTOTAL_FILL;
+        cell.font = { ...DATA_FONT, bold: true };
+        cell.border = BORDER_STYLE;
+        cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
+      });
+      this.styleDeptSeparator(row);
+    };
+
+    const applyKpiDataStyle = (row: ExcelJS.Row) => {
+      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        cell.font = DATA_FONT;
+        cell.border = BORDER_STYLE;
+        cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
+      });
+      this.styleDeptSeparator(row);
+    };
+
+    // Helper: add a KPI row with percentage format (pts variance)
+    const addPctKpiRow = (label: string, mAct: number, mBud: number, mLy: number, rAct: number, rBud: number, rLy: number) => {
+      const row = sheet.addRow({
+        account: `  ${label}`,
+        mLy: formatPercentage(mLy), mVsLyPct: `${(mAct - mLy).toFixed(1)} pts`,
+        mAct: formatPercentage(mAct), mBud: formatPercentage(mBud),
+        mVsBud: `${(mAct - mBud).toFixed(1)} pts`, mVsBudPct: '',
+        sep: '',
+        rLy: formatPercentage(rLy), rVsLyPct: `${(rAct - rLy).toFixed(1)} pts`,
+        rAct: formatPercentage(rAct), rBud: formatPercentage(rBud),
+        rVsBud: `${(rAct - rBud).toFixed(1)} pts`, rVsBudPct: '',
+        comments: ''
+      });
+      applyKpiDataStyle(row);
+    };
+
+    // Helper: add a KPI row with number format
+    const addNumKpiRow = (label: string, mAct: number, mBud: number, mLy: number, rAct: number, rBud: number, rLy: number) => {
+      const mVsBud = mAct - mBud;
+      const mVsLy = mAct - mLy;
+      const rVsBud = rAct - rBud;
+      const rVsLy = rAct - rLy;
+      const row = sheet.addRow({
+        account: `  ${label}`,
+        mLy: formatNumber(mLy), mVsLyPct: formatPercentage(pct(mVsLy, mLy)),
+        mAct: formatNumber(mAct), mBud: formatNumber(mBud),
+        mVsBud: formatNumber(mVsBud), mVsBudPct: formatPercentage(pct(mVsBud, mBud)),
+        sep: '',
+        rLy: formatNumber(rLy), rVsLyPct: formatPercentage(pct(rVsLy, rLy)),
+        rAct: formatNumber(rAct), rBud: formatNumber(rBud),
+        rVsBud: formatNumber(rVsBud), rVsBudPct: formatPercentage(pct(rVsBud, rBud)),
+        comments: ''
+      });
+      applyKpiDataStyle(row);
+    };
+
+    // Helper: render a KPI from engine-computed PLCalculationResult
+    const addEngineKpiRow = (label: string, mResult: PLCalculationResult | undefined, rResult: PLCalculationResult | undefined) => {
+      addPctKpiRow(label,
+        mResult?.actuals || 0, mResult?.budget || 0, mResult?.ly || 0,
+        rResult?.actuals || 0, rResult?.budget || 0, rResult?.ly || 0);
+    };
+
+    // Helper for per-cover rows
+    const addPerCoverRow = (label: string, mExp: { act: number; bud: number; ly: number },
+      rExp: { act: number; bud: number; ly: number }) => {
+      addNumKpiRow(label,
+        div(mExp.act, m.covers), div(mExp.bud, m.coversBud), div(mExp.ly, m.coversLy),
+        div(rExp.act, r.covers), div(rExp.bud, r.coversBud), div(rExp.ly, r.coversLy));
+    };
+
+    // --- Blank separator ---
+    this.addBlankSeparatorRow(sheet, totalCols);
+
+    // --- Cost of Sales section header ---
+    const cosHeader = sheet.addRow(new Array(totalCols).fill(''));
+    cosHeader.getCell(1).value = 'Cost of Sales';
+    applyKpiHeaderStyle(cosHeader);
+
+    // Food Cost of Sales % (from engine)
+    addEngineKpiRow('Food Cost of Sales %', mFoodCos, rFoodCos);
+
+    // Beverage Cost of Sales % (from engine)
+    addEngineKpiRow('Beverage Cost of Sales %', mBevCos, rBevCos);
+
+    // Cost per Cover (total COS / covers — from raw data)
+    addNumKpiRow('Cost per Cover',
+      div(m.totalCos, m.covers), div(m.totalCosBud, m.coversBud), div(m.totalCosLy, m.coversLy),
+      div(r.totalCos, r.covers), div(r.totalCosBud, r.coversBud), div(r.totalCosLy, r.coversLy));
+
+    // --- Per-cover expense metrics ---
+    this.addBlankSeparatorRow(sheet, totalCols);
+    addPerCoverRow('Operating Supplies', m.opSupplies, r.opSupplies);
+    addPerCoverRow('Cleaning Supplies', m.cleanSupplies, r.cleanSupplies);
+    addPerCoverRow('Comp Services', m.compServices, r.compServices);
+    addPerCoverRow('Laundry', m.laundry, r.laundry);
+    addPerCoverRow('Paper Supplies', m.paperSupplies, r.paperSupplies);
+    addPerCoverRow('Printing & Stationery', m.printStat, r.printStat);
+
+    // Operating Equipment Usage section
+    this.addBlankSeparatorRow(sheet, totalCols);
+    const equipHeader = sheet.addRow(new Array(totalCols).fill(''));
+    equipHeader.getCell(1).value = 'Operating Equipment Usage';
+    applyKpiHeaderStyle(equipHeader);
+
+    addPerCoverRow('Flatware', m.flatware, r.flatware);
+    addPerCoverRow('China', m.china, r.china);
+    addPerCoverRow('Glassware', m.glassware, r.glassware);
+    addPerCoverRow('Linen', m.linen, r.linen);
+  }
+
+  /**
    * Adds a blank separator row with consistent formatting (borders, font, separator column).
    * Ensures the grid looks continuous even on empty rows.
    */
@@ -1290,8 +1781,23 @@ class ProteaReportPackService {
     rangeData: any[],
     totalCols: number,
     movedAccountSources?: Map<string, string>,
-    options?: { collapseRevenueDetail?: boolean; suppressStats?: boolean; showDeptProfit?: boolean }
+    options?: {
+      collapseRevenueDetail?: boolean;
+      suppressStats?: boolean;
+      showDeptProfit?: boolean;
+      flattenCategories?: string[];
+      customSubgroups?: InvestSubgroupDef[];
+      accountDeptMap?: Map<string, string>;
+    }
   ): void {
+    // Delegate to custom subgroup renderer for Invest-type tabs
+    if (options?.customSubgroups) {
+      this.addCustomSubgroupDataSection(
+        sheet, monthData, rangeData, totalCols,
+        options.customSubgroups, options.accountDeptMap, movedAccountSources
+      );
+      return;
+    }
     const categories = ['Revenue', 'Cost of Sales', 'Payroll', 'Controllables', 'Other', 'Stats'];
     const ABS_COLS = [2, 4, 5, 6, 9, 11, 12, 13]; // absolute value column indices (both sides, excludes pct cols)
 
@@ -1377,11 +1883,9 @@ class ProteaReportPackService {
         continue;
       }
 
-      // Category header row WITH totals
-      addHeaderWithTotals(`Total ${category}`, mCategoryRows, rCategoryRows, applyCategorySubtotalStyle, isStats, sign);
-
-      // When collapsing revenue detail, show only the total line
+      // When collapsing revenue detail, show only the total line (no detail rows)
       if (isRevenue && options?.collapseRevenueDetail) {
+        addHeaderWithTotals(`Total ${category}`, mCategoryRows, rCategoryRows, applyCategorySubtotalStyle, isStats, sign);
         this.addBlankSeparatorRow(sheet, totalCols);
         continue;
       }
@@ -1433,6 +1937,54 @@ class ProteaReportPackService {
           applyNumberFormats(excelRow);
         }
 
+      } else if (options?.flattenCategories?.includes(category)) {
+        // Flattened: render all accounts without level_12 sub-group headers/subtotals
+        const allAccounts: string[] = [];
+        const mAcctMap = new Map<string, any>();
+        const rAcctMap = new Map<string, any>();
+        for (const row of mCategoryRows) {
+          mAcctMap.set(row.account, row);
+          if (!allAccounts.includes(row.account)) allAccounts.push(row.account);
+        }
+        for (const row of rCategoryRows) {
+          rAcctMap.set(row.account, row);
+          if (!allAccounts.includes(row.account)) allAccounts.push(row.account);
+        }
+
+        for (const acct of allAccounts) {
+          const mRow = mAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: acct, account: acct };
+          const rRow = rAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0 };
+          const displayName = mRow.accountName || mRow.account;
+
+          const excelRow = sheet.addRow({
+            account: `    ${displayName}`,
+            mLy: formatNumber(mRow.ly * sign),
+            mVsLyPct: formatPercentage(pct(mRow.vsLy * sign, mRow.ly * sign)),
+            mAct: formatNumber(mRow.actuals * sign),
+            mBud: formatNumber(mRow.budget * sign),
+            mVsBud: formatNumber(mRow.vsBud * sign),
+            mVsBudPct: formatPercentage(pct(mRow.vsBud * sign, mRow.budget * sign)),
+            sep: '',
+            rLy: formatNumber(rRow.ly * sign),
+            rVsLyPct: formatPercentage(pct(rRow.vsLy * sign, rRow.ly * sign)),
+            rAct: formatNumber(rRow.actuals * sign),
+            rBud: formatNumber(rRow.budget * sign),
+            rVsBud: formatNumber(rRow.vsBud * sign),
+            rVsBudPct: formatPercentage(pct(rRow.vsBud * sign, rRow.budget * sign)),
+            comments: ''
+          });
+
+          const movedFrom = movedAccountSources?.get(mRow.account);
+          const accountLabel = this.buildAccountLabel(displayName, mRow.account, movedFrom);
+          if (typeof accountLabel !== 'string') {
+            excelRow.getCell(1).value = { richText: [{ font: { size: 10 }, text: '    ' }, ...accountLabel.richText] };
+          }
+
+          applyDataRowStyle(excelRow);
+          this.styleDeptSeparator(excelRow);
+          applyNumberFormats(excelRow);
+        }
+
       } else {
         // Non-stats: group accounts by level_12
         const mLevel12Map = new Map<string, any[]>();
@@ -1461,8 +2013,11 @@ class ProteaReportPackService {
           const mGroupRows = mLevel12Map.get(groupName) || [];
           const rGroupRows = rLevel12Map.get(groupName) || [];
 
-          // level_12 group header WITH totals (indented 2 spaces)
-          addHeaderWithTotals(`  Total ${groupName}`, mGroupRows, rGroupRows, applyGroupSubtotalStyle, false, sign);
+          // Subgroup header row (name only)
+          const groupHeaderRow = sheet.addRow(new Array(totalCols).fill(''));
+          groupHeaderRow.getCell(1).value = groupName;
+          applyGroupHeaderStyle(groupHeaderRow);
+          this.styleDeptSeparator(groupHeaderRow);
 
           // Account detail rows - merge accounts from both sides
           const allAccounts: string[] = [];
@@ -1512,10 +2067,16 @@ class ProteaReportPackService {
             applyNumberFormats(excelRow);
           }
 
+          // level_12 group subtotal row (at bottom of sub-group)
+          addHeaderWithTotals(`  Total ${groupName}`, mGroupRows, rGroupRows, applyGroupSubtotalStyle, false, sign);
+
           // Blank row separator after each level_12 sub-group
           this.addBlankSeparatorRow(sheet, totalCols);
         }
       }
+
+      // Category total row (at bottom of category)
+      addHeaderWithTotals(`Total ${category}`, mCategoryRows, rCategoryRows, applyCategorySubtotalStyle, isStats, sign);
 
       // Blank row separator after category
       this.addBlankSeparatorRow(sheet, totalCols);
@@ -1526,6 +2087,246 @@ class ProteaReportPackService {
     if (!deptProfitRendered) {
       this.addDeptProfitRows(sheet, monthData, rangeData, sumField, ABS_COLS, totalCols);
     }
+  }
+
+  /**
+   * Renders department data using custom subgroup definitions instead of level_12 grouping.
+   * Used for the Invest Factor Owner tab where accounts are assigned to subgroups by priority:
+   * explicit accounts → deptFilter → level_13 hierarchy → accPrefixes → catch-all.
+   */
+  private addCustomSubgroupDataSection(
+    sheet: ExcelJS.Worksheet,
+    monthData: any[],
+    rangeData: any[],
+    totalCols: number,
+    subgroups: InvestSubgroupDef[],
+    accountDeptMap?: Map<string, string>,
+    movedAccountSources?: Map<string, string>
+  ): void {
+    const ABS_COLS = [2, 4, 5, 6, 9, 11, 12, 13];
+    const applyNumberFormats = (row: ExcelJS.Row) => {
+      ABS_COLS.forEach(col => {
+        const cell = row.getCell(col);
+        if (typeof cell.value === 'number') cell.numFmt = '#,##0';
+      });
+    };
+    const sumField = (rows: any[], field: string) =>
+      rows.reduce((sum: number, r: any) => sum + (Number(r[field]) || 0), 0);
+    const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : null;
+
+    // --- Filter out stats accounts — not relevant for Invest tab ---
+    monthData = monthData.filter(r => r.category !== 'Stats');
+    rangeData = rangeData.filter(r => r.category !== 'Stats');
+
+    // --- Aggregate duplicate accounts from merged departments ---
+    // Same account can exist across D0480/D0490/D0690; sum their amounts into one row per account
+    const aggregateByAccount = (rows: any[]): any[] => {
+      const map = new Map<string, any>();
+      for (const row of rows) {
+        const existing = map.get(row.account);
+        if (!existing) {
+          map.set(row.account, { ...row });
+        } else {
+          existing.actuals = (Number(existing.actuals) || 0) + (Number(row.actuals) || 0);
+          existing.budget = (Number(existing.budget) || 0) + (Number(row.budget) || 0);
+          existing.ly = (Number(existing.ly) || 0) + (Number(row.ly) || 0);
+          existing.vsBud = existing.actuals - existing.budget;
+          existing.vsLy = existing.actuals - existing.ly;
+        }
+      }
+      return Array.from(map.values());
+    };
+    const aggMonthData = aggregateByAccount(monthData);
+    const aggRangeData = aggregateByAccount(rangeData);
+
+    // --- Build account → subgroup assignment map ---
+    // Collect all unique accounts from both month and range data
+    const allRows = [...aggMonthData, ...aggRangeData];
+    const accountMeta = new Map<string, { level13Group: string | null }>();
+    for (const row of allRows) {
+      if (!accountMeta.has(row.account)) {
+        accountMeta.set(row.account, { level13Group: row.level13Group || null });
+      }
+    }
+
+    // Build explicit account → subgroup lookup (pre-compute for O(1) check)
+    const explicitMap = new Map<string, string>();
+    for (const sg of subgroups) {
+      for (const acct of sg.accounts) {
+        if (!explicitMap.has(acct)) explicitMap.set(acct, sg.name);
+      }
+    }
+
+    // Assign each account to a subgroup
+    const accountSubgroup = new Map<string, string>();
+    const catchAllName = subgroups.find(sg => sg.isCatchAll)?.name || 'Other';
+
+    for (const [acct, meta] of accountMeta) {
+      // Priority 1: Explicit accounts
+      if (explicitMap.has(acct)) {
+        accountSubgroup.set(acct, explicitMap.get(acct)!);
+        continue;
+      }
+
+      // Priority 2: deptFilter (all accounts from matching departments)
+      const dept = accountDeptMap?.get(acct);
+      const deptMatch = subgroups.find(sg => sg.deptFilter?.includes(dept || ''));
+      if (deptMatch) {
+        accountSubgroup.set(acct, deptMatch.name);
+        continue;
+      }
+
+      // Priority 3: level_13 hierarchy match (Management Fees)
+      const level13Match = subgroups.find(sg => sg.useLevel13 && meta.level13Group === sg.useLevel13);
+      if (level13Match) {
+        accountSubgroup.set(acct, level13Match.name);
+        continue;
+      }
+
+      // Priority 4: prefix match
+      let prefixMatched = false;
+      for (const sg of subgroups) {
+        if (!sg.accPrefixes) continue;
+        if (sg.excludeAccounts?.includes(acct)) continue;
+        if (sg.accPrefixes.some(prefix => acct.startsWith(prefix))) {
+          accountSubgroup.set(acct, sg.name);
+          prefixMatched = true;
+          break;
+        }
+      }
+      if (prefixMatched) continue;
+
+      // Priority 5: Catch-all
+      accountSubgroup.set(acct, catchAllName);
+    }
+
+    // --- Build per-subgroup data sets (using aggregated data) ---
+    const mBySubgroup = new Map<string, any[]>();
+    const rBySubgroup = new Map<string, any[]>();
+    for (const sg of subgroups) {
+      mBySubgroup.set(sg.name, []);
+      rBySubgroup.set(sg.name, []);
+    }
+    for (const row of aggMonthData) {
+      const sg = accountSubgroup.get(row.account) || catchAllName;
+      mBySubgroup.get(sg)?.push(row);
+    }
+    for (const row of aggRangeData) {
+      const sg = accountSubgroup.get(row.account) || catchAllName;
+      rBySubgroup.get(sg)?.push(row);
+    }
+
+    // Helper: create a header/subtotal row with aggregated totals
+    const addHeaderWithTotals = (
+      label: string,
+      mRows: any[],
+      rRows: any[],
+      styleFn: (row: ExcelJS.Row) => void
+    ) => {
+      const mTotActuals = sumField(mRows, 'actuals');
+      const mTotBudget = sumField(mRows, 'budget');
+      const mTotLy = sumField(mRows, 'ly');
+      const mTotVsBud = mTotActuals - mTotBudget;
+      const mTotVsLy = mTotActuals - mTotLy;
+
+      const rTotActuals = sumField(rRows, 'actuals');
+      const rTotBudget = sumField(rRows, 'budget');
+      const rTotLy = sumField(rRows, 'ly');
+      const rTotVsBud = rTotActuals - rTotBudget;
+      const rTotVsLy = rTotActuals - rTotLy;
+
+      const headerRow = sheet.addRow({
+        account: label,
+        mLy: formatNumber(mTotLy),
+        mVsLyPct: formatPercentage(pct(mTotVsLy, mTotLy)),
+        mAct: formatNumber(mTotActuals),
+        mBud: formatNumber(mTotBudget),
+        mVsBud: formatNumber(mTotVsBud),
+        mVsBudPct: formatPercentage(pct(mTotVsBud, mTotBudget)),
+        sep: '',
+        rLy: formatNumber(rTotLy),
+        rVsLyPct: formatPercentage(pct(rTotVsLy, rTotLy)),
+        rAct: formatNumber(rTotActuals),
+        rBud: formatNumber(rTotBudget),
+        rVsBud: formatNumber(rTotVsBud),
+        rVsBudPct: formatPercentage(pct(rTotVsBud, rTotBudget)),
+        comments: ''
+      });
+      styleFn(headerRow);
+      this.styleDeptSeparator(headerRow);
+      applyNumberFormats(headerRow);
+    };
+
+    // --- Render each subgroup in config order ---
+    for (const sg of subgroups) {
+      const mRows = mBySubgroup.get(sg.name) || [];
+      const rRows = rBySubgroup.get(sg.name) || [];
+      if (mRows.length === 0 && rRows.length === 0) continue;
+
+      // Subgroup header row (name only)
+      const sgHeaderRow = sheet.addRow(new Array(totalCols).fill(''));
+      sgHeaderRow.getCell(1).value = sg.name;
+      applyGroupHeaderStyle(sgHeaderRow);
+      this.styleDeptSeparator(sgHeaderRow);
+
+      // Account detail rows - merge accounts from both sides
+      const allAccounts: string[] = [];
+      const mAcctMap = new Map<string, any>();
+      const rAcctMap = new Map<string, any>();
+      for (const row of mRows) {
+        mAcctMap.set(row.account, row);
+        if (!allAccounts.includes(row.account)) allAccounts.push(row.account);
+      }
+      for (const row of rRows) {
+        rAcctMap.set(row.account, row);
+        if (!allAccounts.includes(row.account)) allAccounts.push(row.account);
+      }
+
+      for (const acct of allAccounts) {
+        const mRow = mAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: acct, account: acct };
+        const rRow = rAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0 };
+        const displayName = mRow.accountName || mRow.account;
+
+        const excelRow = sheet.addRow({
+          account: `    ${displayName}`,
+          mLy: formatNumber(mRow.ly),
+          mVsLyPct: formatPercentage(pct(mRow.vsLy, mRow.ly)),
+          mAct: formatNumber(mRow.actuals),
+          mBud: formatNumber(mRow.budget),
+          mVsBud: formatNumber(mRow.vsBud),
+          mVsBudPct: formatPercentage(pct(mRow.vsBud, mRow.budget)),
+          sep: '',
+          rLy: formatNumber(rRow.ly),
+          rVsLyPct: formatPercentage(pct(rRow.vsLy, rRow.ly)),
+          rAct: formatNumber(rRow.actuals),
+          rBud: formatNumber(rRow.budget),
+          rVsBud: formatNumber(rRow.vsBud),
+          rVsBudPct: formatPercentage(pct(rRow.vsBud, rRow.budget)),
+          comments: ''
+        });
+
+        // Override account cell with rich text if AccPac description or moved annotation exists
+        const movedFrom = movedAccountSources?.get(mRow.account);
+        const accountLabel = this.buildAccountLabel(displayName, mRow.account, movedFrom);
+        if (typeof accountLabel !== 'string') {
+          excelRow.getCell(1).value = { richText: [{ font: { size: 10 }, text: '    ' }, ...accountLabel.richText] };
+        }
+
+        applyDataRowStyle(excelRow);
+        this.styleDeptSeparator(excelRow);
+        applyNumberFormats(excelRow);
+      }
+
+      // Subgroup subtotal row
+      addHeaderWithTotals(`  Total ${sg.name}`, mRows, rRows, applyGroupSubtotalStyle);
+
+      // Blank separator after subgroup
+      this.addBlankSeparatorRow(sheet, totalCols);
+    }
+
+    // Department total row (sum of all accounts)
+    addHeaderWithTotals('Total Department', aggMonthData, aggRangeData, applyCategorySubtotalStyle);
+    this.addBlankSeparatorRow(sheet, totalCols);
   }
 
   /**

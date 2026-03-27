@@ -409,18 +409,30 @@ export function calculateSummaryPLRows(
 // ============================================================================
 
 export function applyProteaAccountMovement(queryResult: any): void {
+  // Existing A730/A745 insurance/audit movement
   const moved0480 = Number(queryResult.protea_moved_accounts_d0480_act) || 0;
   const moved0490 = Number(queryResult.protea_moved_accounts_d0490_act) || 0;
-  const totalMoved = moved0480 + moved0490;
+
+  // A701603 movement from D0480/D0490/D0690
+  const a701603_d0480 = Number(queryResult.protea_moved_accounts_a701603_d0480_act) || 0;
+  const a701603_d0490 = Number(queryResult.protea_moved_accounts_a701603_d0490_act) || 0;
+  const a701603_d0690 = Number(queryResult.protea_moved_accounts_a701603_d0690_act) || 0;
+
+  const totalMoved = moved0480 + moved0490 + a701603_d0480 + a701603_d0490 + a701603_d0690;
 
   // Shift into UOE / Admin & General (increases expense, decreases profit)
   queryResult.admin_general_dept_expense_act = (Number(queryResult.admin_general_dept_expense_act) || 0) + totalMoved;
   queryResult.total_undist_op_exp_act = (Number(queryResult.total_undist_op_exp_act) || 0) + totalMoved;
   queryResult.total_profit_act = (Number(queryResult.total_profit_act) || 0) + totalMoved;
 
-  // Remove from D0480/D0490 "all" aggregates (below-the-line)
-  queryResult.f90_d0480_all_act = (Number(queryResult.f90_d0480_all_act) || 0) - moved0480;
-  queryResult.f90_d0490_all_act = (Number(queryResult.f90_d0490_all_act) || 0) - moved0490;
+  // Remove from source department aggregates (below-the-line)
+  queryResult.f90_d0480_all_act = (Number(queryResult.f90_d0480_all_act) || 0) - moved0480 - a701603_d0480;
+  queryResult.f90_d0490_all_act = (Number(queryResult.f90_d0490_all_act) || 0) - moved0490 - a701603_d0490;
+  queryResult.f90_d0690_all_act = (Number(queryResult.f90_d0690_all_act) || 0) - a701603_d0690;
+
+  // Remove A701603 from fixed expense prefix sub-measure (A701603 matches A701* prefix)
+  // a701603_d04xx values are already negated (negate:true), so + effectively subtracts the raw amount
+  queryResult.fixed_expenses_act = (Number(queryResult.fixed_expenses_act) || 0) + a701603_d0480 + a701603_d0490;
 }
 
 export function calculateF90PLRows(

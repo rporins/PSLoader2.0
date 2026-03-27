@@ -5634,6 +5634,7 @@ export interface DepartmentDetailRow {
   accountName: string;
   category: string;
   level12Group: string | null;
+  level13Group: string | null;
   actuals: number;
   budget: number;
   vsBud: number;
@@ -5742,6 +5743,7 @@ export async function getDepartmentDetailData(
         COALESCE(a.account, b.account, l.account) AS account,
         am.account_description_detail_level_max AS account_name,
         am.level_12 AS level_12_group,
+        am.level_13 AS level_13_group,
         CASE
           WHEN am.level_6 = 'Revenue' THEN 'Revenue'
           WHEN am.level_9 = 'Cost Of Sales' THEN 'Cost of Sales'
@@ -5797,6 +5799,7 @@ export async function getDepartmentDetailData(
       accountName: (row.account_name as string) || (row.account as string),
       category: row.category as string,
       level12Group: (row.level_12_group as string) || null,
+      level13Group: (row.level_13_group as string) || null,
       actuals: Number(row.actuals) || 0,
       budget: Number(row.budget) || 0,
       vsBud: Number(row.vs_bud) || 0,
@@ -5910,6 +5913,7 @@ export async function getGroupDepartmentDetailData(
         COALESCE(a.account, b.account, l.account) AS account,
         am.account_description_detail_level_max AS account_name,
         am.level_12 AS level_12_group,
+        am.level_13 AS level_13_group,
         CASE
           WHEN am.level_6 = 'Revenue' THEN 'Revenue'
           WHEN am.level_9 = 'Cost Of Sales' THEN 'Cost of Sales'
@@ -5964,6 +5968,7 @@ export async function getGroupDepartmentDetailData(
       accountName: (row.account_name as string) || (row.account as string),
       category: row.category as string,
       level12Group: (row.level_12_group as string) || null,
+      level13Group: (row.level_13_group as string) || null,
       actuals: Number(row.actuals) || 0,
       budget: Number(row.budget) || 0,
       vsBud: Number(row.vs_bud) || 0,
@@ -6090,6 +6095,7 @@ export async function getAllDepartmentDetailData(
         COALESCE(a.account, b.account, l.account) AS account,
         am.account_description_detail_level_max AS account_name,
         am.level_12 AS level_12_group,
+        am.level_13 AS level_13_group,
         CASE
           WHEN am.level_6 = 'Revenue' THEN 'Revenue'
           WHEN am.level_9 = 'Cost Of Sales' THEN 'Cost of Sales'
@@ -6148,6 +6154,7 @@ export async function getAllDepartmentDetailData(
       accountName: (row.account_name as string) || (row.account as string),
       category: row.category as string,
       level12Group: (row.level_12_group as string) || null,
+      level13Group: (row.level_13_group as string) || null,
       actuals: Number(row.actuals) || 0,
       budget: Number(row.budget) || 0,
       vsBud: Number(row.vs_bud) || 0,
