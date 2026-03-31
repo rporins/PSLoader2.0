@@ -24,6 +24,7 @@ import ErrorIcon from "@mui/icons-material/Error";
 import UploadIcon from "@mui/icons-material/Upload";
 import EditIcon from "@mui/icons-material/Edit";
 import LockIcon from "@mui/icons-material/Lock";
+import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 import { useNavigate } from "react-router-dom";
 import { useSettingsStore } from "../../store/settings";
 import submittedDataService, { SubmittedDataEntry } from "../../services/submittedDataService";
@@ -55,6 +56,7 @@ export default function SignOffUpload() {
   const [signOffCompleted, setSignOffCompleted] = useState<boolean>(false);
   const [showAccessDeniedModal, setShowAccessDeniedModal] = useState<boolean>(false);
   const [showResetConfirmModal, setShowResetConfirmModal] = useState<boolean>(false);
+  const [showResetAllHotelsModal, setShowResetAllHotelsModal] = useState<boolean>(false);
   const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
   const navigate = useNavigate();
 
@@ -183,11 +185,14 @@ export default function SignOffUpload() {
         period: row.period_combo, // Use period_combo (format: "YYYY-MM")
         department: row.department,
         account: row.account,
-        amount: Math.round(row.amount), // Convert to integer (round to nearest whole number)
+        amount: Math.round(row.amount * 100) / 100, // Round to 2 decimal places for decimal(18,2)
         scenario: row.scenario,
         version: row.version,
         currency: row.currency,
         load_id: row.import_batch_id || "manual", // Use import_batch_id if available
+        source_acc: row.source_account || null,
+        source_dep: row.source_department || null,
+        source_desc: row.source_description || null,
       }));
 
       if (submittedData.length === 0) {
@@ -219,17 +224,27 @@ export default function SignOffUpload() {
     }
   };
 
-  // Handle reset
+  // Handle reset (current hotel only)
   const handleReset = async () => {
     if (!selectedHotelOu) return;
 
     try {
       // @ts-ignore
       await window.ipcApi.sendIpcRequest('db:reset-all-completion-states', { ou: selectedHotelOu });
-      // Navigate back to imports
       navigate('/signed-in-landing/data-import');
     } catch (error) {
       console.error('Failed to reset completion states:', error);
+    }
+  };
+
+  // Handle reset (all hotels / entire staging table)
+  const handleResetAllHotels = async () => {
+    try {
+      // @ts-ignore
+      await window.ipcApi.sendIpcRequest('db:reset-all-completion-states-all-ous', {});
+      navigate('/signed-in-landing/data-import');
+    } catch (error) {
+      console.error('Failed to reset completion states for all OUs:', error);
     }
   };
 
@@ -465,7 +480,7 @@ export default function SignOffUpload() {
             </Typography>
           </Alert>
 
-          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+          <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
             <Button
               variant="contained"
               color="warning"
@@ -478,7 +493,21 @@ export default function SignOffUpload() {
                 fontSize: '0.9rem',
               }}
             >
-              Reset All Stages
+              Reset Current Hotel Only
+            </Button>
+            <Button
+              variant="contained"
+              color="error"
+              startIcon={<DeleteSweepIcon />}
+              onClick={() => setShowResetAllHotelsModal(true)}
+              sx={{
+                borderRadius: 2,
+                textTransform: 'none',
+                fontWeight: 600,
+                fontSize: '0.9rem',
+              }}
+            >
+              Reset Entire Staging Table
             </Button>
           </Box>
         </Stack>
@@ -523,7 +552,7 @@ export default function SignOffUpload() {
         </DialogActions>
       </Dialog>
 
-      {/* Reset Confirmation Modal */}
+      {/* Reset Current Hotel Confirmation Modal */}
       <Dialog
         open={showResetConfirmModal}
         onClose={() => setShowResetConfirmModal(false)}
@@ -531,20 +560,20 @@ export default function SignOffUpload() {
         fullWidth
       >
         <DialogTitle sx={{ fontWeight: 600, color: 'warning.main' }}>
-          Reset All Stages?
+          Reset Current Hotel Only?
         </DialogTitle>
         <DialogContent>
           <DialogContentText>
             <Typography variant="body1" color="text.secondary" mb={2}>
-              Are you sure you want to reset all stages? This will:
+              Are you sure you want to reset the current hotel? This will:
             </Typography>
             <Typography variant="body2" color="text.secondary" component="ul" sx={{ pl: 2 }}>
-              <li>Clear all imported data from the staging table</li>
-              <li>Reset import, validation, and sign-off completion states</li>
-              <li>Require you to re-import all data and re-run validations</li>
+              <li>Clear imported data from the staging table for the currently selected hotel only</li>
+              <li>Reset import, validation, and sign-off completion states for this hotel</li>
+              <li>Require you to re-import all data and re-run validations for this hotel</li>
             </Typography>
             <Typography variant="body2" color="error.main" mt={2} fontWeight={600}>
-              This action cannot be undone. You will need to start the entire process from the beginning.
+              This action cannot be undone. Other hotels will not be affected.
             </Typography>
           </DialogContentText>
         </DialogContent>
@@ -573,7 +602,62 @@ export default function SignOffUpload() {
               fontWeight: 600,
             }}
           >
-            Yes, Reset All Stages
+            Yes, Reset Current Hotel
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Reset Entire Staging Table Confirmation Modal */}
+      <Dialog
+        open={showResetAllHotelsModal}
+        onClose={() => setShowResetAllHotelsModal(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600, color: 'error.main' }}>
+          Reset Entire Staging Table?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            <Typography variant="body1" color="text.secondary" mb={2}>
+              Are you sure you want to reset the entire staging table? This will:
+            </Typography>
+            <Typography variant="body2" color="text.secondary" component="ul" sx={{ pl: 2 }}>
+              <li>Clear all imported data from the staging table for ALL hotels</li>
+              <li>Reset import, validation, and sign-off completion states for all hotels</li>
+              <li>Require you to re-import all data and re-run validations for every hotel</li>
+            </Typography>
+            <Typography variant="body2" color="error.main" mt={2} fontWeight={600}>
+              This action cannot be undone. All hotels will be affected.
+            </Typography>
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button
+            variant="outlined"
+            onClick={() => setShowResetAllHotelsModal(false)}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => {
+              setShowResetAllHotelsModal(false);
+              handleResetAllHotels();
+            }}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Yes, Reset All Hotels
           </Button>
         </DialogActions>
       </Dialog>

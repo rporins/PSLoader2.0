@@ -295,7 +295,7 @@ export class AccpacLineItemsProcessor extends BaseImportProcessor {
 
       // Step 3: Truncate staging table
       // console.log(`[${this.metadata.id}] Truncating staging table...`);
-      await db.clearStagingTable();
+      await db.clearStagingTable(ou);
 
       // Step 4: Group rows by mapped combo and aggregate ACTIVITY
       // This handles the case where multiple source rows map to the same target combo

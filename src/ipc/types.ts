@@ -191,6 +191,7 @@ export const IPC_CHANNELS = {
 
   // Reset all completion states
   DB_RESET_ALL_COMPLETION_STATES: 'db:reset-all-completion-states',
+  DB_RESET_ALL_COMPLETION_STATES_ALL_OUS: 'db:reset-all-completion-states-all-ous',
 
   // Manual adjustments channel
   DB_INSERT_MANUAL_ADJUSTMENTS: 'db:insert-manual-adjustments',

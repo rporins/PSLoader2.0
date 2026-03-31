@@ -696,6 +696,16 @@ export class DatabaseHandlers {
     };
   };
 
+  // Reset all completion states for ALL OUs handler
+  resetAllCompletionStatesAllOUsHandler: IpcHandler = async (event, request) => {
+    await db.resetAllCompletionStatesAllOUs();
+    return {
+      success: true,
+      data: { message: 'All completion states and staging data cleared for all OUs' },
+      timestamp: Date.now(),
+    };
+  };
+
   // Selected period per OU handlers
   getSelectedPeriodForOUHandler: IpcHandler = async (event, request) => {
     const result = await db.getSelectedPeriodForOU(request.ou);
@@ -881,6 +891,7 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_SELECTED_PERIOD_FOR_OU]: handlers.getSelectedPeriodForOUHandler,
     [IPC_CHANNELS.DB_SET_SELECTED_PERIOD_FOR_OU]: handlers.setSelectedPeriodForOUHandler,
     [IPC_CHANNELS.DB_RESET_ALL_COMPLETION_STATES]: handlers.resetAllCompletionStatesHandler,
+    [IPC_CHANNELS.DB_RESET_ALL_COMPLETION_STATES_ALL_OUS]: handlers.resetAllCompletionStatesAllOUsHandler,
     [IPC_CHANNELS.DB_INSERT_MANUAL_ADJUSTMENTS]: handlers.insertManualAdjustmentsHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_LAST_CHECK_DATE]: handlers.getFinancialDataLastCheckDateHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_LAST_CHECK_TIMESTAMP]: handlers.getFinancialDataLastCheckTimestampHandler,

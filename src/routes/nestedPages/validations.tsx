@@ -45,6 +45,7 @@ import {
   Assignment as AssignmentIcon,
   HourglassEmpty as HourglassEmptyIcon,
   CheckCircleOutline as CheckCircleOutlineIcon,
+  DeleteSweep as DeleteSweepIcon,
 } from '@mui/icons-material';
 import validationService, { Validation } from '../../services/validationService';
 import validationOverrideService, { ValidationOverrideStatus } from '../../services/validationOverrideService';
@@ -130,6 +131,7 @@ const Validations: React.FC = () => {
   const [showAccessDeniedModal, setShowAccessDeniedModal] = useState(false);
   const [validationCompleted, setValidationCompleted] = useState(false);
   const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
+  const [showResetAllHotelsModal, setShowResetAllHotelsModal] = useState(false);
 
   // Override state
   const [overrideStatuses, setOverrideStatuses] = useState<Map<string, ValidationOverrideStatus>>(new Map());
@@ -376,6 +378,20 @@ const Validations: React.FC = () => {
       console.error('Failed to reset completion states:', error);
     }
   }, [selectedOU, navigate]);
+
+  // Handle reset (all hotels / entire staging table)
+  const handleResetAllHotels = useCallback(async () => {
+    try {
+      // @ts-ignore
+      await window.ipcApi.sendIpcRequest('db:reset-all-completion-states-all-ous', {});
+      setValidationCompleted(false);
+      setImportCompleted(false);
+      setValidationResults(new Map());
+      navigate('/signed-in-landing/data-import');
+    } catch (error) {
+      console.error('Failed to reset completion states for all OUs:', error);
+    }
+  }, [navigate]);
 
   // Load override statuses for all required validations
   const loadOverrideStatuses = useCallback(async () => {
@@ -946,7 +962,22 @@ const Validations: React.FC = () => {
                 fontSize: '0.9rem',
               }}
             >
-              Reset All Stages
+              Reset Current Hotel Only
+            </Button>
+            <Button
+              variant="contained"
+              color="error"
+              startIcon={<DeleteSweepIcon />}
+              onClick={() => setShowResetAllHotelsModal(true)}
+              fullWidth={isMobile}
+              sx={{
+                borderRadius: 2,
+                textTransform: 'none',
+                fontWeight: 600,
+                fontSize: '0.9rem',
+              }}
+            >
+              Reset Entire Staging Table
             </Button>
           </Stack>
         </Stack>
@@ -976,7 +1007,7 @@ const Validations: React.FC = () => {
         </Alert>
       </Box>
 
-      {/* Reset Confirmation Modal */}
+      {/* Reset Current Hotel Confirmation Modal */}
       <Dialog
         open={showResetConfirmModal}
         onClose={() => setShowResetConfirmModal(false)}
@@ -984,21 +1015,21 @@ const Validations: React.FC = () => {
         fullWidth
       >
         <DialogTitle sx={{ fontWeight: 600, color: 'warning.main' }}>
-          Reset All Stages?
+          Reset Current Hotel Only?
         </DialogTitle>
         <DialogContent>
           <DialogContentText>
             <Typography variant="body1" color="text.secondary" mb={2}>
-              Are you sure you want to reset all stages? This will:
+              Are you sure you want to reset the current hotel? This will:
             </Typography>
             <Typography variant="body2" color="text.secondary" component="ul" sx={{ pl: 2 }}>
-              <li>Clear all imported data from the staging table</li>
-              <li>Reset import, validation, and sign-off completion states</li>
-              <li>Clear all validation results</li>
-              <li>Require you to re-import all data and re-run validations</li>
+              <li>Clear imported data from the staging table for the currently selected hotel only</li>
+              <li>Reset import, validation, and sign-off completion states for this hotel</li>
+              <li>Clear all validation results for this hotel</li>
+              <li>Require you to re-import all data and re-run validations for this hotel</li>
             </Typography>
             <Typography variant="body2" color="error.main" mt={2} fontWeight={600}>
-              This action cannot be undone. You will need to start the entire process from the beginning.
+              This action cannot be undone. Other hotels will not be affected.
             </Typography>
           </DialogContentText>
         </DialogContent>
@@ -1027,7 +1058,63 @@ const Validations: React.FC = () => {
               fontWeight: 600,
             }}
           >
-            Yes, Reset All Stages
+            Yes, Reset Current Hotel
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Reset Entire Staging Table Confirmation Modal */}
+      <Dialog
+        open={showResetAllHotelsModal}
+        onClose={() => setShowResetAllHotelsModal(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600, color: 'error.main' }}>
+          Reset Entire Staging Table?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            <Typography variant="body1" color="text.secondary" mb={2}>
+              Are you sure you want to reset the entire staging table? This will:
+            </Typography>
+            <Typography variant="body2" color="text.secondary" component="ul" sx={{ pl: 2 }}>
+              <li>Clear all imported data from the staging table for ALL hotels</li>
+              <li>Reset import, validation, and sign-off completion states for all hotels</li>
+              <li>Clear all validation results for all hotels</li>
+              <li>Require you to re-import all data and re-run validations for every hotel</li>
+            </Typography>
+            <Typography variant="body2" color="error.main" mt={2} fontWeight={600}>
+              This action cannot be undone. All hotels will be affected.
+            </Typography>
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button
+            variant="outlined"
+            onClick={() => setShowResetAllHotelsModal(false)}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => {
+              setShowResetAllHotelsModal(false);
+              handleResetAllHotels();
+            }}
+            sx={{
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Yes, Reset All Hotels
           </Button>
         </DialogActions>
       </Dialog>

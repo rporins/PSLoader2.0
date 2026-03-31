@@ -10,6 +10,9 @@ export interface SubmittedDataEntry {
   version: string;
   currency: string;
   load_id: string;
+  source_acc?: string | null;
+  source_dep?: string | null;
+  source_desc?: string | null;
 }
 
 export interface SubmittedDataResponse extends SubmittedDataEntry {

@@ -2468,6 +2468,34 @@ export async function resetAllCompletionStates(ou: string): Promise<void> {
   }
 }
 
+export async function resetAllCompletionStatesAllOUs(): Promise<void> {
+  try {
+    // Get all distinct OUs from the staging table
+    const result = await client.execute({
+      sql: "SELECT DISTINCT ou FROM financial_data_staging",
+      args: []
+    });
+
+    // Clear completion states and selected period for each OU
+    for (const row of result.rows) {
+      const ou = row.ou as string;
+      await setImportCompletedState(ou, false);
+      await setValidationCompletedState(ou, false);
+      await setSignOffCompletedState(ou, false);
+      await setSelectedPeriodForOU(ou, null);
+    }
+
+    // Clear entire staging table
+    await client.execute({
+      sql: "DELETE FROM financial_data_staging",
+      args: []
+    });
+  } catch (error) {
+    console.error("Error resetting completion states for all OUs:", error);
+    throw error;
+  }
+}
+
 //------------------------------------------------------------------------------------------------------------------
 //--- HOTELS CACHE FUNCTIONS --------------------------------------------------------------------------------------
 // Interface for cached hotel data
@@ -3864,13 +3892,19 @@ interface StagingData {
 }
 
 // Clear staging table
-export async function clearStagingTable(): Promise<void> {
+export async function clearStagingTable(ou?: string): Promise<void> {
   try {
-    await client.execute({
-      sql: "DELETE FROM financial_data_staging",
-      args: []
-    });
-    // console.log("Staging table cleared successfully");
+    if (ou) {
+      await client.execute({
+        sql: "DELETE FROM financial_data_staging WHERE ou = ?",
+        args: [ou]
+      });
+    } else {
+      await client.execute({
+        sql: "DELETE FROM financial_data_staging",
+        args: []
+      });
+    }
   } catch (error) {
     console.error("Error clearing staging table:", error);
     throw error;
