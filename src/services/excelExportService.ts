@@ -464,28 +464,21 @@ class ExcelExportService {
    * Helper to add F90 data rows with month and range data side by side
    */
   private addF90DataRows(sheet: ExcelJS.Worksheet, monthData: PLCalculationResult[], rangeData: PLCalculationResult[]): void {
-    // Build a lookup map from range data keyed by label so that rows align
-    // correctly even when filterZeroRows removes different rows from each array.
-    const rangeByLabel = new Map<string, PLCalculationResult>();
-    for (const r of rangeData) {
-      if (r.label) rangeByLabel.set(r.label, r);
+    // Build lookup maps keyed by label so that rows align correctly even when
+    // filterZeroRows removes different rows from each array.
+    const monthByLabel = new Map<string, PLCalculationResult>();
+    for (const m of monthData) {
+      if (m.label) monthByLabel.set(m.label, m);
     }
 
-    // Collect all unique labels in config order (month data drives the row list,
-    // then append any range-only rows that month didn't have)
-    const seen = new Set<string>();
+    // Use rangeData order as the primary driver — the range period is always a
+    // superset of the month period, so its filtered row list preserves config
+    // order for every row that has data in either dataset.
     const allRows: { mRow: PLCalculationResult | null; rRow: PLCalculationResult | null; primary: PLCalculationResult }[] = [];
 
-    for (const mRow of monthData) {
-      const rRow = mRow.label ? rangeByLabel.get(mRow.label) || null : null;
-      if (mRow.label) seen.add(mRow.label);
-      allRows.push({ mRow, rRow, primary: mRow });
-    }
-    // Add any range-only rows not present in month data
     for (const rRow of rangeData) {
-      if (rRow.label && !seen.has(rRow.label)) {
-        allRows.push({ mRow: null, rRow, primary: rRow });
-      }
+      const mRow = rRow.label ? monthByLabel.get(rRow.label) || null : null;
+      allRows.push({ mRow, rRow, primary: rRow });
     }
 
     for (const { mRow, rRow, primary } of allRows) {

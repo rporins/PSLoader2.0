@@ -17,7 +17,7 @@ import { PLRow } from '../types/plReportTypes';
 // ============================================================================
 
 const ROOMS_KPI_CONFIG: PLRow[] = [
-  { type: 'measure', label: 'Total Rooms', measureId: 'total_rooms', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Rooms Available', measureId: 'total_rooms', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Sold Rooms', measureId: 'sold_rooms', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Rooms Revenue', measureId: 'rooms_reservations_revenue', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Occupancy %', measureId: 'occupancy_rooms', formatting: 'percentage', indentLevel: 1 },
@@ -610,28 +610,21 @@ class ProteaReportPackService {
    * Helper to add F90 data rows with month and range data side by side
    */
   private addF90DataRows(sheet: ExcelJS.Worksheet, monthData: PLCalculationResult[], rangeData: PLCalculationResult[]): void {
-    // Build a lookup map from range data keyed by label so that rows align
-    // correctly even when filterZeroRows removes different rows from each array.
-    const rangeByLabel = new Map<string, PLCalculationResult>();
-    for (const r of rangeData) {
-      if (r.label) rangeByLabel.set(r.label, r);
+    // Build lookup maps keyed by label so that rows align correctly even when
+    // filterZeroRows removes different rows from each array.
+    const monthByLabel = new Map<string, PLCalculationResult>();
+    for (const m of monthData) {
+      if (m.label) monthByLabel.set(m.label, m);
     }
 
-    // Collect all unique labels in config order (month data drives the row list,
-    // then append any range-only rows that month didn't have)
-    const seen = new Set<string>();
+    // Use rangeData order as the primary driver — the range period is always a
+    // superset of the month period, so its filtered row list preserves config
+    // order for every row that has data in either dataset.
     const allRows: { mRow: PLCalculationResult | null; rRow: PLCalculationResult | null; primary: PLCalculationResult }[] = [];
 
-    for (const mRow of monthData) {
-      const rRow = mRow.label ? rangeByLabel.get(mRow.label) || null : null;
-      if (mRow.label) seen.add(mRow.label);
-      allRows.push({ mRow, rRow, primary: mRow });
-    }
-    // Add any range-only rows not present in month data
     for (const rRow of rangeData) {
-      if (rRow.label && !seen.has(rRow.label)) {
-        allRows.push({ mRow: null, rRow, primary: rRow });
-      }
+      const mRow = rRow.label ? monthByLabel.get(rRow.label) || null : null;
+      allRows.push({ mRow, rRow, primary: rRow });
     }
 
     for (const { mRow, rRow, primary } of allRows) {
@@ -1436,8 +1429,8 @@ class ProteaReportPackService {
     const rRevpar = kv(rangeKpi, 'RevPAR');
     const mSold = kv(monthKpi, 'Sold Rooms');
     const rSold = kv(rangeKpi, 'Sold Rooms');
-    const mTotal = kv(monthKpi, 'Total Rooms');
-    const rTotal = kv(rangeKpi, 'Total Rooms');
+    const mTotal = kv(monthKpi, 'Rooms Available');
+    const rTotal = kv(rangeKpi, 'Rooms Available');
     const mRev = kv(monthKpi, 'Rooms Revenue');
     const rRev = kv(rangeKpi, 'Rooms Revenue');
 
@@ -1481,20 +1474,20 @@ class ProteaReportPackService {
     };
 
     // Helper: add a KPI row with number format (ADR, RevPAR, cents-per-room)
-    const addNumKpiRow = (label: string, mAct: number, mBud: number, mLy: number, rAct: number, rBud: number, rLy: number) => {
+    const addNumKpiRow = (label: string, mAct: number, mBud: number, mLy: number, rAct: number, rBud: number, rLy: number, decimals: number = 0) => {
       const mVsBud = mAct - mBud;
       const mVsLy = mAct - mLy;
       const rVsBud = rAct - rBud;
       const rVsLy = rAct - rLy;
       const row = sheet.addRow({
         account: `  ${label}`,
-        mLy: formatNumber(mLy), mVsLyPct: formatPercentage(pct(mVsLy, mLy)),
-        mAct: formatNumber(mAct), mBud: formatNumber(mBud),
-        mVsBud: formatNumber(mVsBud), mVsBudPct: formatPercentage(pct(mVsBud, mBud)),
+        mLy: formatNumber(mLy, decimals), mVsLyPct: formatPercentage(pct(mVsLy, mLy)),
+        mAct: formatNumber(mAct, decimals), mBud: formatNumber(mBud, decimals),
+        mVsBud: formatNumber(mVsBud, decimals), mVsBudPct: formatPercentage(pct(mVsBud, mBud)),
         sep: '',
-        rLy: formatNumber(rLy), rVsLyPct: formatPercentage(pct(rVsLy, rLy)),
-        rAct: formatNumber(rAct), rBud: formatNumber(rBud),
-        rVsBud: formatNumber(rVsBud), rVsBudPct: formatPercentage(pct(rVsBud, rBud)),
+        rLy: formatNumber(rLy, decimals), rVsLyPct: formatPercentage(pct(rVsLy, rLy)),
+        rAct: formatNumber(rAct, decimals), rBud: formatNumber(rBud, decimals),
+        rVsBud: formatNumber(rVsBud, decimals), rVsBudPct: formatPercentage(pct(rVsBud, rBud)),
         comments: ''
       });
       applyKpiDataStyle(row);
@@ -1557,7 +1550,7 @@ class ProteaReportPackService {
       rExpense: { act: number; bud: number; ly: number }) => {
       addNumKpiRow(label,
         div(mExpense.act, mSoldAct), div(mExpense.bud, mSoldBud), div(mExpense.ly, mSoldLy),
-        div(rExpense.act, rSoldAct), div(rExpense.bud, rSoldBud), div(rExpense.ly, rSoldLy));
+        div(rExpense.act, rSoldAct), div(rExpense.bud, rSoldBud), div(rExpense.ly, rSoldLy), 2);
     };
 
     addCentsRow('Operating Supplies', mExp.opSupplies, rExp.opSupplies);
@@ -1668,20 +1661,20 @@ class ProteaReportPackService {
     };
 
     // Helper: add a KPI row with number format
-    const addNumKpiRow = (label: string, mAct: number, mBud: number, mLy: number, rAct: number, rBud: number, rLy: number) => {
+    const addNumKpiRow = (label: string, mAct: number, mBud: number, mLy: number, rAct: number, rBud: number, rLy: number, decimals: number = 0) => {
       const mVsBud = mAct - mBud;
       const mVsLy = mAct - mLy;
       const rVsBud = rAct - rBud;
       const rVsLy = rAct - rLy;
       const row = sheet.addRow({
         account: `  ${label}`,
-        mLy: formatNumber(mLy), mVsLyPct: formatPercentage(pct(mVsLy, mLy)),
-        mAct: formatNumber(mAct), mBud: formatNumber(mBud),
-        mVsBud: formatNumber(mVsBud), mVsBudPct: formatPercentage(pct(mVsBud, mBud)),
+        mLy: formatNumber(mLy, decimals), mVsLyPct: formatPercentage(pct(mVsLy, mLy)),
+        mAct: formatNumber(mAct, decimals), mBud: formatNumber(mBud, decimals),
+        mVsBud: formatNumber(mVsBud, decimals), mVsBudPct: formatPercentage(pct(mVsBud, mBud)),
         sep: '',
-        rLy: formatNumber(rLy), rVsLyPct: formatPercentage(pct(rVsLy, rLy)),
-        rAct: formatNumber(rAct), rBud: formatNumber(rBud),
-        rVsBud: formatNumber(rVsBud), rVsBudPct: formatPercentage(pct(rVsBud, rBud)),
+        rLy: formatNumber(rLy, decimals), rVsLyPct: formatPercentage(pct(rVsLy, rLy)),
+        rAct: formatNumber(rAct, decimals), rBud: formatNumber(rBud, decimals),
+        rVsBud: formatNumber(rVsBud, decimals), rVsBudPct: formatPercentage(pct(rVsBud, rBud)),
         comments: ''
       });
       applyKpiDataStyle(row);
@@ -1699,7 +1692,7 @@ class ProteaReportPackService {
       rExp: { act: number; bud: number; ly: number }) => {
       addNumKpiRow(label,
         div(mExp.act, m.covers), div(mExp.bud, m.coversBud), div(mExp.ly, m.coversLy),
-        div(rExp.act, r.covers), div(rExp.bud, r.coversBud), div(rExp.ly, r.coversLy));
+        div(rExp.act, r.covers), div(rExp.bud, r.coversBud), div(rExp.ly, r.coversLy), 2);
     };
 
     // --- Blank separator ---
@@ -1716,13 +1709,12 @@ class ProteaReportPackService {
     // Beverage Cost of Sales % (from engine)
     addEngineKpiRow('Beverage Cost of Sales %', mBevCos, rBevCos);
 
-    // Cost per Cover (total COS / covers — from raw data)
-    addNumKpiRow('Cost per Cover',
-      div(m.totalCos, m.covers), div(m.totalCosBud, m.coversBud), div(m.totalCosLy, m.coversLy),
-      div(r.totalCos, r.covers), div(r.totalCosBud, r.coversBud), div(r.totalCosLy, r.coversLy));
+    // --- Cost per Cover section header ---
+    const cpcHeader = sheet.addRow(new Array(totalCols).fill(''));
+    cpcHeader.getCell(1).value = 'Cost per Cover';
+    applyKpiHeaderStyle(cpcHeader);
 
     // --- Per-cover expense metrics ---
-    this.addBlankSeparatorRow(sheet, totalCols);
     addPerCoverRow('Operating Supplies', m.opSupplies, r.opSupplies);
     addPerCoverRow('Cleaning Supplies', m.cleanSupplies, r.cleanSupplies);
     addPerCoverRow('Comp Services', m.compServices, r.compServices);
@@ -2324,9 +2316,6 @@ class ProteaReportPackService {
       this.addBlankSeparatorRow(sheet, totalCols);
     }
 
-    // Department total row (sum of all accounts)
-    addHeaderWithTotals('Total Department', aggMonthData, aggRangeData, applyCategorySubtotalStyle);
-    this.addBlankSeparatorRow(sheet, totalCols);
   }
 
   /**
