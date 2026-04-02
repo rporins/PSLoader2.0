@@ -610,11 +610,14 @@ class ProteaReportPackService {
    * Helper to add F90 data rows with month and range data side by side
    */
   private addF90DataRows(sheet: ExcelJS.Worksheet, monthData: PLCalculationResult[], rangeData: PLCalculationResult[]): void {
-    // Build lookup maps keyed by label so that rows align correctly even when
-    // filterZeroRows removes different rows from each array.
-    const monthByLabel = new Map<string, PLCalculationResult>();
+    // Build lookup map keyed by rowId so that rows align correctly even when
+    // filterZeroRows removes different rows from each array.  rowId is assigned
+    // sequentially from the same rowConfig, so matching IDs always refer to the
+    // same P&L line.  (Using label would fail for lines like "Rooms and
+    // Reservations" that appear in both Revenue and Department Profit sections.)
+    const monthByRowId = new Map<number, PLCalculationResult>();
     for (const m of monthData) {
-      if (m.label) monthByLabel.set(m.label, m);
+      monthByRowId.set(m.rowId, m);
     }
 
     // Use rangeData order as the primary driver — the range period is always a
@@ -623,7 +626,7 @@ class ProteaReportPackService {
     const allRows: { mRow: PLCalculationResult | null; rRow: PLCalculationResult | null; primary: PLCalculationResult }[] = [];
 
     for (const rRow of rangeData) {
-      const mRow = rRow.label ? monthByLabel.get(rRow.label) || null : null;
+      const mRow = monthByRowId.get(rRow.rowId) || null;
       allRows.push({ mRow, rRow, primary: rRow });
     }
 

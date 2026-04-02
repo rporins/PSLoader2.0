@@ -2436,6 +2436,18 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
       { type: 'dept_base', value: 'D0690' },
       { type: 'acc_base', value: 'A701603' }
     ]
+  },
+
+  // Protea Owner Expense: explicit accounts matching INVEST_CUSTOM_SUBGROUPS
+  // A701601 (dividends) + A720701 from D0480/D0490
+  f90_protea_owner_explicit_act: {
+    id: 'f90_protea_owner_explicit_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: ['D0480', 'D0490'] },
+      { type: 'acc_base', value: ['A701601', 'A720701'] }
+    ]
   }
 };
 
@@ -3468,6 +3480,7 @@ export const MEASURES: Record<string, Measure> = {
     subMeasures: ['total_profit_act', 'fixed_expenses_act', 'f90_fixed_exp_extra_act',
       'f90_fixed_exp_fees_overlap_d0480_act', 'f90_fixed_exp_fees_overlap_d0490_act',
       'f90_fixed_exp_a701601_d0480_act', 'f90_fixed_exp_a701601_d0490_act',
+      'f90_abnormal_items_explicit_act',
       'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act', 'f90_incentive_fee_act'],
     evaluator: (ctx: MeasureContext) => {
       const gop = ctx.subMeasures.total_profit_act || 0;
@@ -3478,7 +3491,8 @@ export const MEASURES: Record<string, Measure> = {
         + (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0490_act || 0);
       const ownerOverlap = (ctx.subMeasures.f90_fixed_exp_a701601_d0480_act || 0)
         + (ctx.subMeasures.f90_fixed_exp_a701601_d0490_act || 0);
-      const correctedFixed = prefix + extra - feesOverlap - ownerOverlap;
+      const abnormalOverlap = ctx.subMeasures.f90_abnormal_items_explicit_act || 0;
+      const correctedFixed = prefix + extra - feesOverlap - ownerOverlap + abnormalOverlap;
       // Management fees (negate:true so values are negative, addition subtracts)
       const baseMgmt = ctx.subMeasures.f90_base_mgmt_fee_act || 0;
       const baseRoyalty = ctx.subMeasures.f90_base_royalty_fee_act || 0;
@@ -3619,13 +3633,14 @@ export const MEASURES: Record<string, Measure> = {
     }
   },
 
-  // F90 P&L - Fixed Expenses (A701*/A770* prefix + extra accounts, minus overlaps with Managed Fees and Owner Expense)
+  // F90 P&L - Fixed Expenses (A701*/A770* prefix + extra accounts, minus overlaps with Managed Fees, Owner Expense, and Abnormal Items)
   fixed_expenses: {
     id: 'fixed_expenses',
     type: 'calculated',
     subMeasures: ['fixed_expenses_act', 'f90_fixed_exp_extra_act',
       'f90_fixed_exp_fees_overlap_d0480_act', 'f90_fixed_exp_fees_overlap_d0490_act',
-      'f90_fixed_exp_a701601_d0480_act', 'f90_fixed_exp_a701601_d0490_act'],
+      'f90_fixed_exp_a701601_d0480_act', 'f90_fixed_exp_a701601_d0490_act',
+      'f90_abnormal_items_explicit_act'],
     evaluator: (ctx: MeasureContext) => {
       const prefix = ctx.subMeasures.fixed_expenses_act || 0;       // A701*/A770* (mutated: A701603 removed)
       const extra = ctx.subMeasures.f90_fixed_exp_extra_act || 0;   // A720901/A740002/A715103
@@ -3633,7 +3648,8 @@ export const MEASURES: Record<string, Measure> = {
         + (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0490_act || 0);  // A701120 etc.
       const ownerOverlap = (ctx.subMeasures.f90_fixed_exp_a701601_d0480_act || 0)
         + (ctx.subMeasures.f90_fixed_exp_a701601_d0490_act || 0);      // A701601
-      return prefix + extra - feesOverlap - ownerOverlap;
+      const abnormalOverlap = ctx.subMeasures.f90_abnormal_items_explicit_act || 0; // A701602/A701130 (negative via negate:true)
+      return prefix + extra - feesOverlap - ownerOverlap + abnormalOverlap;
     }
   },
 
@@ -3643,7 +3659,8 @@ export const MEASURES: Record<string, Measure> = {
     type: 'calculated',
     subMeasures: ['total_profit_act', 'fixed_expenses_act', 'f90_fixed_exp_extra_act',
       'f90_fixed_exp_fees_overlap_d0480_act', 'f90_fixed_exp_fees_overlap_d0490_act',
-      'f90_fixed_exp_a701601_d0480_act', 'f90_fixed_exp_a701601_d0490_act'],
+      'f90_fixed_exp_a701601_d0480_act', 'f90_fixed_exp_a701601_d0490_act',
+      'f90_abnormal_items_explicit_act'],
     evaluator: (ctx: MeasureContext) => {
       const gop = ctx.subMeasures.total_profit_act || 0;
       const prefix = ctx.subMeasures.fixed_expenses_act || 0;
@@ -3652,7 +3669,8 @@ export const MEASURES: Record<string, Measure> = {
         + (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0490_act || 0);
       const ownerOverlap = (ctx.subMeasures.f90_fixed_exp_a701601_d0480_act || 0)
         + (ctx.subMeasures.f90_fixed_exp_a701601_d0490_act || 0);
-      const correctedFixed = prefix + extra - feesOverlap - ownerOverlap;
+      const abnormalOverlap = ctx.subMeasures.f90_abnormal_items_explicit_act || 0;
+      const correctedFixed = prefix + extra - feesOverlap - ownerOverlap + abnormalOverlap;
       return gop - correctedFixed;
     }
   },
@@ -3669,22 +3687,13 @@ export const MEASURES: Record<string, Measure> = {
     }
   },
 
-  // F90 P&L - Owners Expense (D0490 residual + A720701 from D0480)
-  // Note: dividends (A701601) are no longer excluded — they stay in Owners Expense
+  // F90 P&L - Owners Expense (explicit accounts matching INVEST_CUSTOM_SUBGROUPS: A701601 + A720701)
   f90_protea_owner_expense: {
     id: 'f90_protea_owner_expense',
     type: 'calculated',
-    subMeasures: [
-      'f90_d0490_all_act', 'f90_d0490_all_fees_act', 'f90_d0490_interest_act',
-      'f90_d0490_tax_act', 'f90_depreciation_extra_d0490_act', 'f90_owner_exp_extra_d0480_act'
-    ],
+    subMeasures: ['f90_protea_owner_explicit_act'],
     evaluator: (ctx: MeasureContext) => {
-      return (ctx.subMeasures.f90_d0490_all_act || 0)
-        - (ctx.subMeasures.f90_d0490_all_fees_act || 0)
-        - (ctx.subMeasures.f90_d0490_interest_act || 0)
-        - (ctx.subMeasures.f90_d0490_tax_act || 0)
-        - (ctx.subMeasures.f90_depreciation_extra_d0490_act || 0)
-        + (ctx.subMeasures.f90_owner_exp_extra_d0480_act || 0);
+      return ctx.subMeasures.f90_protea_owner_explicit_act || 0;
     }
   },
 
@@ -3719,26 +3728,26 @@ export const MEASURES: Record<string, Measure> = {
       'total_profit_act', 'fixed_expenses_act', 'f90_fixed_exp_extra_act',
       'f90_fixed_exp_fees_overlap_d0480_act', 'f90_fixed_exp_fees_overlap_d0490_act',
       'f90_fixed_exp_a701601_d0480_act', 'f90_fixed_exp_a701601_d0490_act',
+      'f90_abnormal_items_explicit_act',
       'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act', 'f90_incentive_fee_act',
       // depreciation
       'f90_d0690_all_act', 'f90_depreciation_extra_d0480_act', 'f90_depreciation_extra_d0490_act',
       // owner expense
-      'f90_d0490_all_act', 'f90_d0490_all_fees_act', 'f90_d0490_interest_act',
-      'f90_d0490_tax_act', 'f90_owner_exp_extra_d0480_act',
+      'f90_protea_owner_explicit_act',
       // interest
-      'f90_d0480_interest_act', 'f90_d0690_interest_act',
-      // abnormal
-      'f90_abnormal_items_explicit_act'
+      'f90_d0490_interest_act', 'f90_d0480_interest_act', 'f90_d0690_interest_act'
     ],
     evaluator: (ctx: MeasureContext) => {
       // Income before non-op (inlined from f90_income_before_nonop)
       const gop = ctx.subMeasures.total_profit_act || 0;
+      const abnormalOverlap = ctx.subMeasures.f90_abnormal_items_explicit_act || 0;
       const correctedFixed = (ctx.subMeasures.fixed_expenses_act || 0)
         + (ctx.subMeasures.f90_fixed_exp_extra_act || 0)
         - (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0480_act || 0)
         - (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0490_act || 0)
         - (ctx.subMeasures.f90_fixed_exp_a701601_d0480_act || 0)
-        - (ctx.subMeasures.f90_fixed_exp_a701601_d0490_act || 0);
+        - (ctx.subMeasures.f90_fixed_exp_a701601_d0490_act || 0)
+        + abnormalOverlap;
       const baseMgmt = ctx.subMeasures.f90_base_mgmt_fee_act || 0;
       const baseRoyalty = ctx.subMeasures.f90_base_royalty_fee_act || 0;
       const incentive = ctx.subMeasures.f90_incentive_fee_act || 0;
@@ -3749,22 +3758,16 @@ export const MEASURES: Record<string, Measure> = {
         + (ctx.subMeasures.f90_depreciation_extra_d0480_act || 0)
         + (ctx.subMeasures.f90_depreciation_extra_d0490_act || 0);
 
-      // Owner expense (inlined from f90_protea_owner_expense)
-      const d0490Interest = ctx.subMeasures.f90_d0490_interest_act || 0;
-      const d0490Tax = ctx.subMeasures.f90_d0490_tax_act || 0;
-      const ownerExp = (ctx.subMeasures.f90_d0490_all_act || 0)
-        - (ctx.subMeasures.f90_d0490_all_fees_act || 0)
-        - d0490Interest - d0490Tax
-        - (ctx.subMeasures.f90_depreciation_extra_d0490_act || 0)
-        + (ctx.subMeasures.f90_owner_exp_extra_d0480_act || 0);
+      // Owner expense (explicit accounts matching INVEST_CUSTOM_SUBGROUPS)
+      const ownerExp = ctx.subMeasures.f90_protea_owner_explicit_act || 0;
 
       // Interest (inlined from f90_interest)
-      const interest = d0490Interest
+      const interest = (ctx.subMeasures.f90_d0490_interest_act || 0)
         + (ctx.subMeasures.f90_d0480_interest_act || 0)
         + (ctx.subMeasures.f90_d0690_interest_act || 0);
 
-      // Abnormal (explicit accounts)
-      const abnormal = ctx.subMeasures.f90_abnormal_items_explicit_act || 0;
+      // Abnormal (explicit accounts — already used in correctedFixed overlap, reuse value)
+      const abnormal = abnormalOverlap;
 
       return incomeBeforeNonOp + depreciation + ownerExp + interest + abnormal;
     }
@@ -3792,28 +3795,28 @@ export const MEASURES: Record<string, Measure> = {
       'total_profit_act', 'fixed_expenses_act', 'f90_fixed_exp_extra_act',
       'f90_fixed_exp_fees_overlap_d0480_act', 'f90_fixed_exp_fees_overlap_d0490_act',
       'f90_fixed_exp_a701601_d0480_act', 'f90_fixed_exp_a701601_d0490_act',
+      'f90_abnormal_items_explicit_act',
       'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act', 'f90_incentive_fee_act',
       // depreciation
       'f90_d0690_all_act', 'f90_depreciation_extra_d0480_act', 'f90_depreciation_extra_d0490_act',
       // owner expense
-      'f90_d0490_all_act', 'f90_d0490_all_fees_act', 'f90_d0490_interest_act',
-      'f90_d0490_tax_act', 'f90_owner_exp_extra_d0480_act',
+      'f90_protea_owner_explicit_act',
       // interest
-      'f90_d0480_interest_act', 'f90_d0690_interest_act',
-      // abnormal
-      'f90_abnormal_items_explicit_act',
+      'f90_d0490_interest_act', 'f90_d0480_interest_act', 'f90_d0690_interest_act',
       // tax (corrected: excludes A720901)
-      'f90_d0480_tax_act', 'f90_a720901_d0490_act', 'f90_a720901_d0480_act'
+      'f90_d0490_tax_act', 'f90_d0480_tax_act', 'f90_a720901_d0490_act', 'f90_a720901_d0480_act'
     ],
     evaluator: (ctx: MeasureContext) => {
       // Income before non-op
       const gop = ctx.subMeasures.total_profit_act || 0;
+      const abnormalOverlap = ctx.subMeasures.f90_abnormal_items_explicit_act || 0;
       const correctedFixed = (ctx.subMeasures.fixed_expenses_act || 0)
         + (ctx.subMeasures.f90_fixed_exp_extra_act || 0)
         - (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0480_act || 0)
         - (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0490_act || 0)
         - (ctx.subMeasures.f90_fixed_exp_a701601_d0480_act || 0)
-        - (ctx.subMeasures.f90_fixed_exp_a701601_d0490_act || 0);
+        - (ctx.subMeasures.f90_fixed_exp_a701601_d0490_act || 0)
+        + abnormalOverlap;
       const baseMgmt = ctx.subMeasures.f90_base_mgmt_fee_act || 0;
       const baseRoyalty = ctx.subMeasures.f90_base_royalty_fee_act || 0;
       const incentive = ctx.subMeasures.f90_incentive_fee_act || 0;
@@ -3824,27 +3827,22 @@ export const MEASURES: Record<string, Measure> = {
         + (ctx.subMeasures.f90_depreciation_extra_d0480_act || 0)
         + (ctx.subMeasures.f90_depreciation_extra_d0490_act || 0);
 
-      // Owner expense
-      const d0490Interest = ctx.subMeasures.f90_d0490_interest_act || 0;
-      const d0490Tax = ctx.subMeasures.f90_d0490_tax_act || 0;
-      const ownerExp = (ctx.subMeasures.f90_d0490_all_act || 0)
-        - (ctx.subMeasures.f90_d0490_all_fees_act || 0)
-        - d0490Interest - d0490Tax
-        - (ctx.subMeasures.f90_depreciation_extra_d0490_act || 0)
-        + (ctx.subMeasures.f90_owner_exp_extra_d0480_act || 0);
+      // Owner expense (explicit accounts matching INVEST_CUSTOM_SUBGROUPS)
+      const ownerExp = ctx.subMeasures.f90_protea_owner_explicit_act || 0;
 
       // Interest
-      const interest = d0490Interest
+      const interest = (ctx.subMeasures.f90_d0490_interest_act || 0)
         + (ctx.subMeasures.f90_d0480_interest_act || 0)
         + (ctx.subMeasures.f90_d0690_interest_act || 0);
 
-      // Abnormal (explicit)
-      const abnormal = ctx.subMeasures.f90_abnormal_items_explicit_act || 0;
+      // Abnormal (explicit accounts — reuse from correctedFixed overlap)
+      const abnormal = abnormalOverlap;
 
       const profitBeforeTax = incomeBeforeNonOp + depreciation + ownerExp + interest + abnormal;
 
       // Tax (corrected: excludes A720901 which is in Fixed Expenses)
-      const tax = d0490Tax + (ctx.subMeasures.f90_d0480_tax_act || 0)
+      const tax = (ctx.subMeasures.f90_d0490_tax_act || 0)
+        + (ctx.subMeasures.f90_d0480_tax_act || 0)
         - (ctx.subMeasures.f90_a720901_d0490_act || 0)
         - (ctx.subMeasures.f90_a720901_d0480_act || 0);
 
@@ -3868,23 +3866,24 @@ export const MEASURES: Record<string, Measure> = {
       'total_profit_act', 'fixed_expenses_act', 'f90_fixed_exp_extra_act',
       'f90_fixed_exp_fees_overlap_d0480_act', 'f90_fixed_exp_fees_overlap_d0490_act',
       'f90_fixed_exp_a701601_d0480_act', 'f90_fixed_exp_a701601_d0490_act',
+      'f90_abnormal_items_explicit_act',
       'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act', 'f90_incentive_fee_act',
       'f90_d0690_all_act', 'f90_depreciation_extra_d0480_act', 'f90_depreciation_extra_d0490_act',
-      'f90_d0490_all_act', 'f90_d0490_all_fees_act', 'f90_d0490_interest_act',
-      'f90_d0490_tax_act', 'f90_owner_exp_extra_d0480_act',
-      'f90_d0480_interest_act', 'f90_d0690_interest_act',
-      'f90_abnormal_items_explicit_act',
-      'f90_d0480_tax_act', 'f90_a720901_d0490_act', 'f90_a720901_d0480_act'
+      'f90_protea_owner_explicit_act',
+      'f90_d0490_interest_act', 'f90_d0480_interest_act', 'f90_d0690_interest_act',
+      'f90_d0490_tax_act', 'f90_d0480_tax_act', 'f90_a720901_d0490_act', 'f90_a720901_d0480_act'
     ],
     evaluator: (ctx: MeasureContext) => {
       // Same as f90_net_profit (dividends placeholder is 0)
       const gop = ctx.subMeasures.total_profit_act || 0;
+      const abnormalOverlap = ctx.subMeasures.f90_abnormal_items_explicit_act || 0;
       const correctedFixed = (ctx.subMeasures.fixed_expenses_act || 0)
         + (ctx.subMeasures.f90_fixed_exp_extra_act || 0)
         - (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0480_act || 0)
         - (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0490_act || 0)
         - (ctx.subMeasures.f90_fixed_exp_a701601_d0480_act || 0)
-        - (ctx.subMeasures.f90_fixed_exp_a701601_d0490_act || 0);
+        - (ctx.subMeasures.f90_fixed_exp_a701601_d0490_act || 0)
+        + abnormalOverlap;
       const baseMgmt = ctx.subMeasures.f90_base_mgmt_fee_act || 0;
       const baseRoyalty = ctx.subMeasures.f90_base_royalty_fee_act || 0;
       const incentive = ctx.subMeasures.f90_incentive_fee_act || 0;
@@ -3894,23 +3893,19 @@ export const MEASURES: Record<string, Measure> = {
         + (ctx.subMeasures.f90_depreciation_extra_d0480_act || 0)
         + (ctx.subMeasures.f90_depreciation_extra_d0490_act || 0);
 
-      const d0490Interest = ctx.subMeasures.f90_d0490_interest_act || 0;
-      const d0490Tax = ctx.subMeasures.f90_d0490_tax_act || 0;
-      const ownerExp = (ctx.subMeasures.f90_d0490_all_act || 0)
-        - (ctx.subMeasures.f90_d0490_all_fees_act || 0)
-        - d0490Interest - d0490Tax
-        - (ctx.subMeasures.f90_depreciation_extra_d0490_act || 0)
-        + (ctx.subMeasures.f90_owner_exp_extra_d0480_act || 0);
+      // Owner expense (explicit accounts matching INVEST_CUSTOM_SUBGROUPS)
+      const ownerExp = ctx.subMeasures.f90_protea_owner_explicit_act || 0;
 
-      const interest = d0490Interest
+      const interest = (ctx.subMeasures.f90_d0490_interest_act || 0)
         + (ctx.subMeasures.f90_d0480_interest_act || 0)
         + (ctx.subMeasures.f90_d0690_interest_act || 0);
 
-      const abnormal = ctx.subMeasures.f90_abnormal_items_explicit_act || 0;
+      const abnormal = abnormalOverlap;
 
       const profitBeforeTax = incomeBeforeNonOp + depreciation + ownerExp + interest + abnormal;
 
-      const tax = d0490Tax + (ctx.subMeasures.f90_d0480_tax_act || 0)
+      const tax = (ctx.subMeasures.f90_d0490_tax_act || 0)
+        + (ctx.subMeasures.f90_d0480_tax_act || 0)
         - (ctx.subMeasures.f90_a720901_d0490_act || 0)
         - (ctx.subMeasures.f90_a720901_d0480_act || 0);
 

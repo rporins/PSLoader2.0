@@ -63,8 +63,8 @@ export const PROTEA_F90_PL_ROW_CONFIG: PLRow[] = [
 
   // Management Fees — debit-balance accounts, invertSign:true needed
   { type: 'measure', label: 'Base Mgmt Fee', measureId: 'f90_base_mgmt_fee', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Base Royalty Fee', measureId: 'f90_base_royalty_fee', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Incentive Fee', measureId: 'f90_incentive_fee', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Incentive Fee', measureId: 'f90_base_royalty_fee', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Base Royalty Fee', measureId: 'f90_incentive_fee', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'header', label: 'TOTAL MANAGEMENT FEES', measureId: 'f90_total_mgmt_fees', formatting: 'number', indentLevel: 0, invertSign: true },
   { type: 'header', label: 'HOTEL PROFIT/(LOSS) BEFORE DEPR, INT AND OWNER EXP', measureId: 'f90_income_before_nonop', formatting: 'number', indentLevel: 0 },
 
@@ -154,8 +154,8 @@ export const PROTEA_F90_PL_ROW_CONFIG_WITH_BANQUETING: PLRow[] = [
   { type: 'header', label: '', indentLevel: 0 },
 
   { type: 'measure', label: 'Base Mgmt Fee', measureId: 'f90_base_mgmt_fee', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Base Royalty Fee', measureId: 'f90_base_royalty_fee', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Incentive Fee', measureId: 'f90_incentive_fee', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Incentive Fee', measureId: 'f90_base_royalty_fee', formatting: 'number', indentLevel: 1, invertSign: true },
+  { type: 'measure', label: 'Base Royalty Fee', measureId: 'f90_incentive_fee', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'header', label: 'TOTAL MANAGEMENT FEES', measureId: 'f90_total_mgmt_fees', formatting: 'number', indentLevel: 0, invertSign: true },
   { type: 'header', label: 'HOTEL PROFIT/(LOSS) BEFORE DEPR, INT AND OWNER EXP', measureId: 'f90_income_before_nonop', formatting: 'number', indentLevel: 0 },
 
