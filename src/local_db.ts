@@ -1557,7 +1557,7 @@ export async function getProteaF90PLData(
     applyProteaAccountMovement(budgetData);
     applyProteaAccountMovement(lyData);
 
-    const plRows = calculateF90PLRows(actualsData, budgetData, lyData, rowConfig, skipFilter);
+    const plRows = calculateF90PLRows(actualsData, budgetData, lyData, rowConfig, true);
 
     return JSON.stringify(plRows);
   } catch (error) {
@@ -5677,6 +5677,38 @@ export interface DepartmentDetailRow {
   vsLy: number;
 }
 
+// ============================================================================
+// PROTEA REPORT-LEVEL CATEGORY REPOINTS
+// Accounts whose detail-sheet category should differ from the standard
+// hierarchy-based CASE logic.  Report-level only — underlying data unchanged.
+// To repoint an account, add an entry: { account: 'A______', targetCategory: '...' }
+// Valid categories: Revenue, Cost of Sales, Payroll, Controllables, Stats, Other
+// ============================================================================
+const PROTEA_CATEGORY_REPOINTS: Array<{ account: string; targetCategory: string }> = [
+  { account: 'A610112', targetCategory: 'Payroll' },
+];
+
+const CATEGORY_SORT_ORDER: Record<string, number> = {
+  'Revenue': 1, 'Cost of Sales': 2, 'Payroll': 3, 'Controllables': 4, 'Other': 5, 'Stats': 6
+};
+
+function buildRepointCaseClauses(): { categoryClauses: string; orderClauses: string } {
+  if (PROTEA_CATEGORY_REPOINTS.length === 0) return { categoryClauses: '', orderClauses: '' };
+
+  const categoryClauses = PROTEA_CATEGORY_REPOINTS
+    .map(r => `WHEN am.base_account = '${r.account}' THEN '${r.targetCategory}'`)
+    .join('\n          ');
+
+  const orderClauses = PROTEA_CATEGORY_REPOINTS
+    .map(r => `WHEN am.base_account = '${r.account}' THEN ${CATEGORY_SORT_ORDER[r.targetCategory]}`)
+    .join('\n          ');
+
+  return {
+    categoryClauses: categoryClauses + '\n          ',
+    orderClauses: orderClauses + '\n          ',
+  };
+}
+
 /**
  * Get account-level detail data for a specific department for Excel export
  * Groups accounts by category using account_maps levels
@@ -5704,6 +5736,7 @@ export async function getDepartmentDetailData(
     // Build periods placeholders
     const periodPlaceholders = periods.map(() => '?').join(', ');
     const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
+    const repointClauses = buildRepointCaseClauses();
 
     const query = `
       WITH combined_actuals AS (
@@ -5780,7 +5813,7 @@ export async function getDepartmentDetailData(
         am.level_12 AS level_12_group,
         am.level_13 AS level_13_group,
         CASE
-          WHEN am.level_6 = 'Revenue' THEN 'Revenue'
+          ${repointClauses.categoryClauses}WHEN am.level_6 = 'Revenue' THEN 'Revenue'
           WHEN am.level_9 = 'Cost Of Sales' THEN 'Cost of Sales'
           WHEN am.level_9 = 'Total Payroll' THEN 'Payroll'
           WHEN am.level_1 = 'STAT' OR am.base_account LIKE 'A9%' THEN 'Stats'
@@ -5801,7 +5834,7 @@ export async function getDepartmentDetailData(
         AND COALESCE(a.account, b.account, l.account) NOT LIKE 'A2%'
       ORDER BY
         CASE
-          WHEN am.level_6 = 'Revenue' THEN 1
+          ${repointClauses.orderClauses}WHEN am.level_6 = 'Revenue' THEN 1
           WHEN am.level_9 = 'Cost Of Sales' THEN 2
           WHEN am.level_9 = 'Total Payroll' THEN 3
           WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 4
@@ -5874,6 +5907,7 @@ export async function getGroupDepartmentDetailData(
     const periodPlaceholders = periods.map(() => '?').join(', ');
     const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
     const deptPlaceholders = departments.map(() => '?').join(', ');
+    const repointClauses = buildRepointCaseClauses();
 
     const query = `
       WITH combined_actuals AS (
@@ -5950,7 +5984,7 @@ export async function getGroupDepartmentDetailData(
         am.level_12 AS level_12_group,
         am.level_13 AS level_13_group,
         CASE
-          WHEN am.level_6 = 'Revenue' THEN 'Revenue'
+          ${repointClauses.categoryClauses}WHEN am.level_6 = 'Revenue' THEN 'Revenue'
           WHEN am.level_9 = 'Cost Of Sales' THEN 'Cost of Sales'
           WHEN am.level_9 = 'Total Payroll' THEN 'Payroll'
           WHEN am.level_1 = 'STAT' OR am.base_account LIKE 'A9%' THEN 'Stats'
@@ -5971,7 +6005,7 @@ export async function getGroupDepartmentDetailData(
         AND COALESCE(a.account, b.account, l.account) NOT LIKE 'A2%'
       ORDER BY
         CASE
-          WHEN am.level_6 = 'Revenue' THEN 1
+          ${repointClauses.orderClauses}WHEN am.level_6 = 'Revenue' THEN 1
           WHEN am.level_9 = 'Cost Of Sales' THEN 2
           WHEN am.level_9 = 'Total Payroll' THEN 3
           WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 4
@@ -6048,6 +6082,7 @@ export async function getAllDepartmentDetailData(
     const excludePlaceholders = hasExclusions
       ? `AND dm.base_department NOT IN (${excludeDepartments.map(() => '?').join(', ')})`
       : '';
+    const repointClauses = buildRepointCaseClauses();
 
     const query = `
       WITH combined_actuals AS (
@@ -6132,7 +6167,7 @@ export async function getAllDepartmentDetailData(
         am.level_12 AS level_12_group,
         am.level_13 AS level_13_group,
         CASE
-          WHEN am.level_6 = 'Revenue' THEN 'Revenue'
+          ${repointClauses.categoryClauses}WHEN am.level_6 = 'Revenue' THEN 'Revenue'
           WHEN am.level_9 = 'Cost Of Sales' THEN 'Cost of Sales'
           WHEN am.level_9 = 'Total Payroll' THEN 'Payroll'
           WHEN am.level_1 = 'STAT' OR am.base_account LIKE 'A9%' THEN 'Stats'
@@ -6153,7 +6188,7 @@ export async function getAllDepartmentDetailData(
         AND COALESCE(a.account, b.account, l.account) NOT LIKE 'A2%'
       ORDER BY
         CASE
-          WHEN am.level_6 = 'Revenue' THEN 1
+          ${repointClauses.orderClauses}WHEN am.level_6 = 'Revenue' THEN 1
           WHEN am.level_9 = 'Cost Of Sales' THEN 2
           WHEN am.level_9 = 'Total Payroll' THEN 3
           WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 4

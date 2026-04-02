@@ -1451,7 +1451,7 @@ class ExcelExportService {
     applySectionHeaderStyle(revConsolHeader);
     sheet.mergeCells(revConsolHeader.number, 1, revConsolHeader.number, TOTAL_COLS);
 
-    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'revenue', 'consolidated', TOTAL_COLS);
+    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'revenue', 'consolidated', TOTAL_COLS, { hideZeroRows: !config.generateDetailTabs });
 
     if (config.generateDetailTabs) {
       this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
@@ -1477,7 +1477,7 @@ class ExcelExportService {
     applySectionHeaderStyle(nightsConsolHeader);
     sheet.mergeCells(nightsConsolHeader.number, 1, nightsConsolHeader.number, TOTAL_COLS);
 
-    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'nights', 'consolidated', TOTAL_COLS);
+    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'nights', 'consolidated', TOTAL_COLS, { hideZeroRows: !config.generateDetailTabs });
 
     if (config.generateDetailTabs) {
       this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
@@ -1503,7 +1503,7 @@ class ExcelExportService {
     applySectionHeaderStyle(adrConsolHeader);
     sheet.mergeCells(adrConsolHeader.number, 1, adrConsolHeader.number, TOTAL_COLS);
 
-    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'adr', 'consolidated', TOTAL_COLS);
+    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'adr', 'consolidated', TOTAL_COLS, { hideZeroRows: !config.generateDetailTabs });
 
     if (config.generateDetailTabs) {
       this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
@@ -1541,6 +1541,20 @@ class ExcelExportService {
         ly: row.nightsLy !== 0 ? -row.revLy / row.nightsLy : null,
       };
     }
+  }
+
+  /**
+   * Check if both month and range aggregated rows are entirely zero across all metrics.
+   * Used to hide zero rows in consolidated mode.
+   */
+  private isSegmentAllZeros(
+    mRow: { revAct: number; revBud: number; revLy: number; nightsAct: number; nightsBud: number; nightsLy: number },
+    rRow: { revAct: number; revBud: number; revLy: number; nightsAct: number; nightsBud: number; nightsLy: number }
+  ): boolean {
+    return mRow.revAct === 0 && mRow.revBud === 0 && mRow.revLy === 0
+        && mRow.nightsAct === 0 && mRow.nightsBud === 0 && mRow.nightsLy === 0
+        && rRow.revAct === 0 && rRow.revBud === 0 && rRow.revLy === 0
+        && rRow.nightsAct === 0 && rRow.nightsBud === 0 && rRow.nightsLy === 0;
   }
 
   /**
@@ -1631,7 +1645,8 @@ class ExcelExportService {
     rangeData: any[],
     metric: 'revenue' | 'nights' | 'adr',
     mode: 'consolidated' | 'detail',
-    totalCols: number
+    totalCols: number,
+    options?: { hideZeroRows?: boolean }
   ): void {
     const categories = mode === 'consolidated'
       ? ['Transient', 'Groups', 'Complimentary']
@@ -1654,6 +1669,18 @@ class ExcelExportService {
 
       if (segmentNames.size === 0) continue;
 
+      const zeroRow = { revAct: 0, revBud: 0, revLy: 0, nightsAct: 0, nightsBud: 0, nightsLy: 0 };
+
+      // Skip entire category if all segments are zero on both sides
+      if (options?.hideZeroRows) {
+        const hasNonZero = [...segmentNames].some(segName => {
+          const m = monthRows.find(r => r.name === segName) || zeroRow;
+          const r = rangeRows.find(r => r.name === segName) || zeroRow;
+          return !this.isSegmentAllZeros(m, r);
+        });
+        if (!hasNonZero) continue;
+      }
+
       // Category header
       const catHeader = sheet.addRow(new Array(totalCols).fill(''));
       catHeader.getCell(1).value = category;
@@ -1664,8 +1691,10 @@ class ExcelExportService {
       const subRangeTotals = { revAct: 0, revBud: 0, revLy: 0, nightsAct: 0, nightsBud: 0, nightsLy: 0 };
 
       for (const segName of segmentNames) {
-        const mRow = monthRows.find(r => r.name === segName) || { revAct: 0, revBud: 0, revLy: 0, nightsAct: 0, nightsBud: 0, nightsLy: 0 };
-        const rRow = rangeRows.find(r => r.name === segName) || { revAct: 0, revBud: 0, revLy: 0, nightsAct: 0, nightsBud: 0, nightsLy: 0 };
+        const mRow = monthRows.find(r => r.name === segName) || zeroRow;
+        const rRow = rangeRows.find(r => r.name === segName) || zeroRow;
+
+        if (options?.hideZeroRows && this.isSegmentAllZeros(mRow, rRow)) continue;
 
         const monthVals = this.extractMetricValues(mRow, metric);
         const rangeVals = this.extractMetricValues(rRow, metric);

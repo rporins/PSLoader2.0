@@ -881,7 +881,7 @@ class ProteaReportPackService {
       return null;
     }
 
-    let sheetName = sanitizeSheetName(`${groupName} Summary`.toUpperCase());
+    let sheetName = sanitizeSheetName(`${this.proteaRenameLabel(groupName)} Summary`.toUpperCase());
     let finalName = sheetName;
     let counter = 1;
     while (usedSheetNames.has(finalName.toLowerCase())) {
@@ -913,7 +913,7 @@ class ProteaReportPackService {
     ];
 
     // Title header rows (report name, hotel name + timestamp)
-    this.addSheetTitleHeader(sheet, config, totalCols, groupName);
+    this.addSheetTitleHeader(sheet, config, totalCols, this.proteaRenameLabel(groupName));
 
     // Period group headers
     const groupRow = sheet.addRow(new Array(totalCols).fill(''));
@@ -1049,7 +1049,7 @@ class ProteaReportPackService {
       return null;
     }
 
-    let sheetName = sanitizeSheetName(nameOverride || dept.departmentName || dept.baseDepartment);
+    let sheetName = sanitizeSheetName(this.proteaRenameLabel(nameOverride || dept.departmentName || dept.baseDepartment));
     let finalName = sheetName;
     let counter = 1;
     while (usedSheetNames.has(finalName.toLowerCase())) {
@@ -1081,7 +1081,7 @@ class ProteaReportPackService {
     ];
 
     // Title header rows (report name, hotel name + timestamp)
-    this.addSheetTitleHeader(sheet, config, totalCols, nameOverride || dept.departmentName);
+    this.addSheetTitleHeader(sheet, config, totalCols, this.proteaRenameLabel(nameOverride || dept.departmentName));
 
     // Period group headers
     const groupRow = sheet.addRow(new Array(totalCols).fill(''));
@@ -1172,7 +1172,7 @@ class ProteaReportPackService {
 
       if (entry.type === 'groupHeader') {
         // Uppercase bold group name (not a hyperlink)
-        row.getCell(1).value = (entry.groupName || '').toUpperCase();
+        row.getCell(1).value = this.proteaRenameLabel(entry.groupName || '').toUpperCase();
         row.getCell(1).font = { bold: true, size: 11, color: { argb: 'FF1E3A5F' } };
         row.height = 22;
       } else {
@@ -1194,10 +1194,21 @@ class ProteaReportPackService {
   }
 
   /**
+   * Replace "Miscellaneous"/"Misc" with "Sundry" for Protea display labels.
+   * Applied at render level only — underlying data is unchanged.
+   */
+  private proteaRenameLabel(label: string): string {
+    return label
+      .replace(/\bMiscellaneous\b/gi, 'Sundry')
+      .replace(/\bMisc\b/gi, 'Sundry');
+  }
+
+  /**
    * Returns a rich text value with the AccPac description in light grey brackets,
    * or a plain string if no AccPac description exists.
    */
   private buildAccountLabel(displayName: string, accountCode: string, movedFrom?: string): string | ExcelJS.CellRichTextValue {
+    displayName = this.proteaRenameLabel(displayName);
     const descriptions = this.accpacDescriptions.get(accountCode);
     const hasDescriptions = descriptions && descriptions.length > 0;
 
@@ -2011,7 +2022,7 @@ class ProteaReportPackService {
 
           // Subgroup header row (name only)
           const groupHeaderRow = sheet.addRow(new Array(totalCols).fill(''));
-          groupHeaderRow.getCell(1).value = groupName;
+          groupHeaderRow.getCell(1).value = this.proteaRenameLabel(groupName);
           applyGroupHeaderStyle(groupHeaderRow);
           this.styleDeptSeparator(groupHeaderRow);
 
@@ -2064,7 +2075,7 @@ class ProteaReportPackService {
           }
 
           // level_12 group subtotal row (at bottom of sub-group)
-          addHeaderWithTotals(`  Total ${groupName}`, mGroupRows, rGroupRows, applyGroupSubtotalStyle, false, sign);
+          addHeaderWithTotals(`  Total ${this.proteaRenameLabel(groupName)}`, mGroupRows, rGroupRows, applyGroupSubtotalStyle, false, sign);
 
           // Blank row separator after each level_12 sub-group
           this.addBlankSeparatorRow(sheet, totalCols);
@@ -2261,7 +2272,7 @@ class ProteaReportPackService {
 
       // Subgroup header row (name only)
       const sgHeaderRow = sheet.addRow(new Array(totalCols).fill(''));
-      sgHeaderRow.getCell(1).value = sg.name;
+      sgHeaderRow.getCell(1).value = this.proteaRenameLabel(sg.name);
       applyGroupHeaderStyle(sgHeaderRow);
       this.styleDeptSeparator(sgHeaderRow);
 
@@ -2314,7 +2325,7 @@ class ProteaReportPackService {
       }
 
       // Subgroup subtotal row
-      addHeaderWithTotals(`  Total ${sg.name}`, mRows, rRows, applyGroupSubtotalStyle);
+      addHeaderWithTotals(`  Total ${this.proteaRenameLabel(sg.name)}`, mRows, rRows, applyGroupSubtotalStyle);
 
       // Blank separator after subgroup
       this.addBlankSeparatorRow(sheet, totalCols);
