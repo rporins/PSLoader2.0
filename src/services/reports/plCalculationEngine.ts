@@ -439,7 +439,8 @@ export function calculateF90PLRows(
   actualsData: BaseQueryResult,
   budgetData: BaseQueryResult,
   lyData: BaseQueryResult,
-  rowConfig: PLRow[] = F90_PL_ROW_CONFIG
+  rowConfig: PLRow[] = F90_PL_ROW_CONFIG,
+  skipFilter: boolean = false
 ): PLCalculationResult[] {
   const actualsSubMeasures = evaluateSubMeasures(actualsData);
   const budgetSubMeasures = evaluateSubMeasures(budgetData);
@@ -499,7 +500,7 @@ export function calculateF90PLRows(
     });
   });
 
-  return filterZeroRows(results);
+  return skipFilter ? results : filterZeroRows(results);
 }
 
 // ============================================================================

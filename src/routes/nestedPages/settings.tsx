@@ -346,6 +346,43 @@ export default function Settings() {
     }
   };
 
+  const handleForceUpdateFinancialData = async () => {
+    if (!selectedHotelOu) {
+      setFinancialDataImportMessage({
+        type: 'error',
+        message: 'Please select a hotel first'
+      });
+      return;
+    }
+
+    setImportingFinancialData(true);
+    setFinancialDataImportMessage(null);
+
+    try {
+      // Force full import - ignores timestamps and downloads all data
+      const result = await financialDataService.importFinancialDataFull(selectedHotelOu);
+
+      setFinancialDataImportMessage({
+        type: 'success',
+        message: `Force update complete: ${result.message}`
+      });
+
+      // Reload financial data info
+      await loadFinancialDataInfo();
+
+      // Clear message after 5 seconds
+      setTimeout(() => setFinancialDataImportMessage(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to force update financial data:', err);
+      setFinancialDataImportMessage({
+        type: 'error',
+        message: err.message || 'Failed to force update financial data'
+      });
+    } finally {
+      setImportingFinancialData(false);
+    }
+  };
+
   const handleDownloadTemplate = async (templateId: string) => {
     setTemplateMessage(null);
     try {
@@ -734,18 +771,32 @@ export default function Settings() {
               </Box>
             )}
 
-            <Button
-              variant="contained"
-              startIcon={importingFinancialData ? <CircularProgress size={20} /> : <DownloadIcon />}
-              onClick={handleImportFinancialData}
-              disabled={importingFinancialData || !selectedHotelOu}
-              sx={{
-                borderRadius: 1,
-                textTransform: 'none',
-              }}
-            >
-              {importingFinancialData ? 'Importing...' : 'Import Financial Data'}
-            </Button>
+            <Stack direction="row" spacing={2}>
+              <Button
+                variant="contained"
+                startIcon={importingFinancialData ? <CircularProgress size={20} /> : <DownloadIcon />}
+                onClick={handleImportFinancialData}
+                disabled={importingFinancialData || !selectedHotelOu}
+                sx={{
+                  borderRadius: 1,
+                  textTransform: 'none',
+                }}
+              >
+                {importingFinancialData ? 'Importing...' : 'Import Financial Data'}
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={importingFinancialData ? <CircularProgress size={20} /> : <DownloadIcon />}
+                onClick={handleForceUpdateFinancialData}
+                disabled={importingFinancialData || !selectedHotelOu}
+                sx={{
+                  borderRadius: 1,
+                  textTransform: 'none',
+                }}
+              >
+                {importingFinancialData ? 'Importing...' : 'Force Update'}
+              </Button>
+            </Stack>
             {!selectedHotelOu && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
                 Please select a hotel first

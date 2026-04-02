@@ -1520,7 +1520,8 @@ export async function getProteaF90PLData(
   endYear: number,
   ou?: string,
   version: string = 'MAIN',
-  rowConfig?: any[]
+  rowConfig?: any[],
+  skipFilter: boolean = false
 ): Promise<string> {
   try {
     await autoCleanStagingIfImported();
@@ -1556,7 +1557,7 @@ export async function getProteaF90PLData(
     applyProteaAccountMovement(budgetData);
     applyProteaAccountMovement(lyData);
 
-    const plRows = calculateF90PLRows(actualsData, budgetData, lyData, rowConfig);
+    const plRows = calculateF90PLRows(actualsData, budgetData, lyData, rowConfig, skipFilter);
 
     return JSON.stringify(plRows);
   } catch (error) {

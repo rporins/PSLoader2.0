@@ -361,14 +361,13 @@ interface InvestSubgroupDef {
 
 const INVEST_CUSTOM_SUBGROUPS: InvestSubgroupDef[] = [
   { name: 'Depreciation',    accounts: ['A766931', 'A710001', 'A711001'], deptFilter: ['D0690'] },
-  { name: 'Fixed Expenses',  accounts: ['A701025', 'A701728', 'A720901', 'A740002', 'A715103'],
-                              accPrefixes: ['A701', 'A770'] },
-  { name: 'Net Interest',    accounts: ['A726001', 'A726103'], accPrefixes: ['A726'] },
-  { name: 'Tax',             accounts: ['A720908'], accPrefixes: ['A72090'],
-                              excludeAccounts: ['A720901'] },
-  { name: 'Owners Expense',  accounts: ['A701601', 'A720701'] },
+  { name: 'Fixed Expenses',  accounts: ['A701025', 'A701728', 'A740002', 'A715103'],
+                              accPrefixes: ['A701', 'A770'], excludeAccounts: ['A701501', 'A701502'] },
+  { name: 'Net Interest Income / (Expense)',    accounts: ['A726001', 'A726103'], accPrefixes: ['A726'] },
+  { name: 'Tax',             accounts: ['A720908', 'A720901'], accPrefixes: ['A72090'] },
+  { name: 'Owners Expense',  accounts: ['A701601', 'A720701', 'A701502'] },
   { name: 'Management Fees', accounts: [], useLevel13: 'Managed Fees' },
-  { name: 'Abnormal Items',  accounts: ['A701602', 'A701130'], isCatchAll: true },
+  { name: 'Abnormal Items',  accounts: ['A701602', 'A701130', 'A701501'], isCatchAll: true },
 ];
 
 class ProteaReportPackService {
@@ -576,6 +575,7 @@ class ProteaReportPackService {
       : PROTEA_F90_PL_ROW_CONFIG;
 
     // Fetch Selected Month data (with Protea account movement applied)
+    // skipFilter=true: month data keeps all rows so rowId alignment with range data is preserved
     const monthDataJson = await db.getProteaF90PLData(
       config.selectedMonth,
       config.selectedYear,
@@ -583,7 +583,8 @@ class ProteaReportPackService {
       config.selectedYear,
       config.ou,
       config.version,
-      f90RowConfig
+      f90RowConfig,
+      true
     );
     const monthData: PLCalculationResult[] = JSON.parse(monthDataJson);
 

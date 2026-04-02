@@ -33,7 +33,7 @@ import { styled, alpha } from "@mui/material/styles";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import AddIcon from "@mui/icons-material/Add";
-import { useSettingsStore } from "../../store/settings";
+import { useSettingsStore, useCurrency } from "../../store/settings";
 
 interface StagingDataRow {
   id: number;
@@ -143,6 +143,7 @@ export default function StagingDataReview() {
   const [rows, setRows] = useState<StagingDataRow[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
+  const userCurrency = useCurrency();
 
   // State for responsive design - force grid remount when window shrinks
   const [gridKey, setGridKey] = useState(0);
@@ -172,7 +173,7 @@ export default function StagingDataReview() {
     period_combo: '',
     scenario: 'Actual',
     amount: '',
-    currency: 'USD',
+    currency: userCurrency,
     department: '',
     account: '',
     version: 'Working',
@@ -348,7 +349,7 @@ export default function StagingDataReview() {
         year: firstRow.year,
         period_combo: firstRow.period_combo,
         scenario: firstRow.scenario || 'Actual',
-        currency: firstRow.currency || 'USD',
+        currency: firstRow.currency || userCurrency,
         version: firstRow.version || 'Working',
       };
     }
@@ -358,10 +359,10 @@ export default function StagingDataReview() {
       year: now.getFullYear(),
       period_combo: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
       scenario: 'Actual',
-      currency: 'USD',
+      currency: userCurrency,
       version: 'Working',
     };
-  }, [rows]);
+  }, [rows, userCurrency]);
 
   // Open Add dialog
   const handleOpenAddDialog = () => {

@@ -2300,13 +2300,13 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     ]
   },
 
-  // Fixed Expenses extra: accounts not matching A701*/A770* prefix (for display line)
+  // Fixed Expenses extra: accounts not matching A701*/A770* prefix (A720901 moved to Tax per INVEST_CUSTOM_SUBGROUPS)
   f90_fixed_exp_extra_act: {
     id: 'f90_fixed_exp_extra_act',
     formula: 'CALCULATE',
     filters: [
       { type: 'dept_base', value: ['D0480', 'D0490'] },
-      { type: 'acc_base', value: ['A720901', 'A740002', 'A715103'] }
+      { type: 'acc_base', value: ['A740002', 'A715103'] }
     ]
   },
 
@@ -2317,7 +2317,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     negate: true,
     filters: [
       { type: 'dept_base', value: ['D0480', 'D0490'] },
-      { type: 'acc_base', value: ['A701602', 'A701130'] }
+      { type: 'acc_base', value: ['A701602', 'A701130', 'A701501'] }
     ]
   },
 
@@ -2342,13 +2342,13 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     ]
   },
 
-  // Overlap: A701601 (Owner Expense) per department — subtract from fixed expenses
+  // Overlap: Owner Expense accounts (A701601, A701502) per department — subtract from fixed expenses
   f90_fixed_exp_a701601_d0480_act: {
     id: 'f90_fixed_exp_a701601_d0480_act',
     formula: 'CALCULATE',
     filters: [
       { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_base', value: 'A701601' }
+      { type: 'acc_base', value: ['A701601', 'A701502'] }
     ]
   },
   f90_fixed_exp_a701601_d0490_act: {
@@ -2356,7 +2356,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     formula: 'CALCULATE',
     filters: [
       { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_base', value: 'A701601' }
+      { type: 'acc_base', value: ['A701601', 'A701502'] }
     ]
   },
 
@@ -2439,14 +2439,14 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
   },
 
   // Protea Owner Expense: explicit accounts matching INVEST_CUSTOM_SUBGROUPS
-  // A701601 (dividends) + A720701 from D0480/D0490
+  // A701601 (dividends) + A720701 + A701502 from D0480/D0490
   f90_protea_owner_explicit_act: {
     id: 'f90_protea_owner_explicit_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
       { type: 'dept_base', value: ['D0480', 'D0490'] },
-      { type: 'acc_base', value: ['A701601', 'A720701'] }
+      { type: 'acc_base', value: ['A701601', 'A720701', 'A701502'] }
     ]
   }
 };
@@ -3773,16 +3773,14 @@ export const MEASURES: Record<string, Measure> = {
     }
   },
 
-  // F90 P&L - Tax (72090x in D0490 + D0480, excluding A720901 which is in Fixed Expenses)
+  // F90 P&L - Tax (72090x in D0490 + D0480, now including A720901 per INVEST_CUSTOM_SUBGROUPS)
   f90_tax: {
     id: 'f90_tax',
     type: 'calculated',
-    subMeasures: ['f90_d0490_tax_act', 'f90_d0480_tax_act', 'f90_a720901_d0490_act', 'f90_a720901_d0480_act'],
+    subMeasures: ['f90_d0490_tax_act', 'f90_d0480_tax_act'],
     evaluator: (ctx: MeasureContext) => {
       return (ctx.subMeasures.f90_d0490_tax_act || 0)
-        + (ctx.subMeasures.f90_d0480_tax_act || 0)
-        - (ctx.subMeasures.f90_a720901_d0490_act || 0)
-        - (ctx.subMeasures.f90_a720901_d0480_act || 0);
+        + (ctx.subMeasures.f90_d0480_tax_act || 0);
     }
   },
 
@@ -3803,8 +3801,8 @@ export const MEASURES: Record<string, Measure> = {
       'f90_protea_owner_explicit_act',
       // interest
       'f90_d0490_interest_act', 'f90_d0480_interest_act', 'f90_d0690_interest_act',
-      // tax (corrected: excludes A720901)
-      'f90_d0490_tax_act', 'f90_d0480_tax_act', 'f90_a720901_d0490_act', 'f90_a720901_d0480_act'
+      // tax (now includes A720901)
+      'f90_d0490_tax_act', 'f90_d0480_tax_act'
     ],
     evaluator: (ctx: MeasureContext) => {
       // Income before non-op
@@ -3840,11 +3838,9 @@ export const MEASURES: Record<string, Measure> = {
 
       const profitBeforeTax = incomeBeforeNonOp + depreciation + ownerExp + interest + abnormal;
 
-      // Tax (corrected: excludes A720901 which is in Fixed Expenses)
+      // Tax (now includes A720901)
       const tax = (ctx.subMeasures.f90_d0490_tax_act || 0)
-        + (ctx.subMeasures.f90_d0480_tax_act || 0)
-        - (ctx.subMeasures.f90_a720901_d0490_act || 0)
-        - (ctx.subMeasures.f90_a720901_d0480_act || 0);
+        + (ctx.subMeasures.f90_d0480_tax_act || 0);
 
       return profitBeforeTax + tax;
     }
@@ -3871,7 +3867,7 @@ export const MEASURES: Record<string, Measure> = {
       'f90_d0690_all_act', 'f90_depreciation_extra_d0480_act', 'f90_depreciation_extra_d0490_act',
       'f90_protea_owner_explicit_act',
       'f90_d0490_interest_act', 'f90_d0480_interest_act', 'f90_d0690_interest_act',
-      'f90_d0490_tax_act', 'f90_d0480_tax_act', 'f90_a720901_d0490_act', 'f90_a720901_d0480_act'
+      'f90_d0490_tax_act', 'f90_d0480_tax_act'
     ],
     evaluator: (ctx: MeasureContext) => {
       // Same as f90_net_profit (dividends placeholder is 0)
@@ -3905,9 +3901,7 @@ export const MEASURES: Record<string, Measure> = {
       const profitBeforeTax = incomeBeforeNonOp + depreciation + ownerExp + interest + abnormal;
 
       const tax = (ctx.subMeasures.f90_d0490_tax_act || 0)
-        + (ctx.subMeasures.f90_d0480_tax_act || 0)
-        - (ctx.subMeasures.f90_a720901_d0490_act || 0)
-        - (ctx.subMeasures.f90_a720901_d0480_act || 0);
+        + (ctx.subMeasures.f90_d0480_tax_act || 0);
 
       return profitBeforeTax + tax;
     }

@@ -43,7 +43,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SendIcon from "@mui/icons-material/Send";
-import { useSettingsStore } from "../../store/settings";
+import { useSettingsStore, useCurrency } from "../../store/settings";
 
 // ────────────────────────────────────────────────────────────
 // TYPES
@@ -328,6 +328,7 @@ function CustomToolbar() {
 export default function RoomSegmentReview() {
   const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
   const includeDetailBreakdown = useSettingsStore((s) => s.includeDetailBreakdown);
+  const userCurrency = useCurrency();
 
   // State
   const [loading, setLoading] = useState(false);
@@ -481,7 +482,7 @@ export default function RoomSegmentReview() {
           period_combo: periodCombo,
           scenario: "ACT",
           amount: finalAmount,
-          currency: "USD",
+          currency: userCurrency,
           ou: selectedHotelOu,
           department: DEPARTMENT,
           account: adj.account,

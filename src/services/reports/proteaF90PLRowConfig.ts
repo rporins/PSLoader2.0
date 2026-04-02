@@ -74,7 +74,7 @@ export const PROTEA_F90_PL_ROW_CONFIG: PLRow[] = [
   // Below-the-line items
   { type: 'measure', label: 'Depreciation', measureId: 'f90_depreciation', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'measure', label: 'Owners Expense', measureId: 'f90_protea_owner_expense', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Net Interest', measureId: 'f90_interest', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Net Interest Income / (Expense)', measureId: 'f90_interest', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Abnormal Items', measureId: 'f90_abnormal_items', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'header', label: 'HOTEL PROFIT/(LOSS) BEFORE TAX', measureId: 'f90_profit_before_tax', formatting: 'number', indentLevel: 0 },
   { type: 'measure', label: 'Tax', measureId: 'f90_tax', formatting: 'number', indentLevel: 1, invertSign: true },
@@ -163,7 +163,7 @@ export const PROTEA_F90_PL_ROW_CONFIG_WITH_BANQUETING: PLRow[] = [
 
   { type: 'measure', label: 'Depreciation', measureId: 'f90_depreciation', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'measure', label: 'Owners Expense', measureId: 'f90_protea_owner_expense', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Net Interest', measureId: 'f90_interest', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Net Interest Income / (Expense)', measureId: 'f90_interest', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Abnormal Items', measureId: 'f90_abnormal_items', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'header', label: 'HOTEL PROFIT/(LOSS) BEFORE TAX', measureId: 'f90_profit_before_tax', formatting: 'number', indentLevel: 0 },
   { type: 'measure', label: 'Tax', measureId: 'f90_tax', formatting: 'number', indentLevel: 1, invertSign: true },
