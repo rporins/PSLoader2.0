@@ -1,4 +1,12 @@
 import { SubMeasure, Measure, MeasureContext } from '../../types/plReportTypes';
+import {
+  getSubgroupAccounts,
+  getSubgroupPrefixes,
+  getSubgroupLevel13,
+  getFixedExpensesOverlapAccounts,
+  getFixedExpensesExtraAccounts,
+  getTaxExtraAccounts,
+} from './investSubgroupConfig';
 
 // ============================================================================
 // SUB-MEASURE DEFINITIONS
@@ -2082,7 +2090,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     negate: true,
     filters: [
       { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_level', level: 13, value: 'Managed Fees' },
+      { type: 'acc_level', level: 13, value: getSubgroupLevel13('Management Fees')! },
       { type: 'acc_level', level: 14, value: 'Lease Expenses' },
       { type: 'acc_level', level: 15, value: 'Base Fees' }
     ]
@@ -2095,7 +2103,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     negate: true,
     filters: [
       { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_level', level: 13, value: 'Managed Fees' },
+      { type: 'acc_level', level: 13, value: getSubgroupLevel13('Management Fees')! },
       { type: 'acc_level', level: 14, value: 'Lease Expenses' },
       { type: 'acc_level', level: 15, value: 'Incentive Fees' }
     ]
@@ -2108,7 +2116,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     negate: true,
     filters: [
       { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_level', level: 13, value: 'Managed Fees' },
+      { type: 'acc_level', level: 13, value: getSubgroupLevel13('Management Fees')! },
       { type: 'acc_level', level: 14, value: 'Royalty Costs' },
       { type: 'acc_level', level: 15, value: 'Base Fees' }
     ]
@@ -2169,13 +2177,13 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     ]
   },
 
-  // F90 P&L - Fixed Expenses (D0490, D0480 with accounts starting A701 or A770)
+  // F90 P&L - Fixed Expenses (D0490, D0480 with prefix patterns from config)
   fixed_expenses_act: {
     id: 'fixed_expenses_act',
     formula: 'CALCULATE',
     filters: [
       { type: 'dept_base', value: ['D0490', 'D0480'] },
-      { type: 'acc_prefix', value: ['A701', 'A770'] }
+      { type: 'acc_prefix', value: getSubgroupPrefixes('Fixed Expenses') }
     ]
   },
 
@@ -2186,7 +2194,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     negate: true,
     filters: [
       { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_level', level: 13, value: 'Managed Fees' }
+      { type: 'acc_level', level: 13, value: getSubgroupLevel13('Management Fees')! }
     ]
   },
 
@@ -2197,40 +2205,40 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     negate: true,
     filters: [
       { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_level', level: 13, value: 'Managed Fees' }
+      { type: 'acc_level', level: 13, value: getSubgroupLevel13('Management Fees')! }
     ]
   },
 
-  // Interest in D0490 (726xxx)
+  // Interest in D0490 (prefix from config)
   f90_d0490_interest_act: {
     id: 'f90_d0490_interest_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
       { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_prefix', value: 'A726' }
+      { type: 'acc_prefix', value: getSubgroupPrefixes('Net Interest Income / (Expense)') }
     ]
   },
 
-  // Interest in D0480 (726xxx)
+  // Interest in D0480 (prefix from config)
   f90_d0480_interest_act: {
     id: 'f90_d0480_interest_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
       { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_prefix', value: 'A726' }
+      { type: 'acc_prefix', value: getSubgroupPrefixes('Net Interest Income / (Expense)') }
     ]
   },
 
-  // Tax in D0490 (72090x)
+  // Tax in D0490 (prefix from config)
   f90_d0490_tax_act: {
     id: 'f90_d0490_tax_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
       { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_prefix', value: 'A72090' }
+      { type: 'acc_prefix', value: getSubgroupPrefixes('Tax') }
     ]
   },
 
@@ -2245,79 +2253,69 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     ]
   },
 
-  // Tax in D0480 (72090x)
+  // Tax in D0480 (prefix from config)
   f90_d0480_tax_act: {
     id: 'f90_d0480_tax_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
       { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_prefix', value: 'A72090' }
+      { type: 'acc_prefix', value: getSubgroupPrefixes('Tax') }
     ]
   },
 
-  // Depreciation extra: explicit accounts from D0480 (to move into Depreciation line)
+  // Tax extra: explicit Tax accounts that don't match the Tax prefix (e.g. A720601)
+  // Parallels the Fixed Expenses "extra" pattern for non-prefix accounts
+  f90_tax_extra_act: {
+    id: 'f90_tax_extra_act',
+    formula: 'CALCULATE',
+    negate: true,
+    filters: [
+      { type: 'dept_base', value: ['D0480', 'D0490'] },
+      { type: 'acc_base', value: getTaxExtraAccounts() }
+    ]
+  },
+
+  // Depreciation extra: explicit accounts from D0480 (from config)
   f90_depreciation_extra_d0480_act: {
     id: 'f90_depreciation_extra_d0480_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
       { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_base', value: ['A766931', 'A710001', 'A711001'] }
+      { type: 'acc_base', value: getSubgroupAccounts('Depreciation') }
     ]
   },
 
-  // Depreciation extra: explicit accounts from D0490 (to move into Depreciation line)
+  // Depreciation extra: explicit accounts from D0490 (from config)
   f90_depreciation_extra_d0490_act: {
     id: 'f90_depreciation_extra_d0490_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
       { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_base', value: ['A766931', 'A710001', 'A711001'] }
+      { type: 'acc_base', value: getSubgroupAccounts('Depreciation') }
     ]
   },
 
-  // A720901 isolated on D0490 (moved from Tax to Fixed Expenses)
-  f90_a720901_d0490_act: {
-    id: 'f90_a720901_d0490_act',
-    formula: 'CALCULATE',
-    negate: true,
-    filters: [
-      { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_base', value: 'A720901' }
-    ]
-  },
-
-  // A720901 isolated on D0480 (moved from Tax to Fixed Expenses)
-  f90_a720901_d0480_act: {
-    id: 'f90_a720901_d0480_act',
-    formula: 'CALCULATE',
-    negate: true,
-    filters: [
-      { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_base', value: 'A720901' }
-    ]
-  },
-
-  // Fixed Expenses extra: accounts not matching A701*/A770* prefix (A720901 moved to Tax per INVEST_CUSTOM_SUBGROUPS)
+  // Fixed Expenses extra: explicit accounts that don't match Fixed Expenses prefixes (from config)
   f90_fixed_exp_extra_act: {
     id: 'f90_fixed_exp_extra_act',
     formula: 'CALCULATE',
     filters: [
       { type: 'dept_base', value: ['D0480', 'D0490'] },
-      { type: 'acc_base', value: ['A740002', 'A715103'] }
+      { type: 'acc_base', value: getFixedExpensesExtraAccounts() }
     ]
   },
 
-  // Explicit Abnormal Items accounts (mirrors INVEST_CUSTOM_SUBGROUPS in proteaReportPackService.ts)
+  // Explicit Abnormal Items accounts (from config)
   f90_abnormal_items_explicit_act: {
     id: 'f90_abnormal_items_explicit_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
       { type: 'dept_base', value: ['D0480', 'D0490'] },
-      { type: 'acc_base', value: ['A701602', 'A701130', 'A701501'] }
+      { type: 'acc_base', value: getSubgroupAccounts('Abnormal Items') }
     ]
   },
 
@@ -2329,7 +2327,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     filters: [
       { type: 'dept_base', value: 'D0480' },
       { type: 'acc_prefix', value: 'A701' },
-      { type: 'acc_level', level: 13, value: 'Managed Fees' }
+      { type: 'acc_level', level: 13, value: getSubgroupLevel13('Management Fees')! }
     ]
   },
   f90_fixed_exp_fees_overlap_d0490_act: {
@@ -2338,17 +2336,17 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     filters: [
       { type: 'dept_base', value: 'D0490' },
       { type: 'acc_prefix', value: 'A701' },
-      { type: 'acc_level', level: 13, value: 'Managed Fees' }
+      { type: 'acc_level', level: 13, value: getSubgroupLevel13('Management Fees')! }
     ]
   },
 
-  // Overlap: Owner Expense accounts (A701601, A701502) per department — subtract from fixed expenses
+  // Overlap: Owner Expense accounts within Fixed Expenses prefix range — subtract from fixed expenses (from config)
   f90_fixed_exp_a701601_d0480_act: {
     id: 'f90_fixed_exp_a701601_d0480_act',
     formula: 'CALCULATE',
     filters: [
       { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_base', value: ['A701601', 'A701502'] }
+      { type: 'acc_base', value: getFixedExpensesOverlapAccounts().ownerOverlap }
     ]
   },
   f90_fixed_exp_a701601_d0490_act: {
@@ -2356,18 +2354,18 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     formula: 'CALCULATE',
     filters: [
       { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_base', value: ['A701601', 'A701502'] }
+      { type: 'acc_base', value: getFixedExpensesOverlapAccounts().ownerOverlap }
     ]
   },
 
-  // Interest in D0690 (726xxx) — for inclusion in f90_interest
+  // Interest in D0690 (prefix from config) — for inclusion in f90_interest
   f90_d0690_interest_act: {
     id: 'f90_d0690_interest_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
       { type: 'dept_base', value: 'D0690' },
-      { type: 'acc_prefix', value: 'A726' }
+      { type: 'acc_prefix', value: getSubgroupPrefixes('Net Interest Income / (Expense)') }
     ]
   },
 
@@ -2446,7 +2444,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     negate: true,
     filters: [
       { type: 'dept_base', value: ['D0480', 'D0490'] },
-      { type: 'acc_base', value: ['A701601', 'A720701', 'A701502'] }
+      { type: 'acc_base', value: getSubgroupAccounts('Owners Expense') }
     ]
   }
 };
@@ -3773,14 +3771,15 @@ export const MEASURES: Record<string, Measure> = {
     }
   },
 
-  // F90 P&L - Tax (72090x in D0490 + D0480, now including A720901 per INVEST_CUSTOM_SUBGROUPS)
+  // F90 P&L - Tax (prefix from config + extra accounts not matching prefix, e.g. A720601)
   f90_tax: {
     id: 'f90_tax',
     type: 'calculated',
-    subMeasures: ['f90_d0490_tax_act', 'f90_d0480_tax_act'],
+    subMeasures: ['f90_d0490_tax_act', 'f90_d0480_tax_act', 'f90_tax_extra_act'],
     evaluator: (ctx: MeasureContext) => {
       return (ctx.subMeasures.f90_d0490_tax_act || 0)
-        + (ctx.subMeasures.f90_d0480_tax_act || 0);
+        + (ctx.subMeasures.f90_d0480_tax_act || 0)
+        + (ctx.subMeasures.f90_tax_extra_act || 0);
     }
   },
 
@@ -3801,8 +3800,8 @@ export const MEASURES: Record<string, Measure> = {
       'f90_protea_owner_explicit_act',
       // interest
       'f90_d0490_interest_act', 'f90_d0480_interest_act', 'f90_d0690_interest_act',
-      // tax (now includes A720901)
-      'f90_d0490_tax_act', 'f90_d0480_tax_act'
+      // tax (prefix + extra accounts from config)
+      'f90_d0490_tax_act', 'f90_d0480_tax_act', 'f90_tax_extra_act'
     ],
     evaluator: (ctx: MeasureContext) => {
       // Income before non-op
@@ -3825,7 +3824,7 @@ export const MEASURES: Record<string, Measure> = {
         + (ctx.subMeasures.f90_depreciation_extra_d0480_act || 0)
         + (ctx.subMeasures.f90_depreciation_extra_d0490_act || 0);
 
-      // Owner expense (explicit accounts matching INVEST_CUSTOM_SUBGROUPS)
+      // Owner expense (explicit accounts from config)
       const ownerExp = ctx.subMeasures.f90_protea_owner_explicit_act || 0;
 
       // Interest
@@ -3838,9 +3837,10 @@ export const MEASURES: Record<string, Measure> = {
 
       const profitBeforeTax = incomeBeforeNonOp + depreciation + ownerExp + interest + abnormal;
 
-      // Tax (now includes A720901)
+      // Tax (prefix + extra accounts from config)
       const tax = (ctx.subMeasures.f90_d0490_tax_act || 0)
-        + (ctx.subMeasures.f90_d0480_tax_act || 0);
+        + (ctx.subMeasures.f90_d0480_tax_act || 0)
+        + (ctx.subMeasures.f90_tax_extra_act || 0);
 
       return profitBeforeTax + tax;
     }
@@ -3867,7 +3867,7 @@ export const MEASURES: Record<string, Measure> = {
       'f90_d0690_all_act', 'f90_depreciation_extra_d0480_act', 'f90_depreciation_extra_d0490_act',
       'f90_protea_owner_explicit_act',
       'f90_d0490_interest_act', 'f90_d0480_interest_act', 'f90_d0690_interest_act',
-      'f90_d0490_tax_act', 'f90_d0480_tax_act'
+      'f90_d0490_tax_act', 'f90_d0480_tax_act', 'f90_tax_extra_act'
     ],
     evaluator: (ctx: MeasureContext) => {
       // Same as f90_net_profit (dividends placeholder is 0)
@@ -3889,7 +3889,7 @@ export const MEASURES: Record<string, Measure> = {
         + (ctx.subMeasures.f90_depreciation_extra_d0480_act || 0)
         + (ctx.subMeasures.f90_depreciation_extra_d0490_act || 0);
 
-      // Owner expense (explicit accounts matching INVEST_CUSTOM_SUBGROUPS)
+      // Owner expense (explicit accounts from config)
       const ownerExp = ctx.subMeasures.f90_protea_owner_explicit_act || 0;
 
       const interest = (ctx.subMeasures.f90_d0490_interest_act || 0)
@@ -3900,8 +3900,10 @@ export const MEASURES: Record<string, Measure> = {
 
       const profitBeforeTax = incomeBeforeNonOp + depreciation + ownerExp + interest + abnormal;
 
+      // Tax (prefix + extra accounts from config)
       const tax = (ctx.subMeasures.f90_d0490_tax_act || 0)
-        + (ctx.subMeasures.f90_d0480_tax_act || 0);
+        + (ctx.subMeasures.f90_d0480_tax_act || 0)
+        + (ctx.subMeasures.f90_tax_extra_act || 0);
 
       return profitBeforeTax + tax;
     }

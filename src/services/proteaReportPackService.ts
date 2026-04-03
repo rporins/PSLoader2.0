@@ -10,6 +10,7 @@ import * as db from '../local_db';
 import { PLCalculationResult } from '../types/plReportTypes';
 import { PROTEA_F90_PL_ROW_CONFIG, PROTEA_F90_PL_ROW_CONFIG_WITH_BANQUETING } from './reports/proteaF90PLRowConfig';
 import { PLRow } from '../types/plReportTypes';
+import { INVEST_CUSTOM_SUBGROUPS, InvestSubgroupDef } from './reports/investSubgroupConfig';
 
 // ============================================================================
 // KPI ROW CONFIGS — used to compute KPIs via the F90 calculation engine
@@ -289,6 +290,31 @@ function getRangeLabel(
 }
 
 // ============================================================================
+// DUPLICATE ACCOUNT AGGREGATION
+// ============================================================================
+
+/** Aggregate rows that share the same account code by summing their numeric fields.
+ *  Keeps the first row's metadata (accountName, category, level12Group, level13Group).
+ *  Needed after merging data from moved departments, which may share accounts with
+ *  the target group's native departments. */
+function aggregateDuplicateAccounts(rows: any[]): any[] {
+  const map = new Map<string, any>();
+  for (const row of rows) {
+    const existing = map.get(row.account);
+    if (existing) {
+      existing.actuals = (existing.actuals || 0) + (row.actuals || 0);
+      existing.budget = (existing.budget || 0) + (row.budget || 0);
+      existing.ly = (existing.ly || 0) + (row.ly || 0);
+      existing.vsBud = (existing.vsBud || 0) + (row.vsBud || 0);
+      existing.vsLy = (existing.vsLy || 0) + (row.vsLy || 0);
+    } else {
+      map.set(row.account, { ...row });
+    }
+  }
+  return Array.from(map.values());
+}
+
+// ============================================================================
 // EXCEL EXPORT SERVICE CLASS
 // ============================================================================
 
@@ -346,29 +372,9 @@ const MOVEMENT_TARGET_GROUPS = new Set(PROTEA_DEPARTMENT_MOVEMENTS.map(m => m.ta
 
 // ============================================================================
 // INVEST FACTOR OWNER — CUSTOM SUBGROUP CONFIGURATION
-// Overrides level_12 grouping for the Invest detail tab.  Accounts are assigned
-// by priority: explicit accounts → deptFilter → level_13 hierarchy → accPrefixes → catch-all.
+// Shared config imported from investSubgroupConfig.ts (single source of truth).
+// See that file for the InvestSubgroupDef interface and INVEST_CUSTOM_SUBGROUPS array.
 // ============================================================================
-interface InvestSubgroupDef {
-  name: string;
-  accounts: string[];         // Explicit account codes (highest priority)
-  accPrefixes?: string[];     // F90-derived prefix patterns (2nd priority after level_13)
-  excludeAccounts?: string[]; // Accounts to exclude from prefix matches
-  useLevel13?: string;        // Match level_13 value (for Management Fees)
-  deptFilter?: string[];      // ALL accounts from these depts go here
-  isCatchAll?: boolean;       // Captures all unmatched accounts
-}
-
-const INVEST_CUSTOM_SUBGROUPS: InvestSubgroupDef[] = [
-  { name: 'Depreciation',    accounts: ['A766931', 'A710001', 'A711001'], deptFilter: ['D0690'] },
-  { name: 'Fixed Expenses',  accounts: ['A701025', 'A701728', 'A740002', 'A715103'],
-                              accPrefixes: ['A701', 'A770'], excludeAccounts: ['A701501', 'A701502'] },
-  { name: 'Net Interest Income / (Expense)',    accounts: ['A726001', 'A726103'], accPrefixes: ['A726'] },
-  { name: 'Tax',             accounts: ['A720908', 'A720901'], accPrefixes: ['A72090'] },
-  { name: 'Owners Expense',  accounts: ['A701601', 'A720701', 'A701502'] },
-  { name: 'Management Fees', accounts: [], useLevel13: 'Managed Fees' },
-  { name: 'Abnormal Items',  accounts: ['A701602', 'A701130', 'A701501'], isCatchAll: true },
-];
 
 class ProteaReportPackService {
   private accpacDescriptions: Map<string, string[]> = new Map();
@@ -877,6 +883,10 @@ class ProteaReportPackService {
       }
     }
 
+    // Aggregate duplicate accounts that may result from merging moved department data
+    monthDetailData = aggregateDuplicateAccounts(monthDetailData);
+    rangeDetailData = aggregateDuplicateAccounts(rangeDetailData);
+
     if (rangeDetailData.length === 0 && monthDetailData.length === 0) {
       return null;
     }
@@ -1044,6 +1054,10 @@ class ProteaReportPackService {
         }
       }
     }
+
+    // Aggregate duplicate accounts that may result from merging moved department data
+    monthDetailData = aggregateDuplicateAccounts(monthDetailData);
+    rangeDetailData = aggregateDuplicateAccounts(rangeDetailData);
 
     if (rangeDetailData.length === 0 && monthDetailData.length === 0) {
       return null;
