@@ -115,8 +115,10 @@ export function getTaxExtraAccounts(): string[] {
 // ---------------------------------------------------------------------------
 // Unclassified-account validation
 // Runs the same priority logic the Invest tab uses.  Any account that only
-// matches via catch-all is returned — these are "unclassified" for F90
-// purposes since the F90 engine cannot replicate catch-all behaviour.
+// matches via catch-all is returned — useful for flagging accounts that the
+// F90 line items don't explicitly classify.  The F90 now handles these via
+// a residual Abnormal Items calculation (department totals minus classified
+// line items), effectively replicating catch-all behaviour.
 // ---------------------------------------------------------------------------
 
 export function findUnclassifiedAccounts(
