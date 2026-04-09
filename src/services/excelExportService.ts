@@ -269,8 +269,7 @@ function getRangeLabel(
 // EXCEL EXPORT SERVICE CLASS
 // ============================================================================
 
-// Departments excluded from Excel export (non-operating depts with no reportable data)
-const EXCEL_EXCLUDED_DEPARTMENTS = new Set(['D1468', 'D3095', 'D0376']);
+const EXCEL_EXCLUDED_DEPARTMENTS = db.NON_OPERATING_EXCLUDED_DEPARTMENTS;
 
 class ExcelExportService {
   private accpacDescriptions: Map<string, string[]> = new Map();

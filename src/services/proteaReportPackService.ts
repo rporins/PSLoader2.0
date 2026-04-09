@@ -318,8 +318,7 @@ function aggregateDuplicateAccounts(rows: any[]): any[] {
 // EXCEL EXPORT SERVICE CLASS
 // ============================================================================
 
-// Departments excluded from Excel export (non-operating depts with no reportable data)
-const EXCEL_EXCLUDED_DEPARTMENTS = new Set(['D1468', 'D3095', 'D0376']);
+const EXCEL_EXCLUDED_DEPARTMENTS = db.NON_OPERATING_EXCLUDED_DEPARTMENTS;
 
 // ============================================================================
 // PROTEA ACCOUNT MOVEMENT CONFIG
@@ -442,14 +441,14 @@ class ProteaReportPackService {
     //    that will be reported under Admin & General) AND all department-level movements.
     //    Fetched once and reused across group summary and individual department sheets.
     const [movedAccountsMonth, movedAccountsRange] = await Promise.all([
-      db.getGroupDepartmentDetailData(
+      db.getProteaGroupDepartmentDetailData(
         config.ou,
         PROTEA_MOVEMENT_SOURCE_DEPTS,
         config.selectedMonth, config.selectedYear,
         config.selectedMonth, config.selectedYear,
         config.version
       ),
-      db.getGroupDepartmentDetailData(
+      db.getProteaGroupDepartmentDetailData(
         config.ou,
         PROTEA_MOVEMENT_SOURCE_DEPTS,
         config.ytdStartMonth, config.ytdStartYear,
@@ -464,13 +463,13 @@ class ProteaReportPackService {
     const movedDeptData = new Map<string, { month: any[]; range: any[] }>();
     await Promise.all(PROTEA_DEPARTMENT_MOVEMENTS.map(async (mv) => {
       const [month, range] = await Promise.all([
-        db.getDepartmentDetailData(
+        db.getProteaDepartmentDetailData(
           config.ou, mv.sourceDept,
           config.selectedMonth, config.selectedYear,
           config.selectedMonth, config.selectedYear,
           config.version
         ),
-        db.getDepartmentDetailData(
+        db.getProteaDepartmentDetailData(
           config.ou, mv.sourceDept,
           config.ytdStartMonth, config.ytdStartYear,
           config.ytdEndMonth, config.ytdEndYear,
@@ -823,7 +822,7 @@ class ProteaReportPackService {
 
     // Fetch aggregated data for the group (month + range in parallel)
     let [monthDetailData, rangeDetailData] = await Promise.all([
-      db.getGroupDepartmentDetailData(
+      db.getProteaGroupDepartmentDetailData(
         config.ou,
         effectiveDeptIds,
         config.selectedMonth,
@@ -832,7 +831,7 @@ class ProteaReportPackService {
         config.selectedYear,
         config.version
       ),
-      db.getGroupDepartmentDetailData(
+      db.getProteaGroupDepartmentDetailData(
         config.ou,
         effectiveDeptIds,
         config.ytdStartMonth,
@@ -987,7 +986,7 @@ class ProteaReportPackService {
     movedDeptData: Map<string, { month: any[]; range: any[] }> = new Map()
   ): Promise<string | null> {
     let [monthDetailData, rangeDetailData] = await Promise.all([
-      db.getDepartmentDetailData(
+      db.getProteaDepartmentDetailData(
         config.ou,
         dept.baseDepartment,
         config.selectedMonth,
@@ -996,7 +995,7 @@ class ProteaReportPackService {
         config.selectedYear,
         config.version
       ),
-      db.getDepartmentDetailData(
+      db.getProteaDepartmentDetailData(
         config.ou,
         dept.baseDepartment,
         config.ytdStartMonth,

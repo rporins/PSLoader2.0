@@ -292,6 +292,9 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     ]
   },
 
+  // TODO: Replace this hardcoded department list with hierarchy-based filters
+  // (e.g., dept_level + acc_level as used by total_payroll_expenses_act_sy below).
+  // This list will silently go stale when departments are added or removed.
   total_payroll_act_sy: {
     id: 'total_payroll_act_sy',
     formula: 'CALCULATE',

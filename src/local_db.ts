@@ -5677,41 +5677,92 @@ export interface DepartmentDetailRow {
   vsLy: number;
 }
 
+/** Non-operating departments excluded from all report exports (Excel, Protea).
+ *  TODO: Replace with a mapping table attribute (e.g., dm.is_reportable) in a future iteration. */
+export const NON_OPERATING_EXCLUDED_DEPARTMENTS = new Set(['D1468', 'D3095', 'D0376']);
+
 // ============================================================================
-// PROTEA REPORT-LEVEL CATEGORY REPOINTS
+// DEPARTMENT DETAIL — SHARED INFRASTRUCTURE
+// ============================================================================
+
+/** Balance sheet accounts (A1xxx, A2xxx) are permanently excluded from all P&L reports.
+ *  This is a fundamental accounting convention — these prefixes will never contain P&L data. */
+function excludeBalanceSheet(alias: string): string {
+  return `${alias} NOT LIKE 'A1%' AND ${alias} NOT LIKE 'A2%'`;
+}
+
+/** Standard category CASE clause — hierarchy-driven, no overrides. */
+const STANDARD_CATEGORY_CASE = `
+          WHEN am.level_6 = 'Revenue' THEN 'Revenue'
+          WHEN am.level_9 = 'Cost Of Sales' THEN 'Cost of Sales'
+          WHEN am.level_9 = 'Total Payroll' THEN 'Payroll'
+          WHEN am.base_account LIKE 'A9%' THEN 'Stats'
+          WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 'Controllables'
+          ELSE 'Other'`;
+
+/** Standard sort order CASE clause — matches STANDARD_CATEGORY_CASE. */
+const STANDARD_ORDER_CASE = `
+          WHEN am.level_6 = 'Revenue' THEN 1
+          WHEN am.level_9 = 'Cost Of Sales' THEN 2
+          WHEN am.level_9 = 'Total Payroll' THEN 3
+          WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 4
+          WHEN am.base_account LIKE 'A9%' THEN 6
+          ELSE 5`;
+
+function mapDetailRows(rows: any[]): DepartmentDetailRow[] {
+  return rows.map(row => ({
+    account: row.account as string,
+    accountName: (row.account_name as string) || (row.account as string),
+    category: row.category as string,
+    level12Group: (row.level_12_group as string) || null,
+    level13Group: (row.level_13_group as string) || null,
+    actuals: Number(row.actuals) || 0,
+    budget: Number(row.budget) || 0,
+    vsBud: Number(row.vs_bud) || 0,
+    ly: Number(row.ly) || 0,
+    vsLy: Number(row.vs_ly) || 0
+  }));
+}
+
+// ============================================================================
+// PROTEA-SPECIFIC CATEGORY REPOINTS
 // Accounts whose detail-sheet category should differ from the standard
-// hierarchy-based CASE logic.  Report-level only — underlying data unchanged.
-// To repoint an account, add an entry: { account: 'A______', targetCategory: '...' }
+// hierarchy-based CASE logic. Protea-only — never applied to standard reports.
 // Valid categories: Revenue, Cost of Sales, Payroll, Controllables, Stats, Other
 // ============================================================================
 const PROTEA_CATEGORY_REPOINTS: Array<{ account: string; targetCategory: string }> = [
   { account: 'A610112', targetCategory: 'Payroll' },
 ];
 
-const CATEGORY_SORT_ORDER: Record<string, number> = {
+const PROTEA_CATEGORY_SORT_ORDER: Record<string, number> = {
   'Revenue': 1, 'Cost of Sales': 2, 'Payroll': 3, 'Controllables': 4, 'Other': 5, 'Stats': 6
 };
 
-function buildRepointCaseClauses(): { categoryClauses: string; orderClauses: string } {
-  if (PROTEA_CATEGORY_REPOINTS.length === 0) return { categoryClauses: '', orderClauses: '' };
-
-  const categoryClauses = PROTEA_CATEGORY_REPOINTS
+/** Protea category CASE clause — standard hierarchy with repoint overrides. */
+function buildProteaCategoryClauses(): { categoryCase: string; orderCase: string } {
+  const repointCategory = PROTEA_CATEGORY_REPOINTS
     .map(r => `WHEN am.base_account = '${r.account}' THEN '${r.targetCategory}'`)
     .join('\n          ');
-
-  const orderClauses = PROTEA_CATEGORY_REPOINTS
-    .map(r => `WHEN am.base_account = '${r.account}' THEN ${CATEGORY_SORT_ORDER[r.targetCategory]}`)
+  const repointOrder = PROTEA_CATEGORY_REPOINTS
+    .map(r => `WHEN am.base_account = '${r.account}' THEN ${PROTEA_CATEGORY_SORT_ORDER[r.targetCategory]}`)
     .join('\n          ');
 
   return {
-    categoryClauses: categoryClauses + '\n          ',
-    orderClauses: orderClauses + '\n          ',
+    categoryCase: `
+          ${repointCategory}${STANDARD_CATEGORY_CASE}`,
+    orderCase: `
+          ${repointOrder}${STANDARD_ORDER_CASE}`,
   };
 }
 
+// ============================================================================
+// STANDARD DEPARTMENT DETAIL FUNCTIONS (non-Protea)
+// Pure mapping-table-driven categorisation — no repoints or overrides.
+// ============================================================================
+
 /**
- * Get account-level detail data for a specific department for Excel export
- * Groups accounts by category using account_maps levels
+ * Get account-level detail data for a specific department.
+ * Groups accounts by category using account_maps levels.
  */
 export async function getDepartmentDetailData(
   ou: string,
@@ -5733,10 +5784,8 @@ export async function getDepartmentDetailData(
     const lyPeriods = generateLYPeriods(periods);
     const latestStagingPeriod = periods[periods.length - 1];
 
-    // Build periods placeholders
     const periodPlaceholders = periods.map(() => '?').join(', ');
     const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
-    const repointClauses = buildRepointCaseClauses();
 
     const query = `
       WITH combined_actuals AS (
@@ -5755,7 +5804,7 @@ export async function getDepartmentDetailData(
           AND fd.ou = ?
           AND fd.version = ?
           AND fd.department = ?
-          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
+          AND ${excludeBalanceSheet('fd.account')}
           AND fd.period_combo IN (${periodPlaceholders})
         GROUP BY COALESCE(fds.account, fd.account)
         UNION ALL
@@ -5771,14 +5820,14 @@ export async function getDepartmentDetailData(
         WHERE fds.scenario = 'ACT'
           AND fds.ou = ?
           AND fds.department = ?
-          AND fds.account NOT LIKE 'A1%' AND fds.account NOT LIKE 'A2%'
+          AND ${excludeBalanceSheet('fds.account')}
           AND fd.dep_acc_combo_id IS NULL
           AND fds.period_combo IN (${periodPlaceholders})
         GROUP BY fds.account
       ),
       actuals_totals AS (
         SELECT account, SUM(amount) AS actuals FROM combined_actuals
-        WHERE account NOT LIKE 'A1%' AND account NOT LIKE 'A2%'
+        WHERE ${excludeBalanceSheet('account')}
         GROUP BY account
       ),
       budget_totals AS (
@@ -5790,7 +5839,7 @@ export async function getDepartmentDetailData(
           AND fd.ou = ?
           AND fd.version = ?
           AND fd.department = ?
-          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
+          AND ${excludeBalanceSheet('fd.account')}
           AND fd.period_combo IN (${periodPlaceholders})
         GROUP BY fd.account
       ),
@@ -5803,7 +5852,7 @@ export async function getDepartmentDetailData(
           AND fd.ou = ?
           AND fd.version = ?
           AND fd.department = ?
-          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
+          AND ${excludeBalanceSheet('fd.account')}
           AND fd.period_combo IN (${lyPeriodPlaceholders})
         GROUP BY fd.account
       )
@@ -5812,13 +5861,7 @@ export async function getDepartmentDetailData(
         am.account_description_detail_level_max AS account_name,
         am.level_12 AS level_12_group,
         am.level_13 AS level_13_group,
-        CASE
-          ${repointClauses.categoryClauses}WHEN am.level_6 = 'Revenue' THEN 'Revenue'
-          WHEN am.level_9 = 'Cost Of Sales' THEN 'Cost of Sales'
-          WHEN am.level_9 = 'Total Payroll' THEN 'Payroll'
-          WHEN am.level_1 = 'STAT' OR am.base_account LIKE 'A9%' THEN 'Stats'
-          WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 'Controllables'
-          ELSE 'Other'
+        CASE ${STANDARD_CATEGORY_CASE}
         END AS category,
         COALESCE(a.actuals, 0) AS actuals,
         COALESCE(b.budget, 0) AS budget,
@@ -5830,22 +5873,14 @@ export async function getDepartmentDetailData(
       FULL OUTER JOIN ly_totals l ON COALESCE(a.account, b.account) = l.account
       LEFT JOIN account_maps am ON COALESCE(a.account, b.account, l.account) = am.base_account
       WHERE COALESCE(a.account, b.account, l.account) IS NOT NULL
-        AND COALESCE(a.account, b.account, l.account) NOT LIKE 'A1%'
-        AND COALESCE(a.account, b.account, l.account) NOT LIKE 'A2%'
+        AND ${excludeBalanceSheet('COALESCE(a.account, b.account, l.account)')}
       ORDER BY
-        CASE
-          ${repointClauses.orderClauses}WHEN am.level_6 = 'Revenue' THEN 1
-          WHEN am.level_9 = 'Cost Of Sales' THEN 2
-          WHEN am.level_9 = 'Total Payroll' THEN 3
-          WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 4
-          WHEN am.level_1 = 'STAT' OR am.base_account LIKE 'A9%' THEN 6
-          ELSE 5
+        CASE ${STANDARD_ORDER_CASE}
         END,
         am.level_12,
         am.base_account
     `;
 
-    // Build params array in order they appear in the query
     // Actuals and LY always use 'MAIN' version; only budget uses user-selected version
     const params: any[] = [
       latestStagingPeriod,  // For COALESCE staging check
@@ -5861,19 +5896,7 @@ export async function getDepartmentDetailData(
     ];
 
     const result = await client.execute({ sql: query, args: params });
-
-    return result.rows.map(row => ({
-      account: row.account as string,
-      accountName: (row.account_name as string) || (row.account as string),
-      category: row.category as string,
-      level12Group: (row.level_12_group as string) || null,
-      level13Group: (row.level_13_group as string) || null,
-      actuals: Number(row.actuals) || 0,
-      budget: Number(row.budget) || 0,
-      vsBud: Number(row.vs_bud) || 0,
-      ly: Number(row.ly) || 0,
-      vsLy: Number(row.vs_ly) || 0
-    }));
+    return mapDetailRows(result.rows as any[]);
   } catch (error) {
     console.error(`Error getting department detail data for ${department}:`, error);
     throw error;
@@ -5881,8 +5904,8 @@ export async function getDepartmentDetailData(
 }
 
 /**
- * Get account-level detail data aggregated across multiple departments for Excel export
- * Used for department group summary sheets (e.g., all F&B departments combined)
+ * Get account-level detail data aggregated across multiple departments.
+ * Used for department group summary sheets (e.g., all F&B departments combined).
  */
 export async function getGroupDepartmentDetailData(
   ou: string,
@@ -5907,7 +5930,6 @@ export async function getGroupDepartmentDetailData(
     const periodPlaceholders = periods.map(() => '?').join(', ');
     const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
     const deptPlaceholders = departments.map(() => '?').join(', ');
-    const repointClauses = buildRepointCaseClauses();
 
     const query = `
       WITH combined_actuals AS (
@@ -5926,7 +5948,7 @@ export async function getGroupDepartmentDetailData(
           AND fd.ou = ?
           AND fd.version = ?
           AND fd.department IN (${deptPlaceholders})
-          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
+          AND ${excludeBalanceSheet('fd.account')}
           AND fd.period_combo IN (${periodPlaceholders})
         GROUP BY COALESCE(fds.account, fd.account)
         UNION ALL
@@ -5942,14 +5964,14 @@ export async function getGroupDepartmentDetailData(
         WHERE fds.scenario = 'ACT'
           AND fds.ou = ?
           AND fds.department IN (${deptPlaceholders})
-          AND fds.account NOT LIKE 'A1%' AND fds.account NOT LIKE 'A2%'
+          AND ${excludeBalanceSheet('fds.account')}
           AND fd.dep_acc_combo_id IS NULL
           AND fds.period_combo IN (${periodPlaceholders})
         GROUP BY fds.account
       ),
       actuals_totals AS (
         SELECT account, SUM(amount) AS actuals FROM combined_actuals
-        WHERE account NOT LIKE 'A1%' AND account NOT LIKE 'A2%'
+        WHERE ${excludeBalanceSheet('account')}
         GROUP BY account
       ),
       budget_totals AS (
@@ -5961,7 +5983,7 @@ export async function getGroupDepartmentDetailData(
           AND fd.ou = ?
           AND fd.version = ?
           AND fd.department IN (${deptPlaceholders})
-          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
+          AND ${excludeBalanceSheet('fd.account')}
           AND fd.period_combo IN (${periodPlaceholders})
         GROUP BY fd.account
       ),
@@ -5974,7 +5996,7 @@ export async function getGroupDepartmentDetailData(
           AND fd.ou = ?
           AND fd.version = ?
           AND fd.department IN (${deptPlaceholders})
-          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
+          AND ${excludeBalanceSheet('fd.account')}
           AND fd.period_combo IN (${lyPeriodPlaceholders})
         GROUP BY fd.account
       )
@@ -5983,13 +6005,7 @@ export async function getGroupDepartmentDetailData(
         am.account_description_detail_level_max AS account_name,
         am.level_12 AS level_12_group,
         am.level_13 AS level_13_group,
-        CASE
-          ${repointClauses.categoryClauses}WHEN am.level_6 = 'Revenue' THEN 'Revenue'
-          WHEN am.level_9 = 'Cost Of Sales' THEN 'Cost of Sales'
-          WHEN am.level_9 = 'Total Payroll' THEN 'Payroll'
-          WHEN am.level_1 = 'STAT' OR am.base_account LIKE 'A9%' THEN 'Stats'
-          WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 'Controllables'
-          ELSE 'Other'
+        CASE ${STANDARD_CATEGORY_CASE}
         END AS category,
         COALESCE(a.actuals, 0) AS actuals,
         COALESCE(b.budget, 0) AS budget,
@@ -6001,16 +6017,9 @@ export async function getGroupDepartmentDetailData(
       FULL OUTER JOIN ly_totals l ON COALESCE(a.account, b.account) = l.account
       LEFT JOIN account_maps am ON COALESCE(a.account, b.account, l.account) = am.base_account
       WHERE COALESCE(a.account, b.account, l.account) IS NOT NULL
-        AND COALESCE(a.account, b.account, l.account) NOT LIKE 'A1%'
-        AND COALESCE(a.account, b.account, l.account) NOT LIKE 'A2%'
+        AND ${excludeBalanceSheet('COALESCE(a.account, b.account, l.account)')}
       ORDER BY
-        CASE
-          ${repointClauses.orderClauses}WHEN am.level_6 = 'Revenue' THEN 1
-          WHEN am.level_9 = 'Cost Of Sales' THEN 2
-          WHEN am.level_9 = 'Total Payroll' THEN 3
-          WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 4
-          WHEN am.level_1 = 'STAT' OR am.base_account LIKE 'A9%' THEN 6
-          ELSE 5
+        CASE ${STANDARD_ORDER_CASE}
         END,
         am.level_12,
         am.base_account
@@ -6031,19 +6040,7 @@ export async function getGroupDepartmentDetailData(
     ];
 
     const result = await client.execute({ sql: query, args: params });
-
-    return result.rows.map(row => ({
-      account: row.account as string,
-      accountName: (row.account_name as string) || (row.account as string),
-      category: row.category as string,
-      level12Group: (row.level_12_group as string) || null,
-      level13Group: (row.level_13_group as string) || null,
-      actuals: Number(row.actuals) || 0,
-      budget: Number(row.budget) || 0,
-      vsBud: Number(row.vs_bud) || 0,
-      ly: Number(row.ly) || 0,
-      vsLy: Number(row.vs_ly) || 0
-    }));
+    return mapDetailRows(result.rows as any[]);
   } catch (error) {
     console.error(`Error getting group department detail data:`, error);
     throw error;
@@ -6082,7 +6079,6 @@ export async function getAllDepartmentDetailData(
     const excludePlaceholders = hasExclusions
       ? `AND dm.base_department NOT IN (${excludeDepartments.map(() => '?').join(', ')})`
       : '';
-    const repointClauses = buildRepointCaseClauses();
 
     const query = `
       WITH combined_actuals AS (
@@ -6103,7 +6099,7 @@ export async function getAllDepartmentDetailData(
           AND fd.version = ?
           AND dm.level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
           ${excludePlaceholders}
-          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
+          AND ${excludeBalanceSheet('fd.account')}
           AND fd.period_combo IN (${periodPlaceholders})
         GROUP BY COALESCE(fds.account, fd.account)
         UNION ALL
@@ -6121,14 +6117,14 @@ export async function getAllDepartmentDetailData(
           AND fds.ou = ?
           AND dm.level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
           ${excludePlaceholders}
-          AND fds.account NOT LIKE 'A1%' AND fds.account NOT LIKE 'A2%'
+          AND ${excludeBalanceSheet('fds.account')}
           AND fd.dep_acc_combo_id IS NULL
           AND fds.period_combo IN (${periodPlaceholders})
         GROUP BY fds.account
       ),
       actuals_totals AS (
         SELECT account, SUM(amount) AS actuals FROM combined_actuals
-        WHERE account NOT LIKE 'A1%' AND account NOT LIKE 'A2%'
+        WHERE ${excludeBalanceSheet('account')}
         GROUP BY account
       ),
       budget_totals AS (
@@ -6142,7 +6138,7 @@ export async function getAllDepartmentDetailData(
           AND fd.version = ?
           AND dm.level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
           ${excludePlaceholders}
-          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
+          AND ${excludeBalanceSheet('fd.account')}
           AND fd.period_combo IN (${periodPlaceholders})
         GROUP BY fd.account
       ),
@@ -6156,8 +6152,8 @@ export async function getAllDepartmentDetailData(
           AND fd.ou = ?
           AND fd.version = ?
           AND dm.level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
-          AND fd.account NOT LIKE 'A1%' AND fd.account NOT LIKE 'A2%'
           ${excludePlaceholders}
+          AND ${excludeBalanceSheet('fd.account')}
           AND fd.period_combo IN (${lyPeriodPlaceholders})
         GROUP BY fd.account
       )
@@ -6166,13 +6162,7 @@ export async function getAllDepartmentDetailData(
         am.account_description_detail_level_max AS account_name,
         am.level_12 AS level_12_group,
         am.level_13 AS level_13_group,
-        CASE
-          ${repointClauses.categoryClauses}WHEN am.level_6 = 'Revenue' THEN 'Revenue'
-          WHEN am.level_9 = 'Cost Of Sales' THEN 'Cost of Sales'
-          WHEN am.level_9 = 'Total Payroll' THEN 'Payroll'
-          WHEN am.level_1 = 'STAT' OR am.base_account LIKE 'A9%' THEN 'Stats'
-          WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 'Controllables'
-          ELSE 'Other'
+        CASE ${STANDARD_CATEGORY_CASE}
         END AS category,
         COALESCE(a.actuals, 0) AS actuals,
         COALESCE(b.budget, 0) AS budget,
@@ -6184,16 +6174,9 @@ export async function getAllDepartmentDetailData(
       FULL OUTER JOIN ly_totals l ON COALESCE(a.account, b.account) = l.account
       LEFT JOIN account_maps am ON COALESCE(a.account, b.account, l.account) = am.base_account
       WHERE COALESCE(a.account, b.account, l.account) IS NOT NULL
-        AND COALESCE(a.account, b.account, l.account) NOT LIKE 'A1%'
-        AND COALESCE(a.account, b.account, l.account) NOT LIKE 'A2%'
+        AND ${excludeBalanceSheet('COALESCE(a.account, b.account, l.account)')}
       ORDER BY
-        CASE
-          ${repointClauses.orderClauses}WHEN am.level_6 = 'Revenue' THEN 1
-          WHEN am.level_9 = 'Cost Of Sales' THEN 2
-          WHEN am.level_9 = 'Total Payroll' THEN 3
-          WHEN am.level_4 = 'Profit Amount' AND am.level_6 != 'Revenue' THEN 4
-          WHEN am.level_1 = 'STAT' OR am.base_account LIKE 'A9%' THEN 6
-          ELSE 5
+        CASE ${STANDARD_ORDER_CASE}
         END,
         am.level_12,
         am.base_account
@@ -6218,21 +6201,303 @@ export async function getAllDepartmentDetailData(
     ];
 
     const result = await client.execute({ sql: query, args: params });
-
-    return result.rows.map(row => ({
-      account: row.account as string,
-      accountName: (row.account_name as string) || (row.account as string),
-      category: row.category as string,
-      level12Group: (row.level_12_group as string) || null,
-      level13Group: (row.level_13_group as string) || null,
-      actuals: Number(row.actuals) || 0,
-      budget: Number(row.budget) || 0,
-      vsBud: Number(row.vs_bud) || 0,
-      ly: Number(row.ly) || 0,
-      vsLy: Number(row.vs_ly) || 0
-    }));
+    return mapDetailRows(result.rows as any[]);
   } catch (error) {
     console.error(`Error getting all department detail data for hotel total:`, error);
+    throw error;
+  }
+}
+
+// ============================================================================
+// PROTEA-SPECIFIC DEPARTMENT DETAIL FUNCTIONS
+// Isolated from standard reports — includes Protea category repoints.
+// These are separate functions (not flags) to ensure clean isolation and
+// prevent Protea-specific logic from impacting the 500+ non-Protea hotels.
+// ============================================================================
+
+/**
+ * Protea variant: Get account-level detail data for a specific department.
+ * Includes Protea category repoints (e.g., A610112 → Payroll).
+ */
+export async function getProteaDepartmentDetailData(
+  ou: string,
+  department: string,
+  startMonth: number,
+  startYear: number,
+  endMonth: number,
+  endYear: number,
+  version: string = 'MAIN'
+): Promise<DepartmentDetailRow[]> {
+  try {
+    const {
+      generatePeriods,
+      generateLYPeriods
+    } = await import('./services/reports/plCalculationEngine');
+
+    const periodRange = { startMonth, startYear, endMonth, endYear };
+    const periods = generatePeriods(periodRange);
+    const lyPeriods = generateLYPeriods(periods);
+    const latestStagingPeriod = periods[periods.length - 1];
+
+    const periodPlaceholders = periods.map(() => '?').join(', ');
+    const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
+    const proteaClauses = buildProteaCategoryClauses();
+
+    const query = `
+      WITH combined_actuals AS (
+        SELECT
+          COALESCE(fds.account, fd.account) AS account,
+          SUM(COALESCE(
+            CASE WHEN fds.period_combo = ? THEN fds.amount ELSE NULL END,
+            fd.amount
+          )) AS amount
+        FROM financial_data fd
+        LEFT JOIN financial_data_staging fds
+          ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
+          AND fd.period_combo = fds.period_combo
+          AND fds.scenario = 'ACT'
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department = ?
+          AND ${excludeBalanceSheet('fd.account')}
+          AND fd.period_combo IN (${periodPlaceholders})
+        GROUP BY COALESCE(fds.account, fd.account)
+        UNION ALL
+        SELECT
+          fds.account,
+          SUM(fds.amount) AS amount
+        FROM financial_data_staging fds
+        LEFT JOIN financial_data fd
+          ON fds.dep_acc_combo_id = fd.dep_acc_combo_id
+          AND fds.period_combo = fd.period_combo
+          AND fd.scenario = 'ACT'
+          AND fd.version = ?
+        WHERE fds.scenario = 'ACT'
+          AND fds.ou = ?
+          AND fds.department = ?
+          AND ${excludeBalanceSheet('fds.account')}
+          AND fd.dep_acc_combo_id IS NULL
+          AND fds.period_combo IN (${periodPlaceholders})
+        GROUP BY fds.account
+      ),
+      actuals_totals AS (
+        SELECT account, SUM(amount) AS actuals FROM combined_actuals
+        WHERE ${excludeBalanceSheet('account')}
+        GROUP BY account
+      ),
+      budget_totals AS (
+        SELECT
+          fd.account,
+          SUM(fd.amount) AS budget
+        FROM financial_data fd
+        WHERE fd.scenario = 'BUD'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department = ?
+          AND ${excludeBalanceSheet('fd.account')}
+          AND fd.period_combo IN (${periodPlaceholders})
+        GROUP BY fd.account
+      ),
+      ly_totals AS (
+        SELECT
+          fd.account,
+          SUM(fd.amount) AS ly
+        FROM financial_data fd
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department = ?
+          AND ${excludeBalanceSheet('fd.account')}
+          AND fd.period_combo IN (${lyPeriodPlaceholders})
+        GROUP BY fd.account
+      )
+      SELECT
+        COALESCE(a.account, b.account, l.account) AS account,
+        am.account_description_detail_level_max AS account_name,
+        am.level_12 AS level_12_group,
+        am.level_13 AS level_13_group,
+        CASE ${proteaClauses.categoryCase}
+        END AS category,
+        COALESCE(a.actuals, 0) AS actuals,
+        COALESCE(b.budget, 0) AS budget,
+        COALESCE(a.actuals, 0) - COALESCE(b.budget, 0) AS vs_bud,
+        COALESCE(l.ly, 0) AS ly,
+        COALESCE(a.actuals, 0) - COALESCE(l.ly, 0) AS vs_ly
+      FROM actuals_totals a
+      FULL OUTER JOIN budget_totals b ON a.account = b.account
+      FULL OUTER JOIN ly_totals l ON COALESCE(a.account, b.account) = l.account
+      LEFT JOIN account_maps am ON COALESCE(a.account, b.account, l.account) = am.base_account
+      WHERE COALESCE(a.account, b.account, l.account) IS NOT NULL
+        AND ${excludeBalanceSheet('COALESCE(a.account, b.account, l.account)')}
+      ORDER BY
+        CASE ${proteaClauses.orderCase}
+        END,
+        am.level_12,
+        am.base_account
+    `;
+
+    const params: any[] = [
+      latestStagingPeriod,
+      ou, 'MAIN', department,
+      ...periods,
+      'MAIN',
+      ou, department,
+      ...periods,
+      ou, version, department,
+      ...periods,
+      ou, 'MAIN', department,
+      ...lyPeriods
+    ];
+
+    const result = await client.execute({ sql: query, args: params });
+    return mapDetailRows(result.rows as any[]);
+  } catch (error) {
+    console.error(`Error getting Protea department detail data for ${department}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Protea variant: Get account-level detail data aggregated across multiple departments.
+ * Includes Protea category repoints (e.g., A610112 → Payroll).
+ */
+export async function getProteaGroupDepartmentDetailData(
+  ou: string,
+  departments: string[],
+  startMonth: number,
+  startYear: number,
+  endMonth: number,
+  endYear: number,
+  version: string = 'MAIN'
+): Promise<DepartmentDetailRow[]> {
+  try {
+    const {
+      generatePeriods,
+      generateLYPeriods
+    } = await import('./services/reports/plCalculationEngine');
+
+    const periodRange = { startMonth, startYear, endMonth, endYear };
+    const periods = generatePeriods(periodRange);
+    const lyPeriods = generateLYPeriods(periods);
+    const latestStagingPeriod = periods[periods.length - 1];
+
+    const periodPlaceholders = periods.map(() => '?').join(', ');
+    const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
+    const deptPlaceholders = departments.map(() => '?').join(', ');
+    const proteaClauses = buildProteaCategoryClauses();
+
+    const query = `
+      WITH combined_actuals AS (
+        SELECT
+          COALESCE(fds.account, fd.account) AS account,
+          SUM(COALESCE(
+            CASE WHEN fds.period_combo = ? THEN fds.amount ELSE NULL END,
+            fd.amount
+          )) AS amount
+        FROM financial_data fd
+        LEFT JOIN financial_data_staging fds
+          ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
+          AND fd.period_combo = fds.period_combo
+          AND fds.scenario = 'ACT'
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department IN (${deptPlaceholders})
+          AND ${excludeBalanceSheet('fd.account')}
+          AND fd.period_combo IN (${periodPlaceholders})
+        GROUP BY COALESCE(fds.account, fd.account)
+        UNION ALL
+        SELECT
+          fds.account,
+          SUM(fds.amount) AS amount
+        FROM financial_data_staging fds
+        LEFT JOIN financial_data fd
+          ON fds.dep_acc_combo_id = fd.dep_acc_combo_id
+          AND fds.period_combo = fd.period_combo
+          AND fd.scenario = 'ACT'
+          AND fd.version = ?
+        WHERE fds.scenario = 'ACT'
+          AND fds.ou = ?
+          AND fds.department IN (${deptPlaceholders})
+          AND ${excludeBalanceSheet('fds.account')}
+          AND fd.dep_acc_combo_id IS NULL
+          AND fds.period_combo IN (${periodPlaceholders})
+        GROUP BY fds.account
+      ),
+      actuals_totals AS (
+        SELECT account, SUM(amount) AS actuals FROM combined_actuals
+        WHERE ${excludeBalanceSheet('account')}
+        GROUP BY account
+      ),
+      budget_totals AS (
+        SELECT
+          fd.account,
+          SUM(fd.amount) AS budget
+        FROM financial_data fd
+        WHERE fd.scenario = 'BUD'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department IN (${deptPlaceholders})
+          AND ${excludeBalanceSheet('fd.account')}
+          AND fd.period_combo IN (${periodPlaceholders})
+        GROUP BY fd.account
+      ),
+      ly_totals AS (
+        SELECT
+          fd.account,
+          SUM(fd.amount) AS ly
+        FROM financial_data fd
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department IN (${deptPlaceholders})
+          AND ${excludeBalanceSheet('fd.account')}
+          AND fd.period_combo IN (${lyPeriodPlaceholders})
+        GROUP BY fd.account
+      )
+      SELECT
+        COALESCE(a.account, b.account, l.account) AS account,
+        am.account_description_detail_level_max AS account_name,
+        am.level_12 AS level_12_group,
+        am.level_13 AS level_13_group,
+        CASE ${proteaClauses.categoryCase}
+        END AS category,
+        COALESCE(a.actuals, 0) AS actuals,
+        COALESCE(b.budget, 0) AS budget,
+        COALESCE(a.actuals, 0) - COALESCE(b.budget, 0) AS vs_bud,
+        COALESCE(l.ly, 0) AS ly,
+        COALESCE(a.actuals, 0) - COALESCE(l.ly, 0) AS vs_ly
+      FROM actuals_totals a
+      FULL OUTER JOIN budget_totals b ON a.account = b.account
+      FULL OUTER JOIN ly_totals l ON COALESCE(a.account, b.account) = l.account
+      LEFT JOIN account_maps am ON COALESCE(a.account, b.account, l.account) = am.base_account
+      WHERE COALESCE(a.account, b.account, l.account) IS NOT NULL
+        AND ${excludeBalanceSheet('COALESCE(a.account, b.account, l.account)')}
+      ORDER BY
+        CASE ${proteaClauses.orderCase}
+        END,
+        am.level_12,
+        am.base_account
+    `;
+
+    const params: any[] = [
+      latestStagingPeriod,
+      ou, 'MAIN', ...departments,
+      ...periods,
+      'MAIN',
+      ou, ...departments,
+      ...periods,
+      ou, version, ...departments,
+      ...periods,
+      ou, 'MAIN', ...departments,
+      ...lyPeriods
+    ];
+
+    const result = await client.execute({ sql: query, args: params });
+    return mapDetailRows(result.rows as any[]);
+  } catch (error) {
+    console.error(`Error getting Protea group department detail data:`, error);
     throw error;
   }
 }

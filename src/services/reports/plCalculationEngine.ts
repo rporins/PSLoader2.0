@@ -18,6 +18,10 @@ import { F90_PL_ROW_CONFIG } from './f90PLRowConfig';
 // Orchestrates SQL query generation, data fetching, and measure evaluation
 // ============================================================================
 
+/** Balance sheet accounts (A1xxx, A2xxx) are permanently excluded from all P&L reports.
+ *  This is a fundamental accounting convention — these prefixes will never contain P&L data. */
+const EXCLUDE_BALANCE_SHEET_SQL = "cd.account NOT LIKE 'A1%' AND cd.account NOT LIKE 'A2%'";
+
 export function generatePeriods(range: PeriodRange): string[] {
   const periods: string[] = [];
   let year = range.startYear;
@@ -199,7 +203,7 @@ export function buildScenarioQuery(
     FROM combined_data cd
     LEFT JOIN department_maps dm ON cd.department = dm.base_department
     LEFT JOIN account_maps am ON cd.account = am.base_account
-    WHERE cd.account NOT LIKE 'A1%' AND cd.account NOT LIKE 'A2%'
+    WHERE ${EXCLUDE_BALANCE_SHEET_SQL}
   `;
 
   return { sql, params };
