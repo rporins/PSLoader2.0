@@ -1566,6 +1566,185 @@ export async function getProteaF90PLData(
   }
 }
 
+// ============================================================================
+// PROTEA BUDGET PACK — F90 DATA WITH MONTHLY BREAKDOWN
+// Slot remapping: actualsSlot=CurrentBudget, budgetSlot=LYBudget, lySlot=LYActuals
+// ============================================================================
+
+export async function getProteaBudgetF90PLData(
+  startMonth: number,
+  startYear: number,
+  endMonth: number,
+  endYear: number,
+  ou: string,
+  version: string = 'MAIN',
+  rowConfig?: any[],
+  skipFilter: boolean = false
+): Promise<{ total: string; monthly: Record<string, string> }> {
+  try {
+    await autoCleanStagingIfImported();
+
+    const {
+      generatePeriods,
+      generateLYPeriods,
+      buildScenarioQuery,
+      calculateF90PLRows,
+      applyProteaAccountMovement
+    } = await import('./services/reports/plCalculationEngine');
+
+    const periodRange = { startMonth, startYear, endMonth, endYear };
+    const currentPeriods = generatePeriods(periodRange);
+    const lyPeriods = generateLYPeriods(currentPeriods);
+
+    // 3 total queries + N monthly queries — all parallelised
+    const curBudQuery = buildScenarioQuery('BUD', currentPeriods, ou, version);
+    const lyBudQuery = buildScenarioQuery('BUD', lyPeriods, ou, version);
+    const lyActQuery = buildScenarioQuery('ACT', lyPeriods, ou, 'MAIN');
+    const monthlyQueries = currentPeriods.map(p => buildScenarioQuery('BUD', [p], ou, version));
+
+    const allQueries = [
+      client.execute({ sql: curBudQuery.sql, args: curBudQuery.params }),
+      client.execute({ sql: lyBudQuery.sql, args: lyBudQuery.params }),
+      client.execute({ sql: lyActQuery.sql, args: lyActQuery.params }),
+      ...monthlyQueries.map(q => client.execute({ sql: q.sql, args: q.params }))
+    ];
+
+    const results = await Promise.all(allQueries);
+    const curBudData = results[0].rows[0] as any || {};
+    const lyBudData = results[1].rows[0] as any || {};
+    const lyActData = results[2].rows[0] as any || {};
+
+    // Apply Protea account movement to all datasets
+    applyProteaAccountMovement(curBudData);
+    applyProteaAccountMovement(lyBudData);
+    applyProteaAccountMovement(lyActData);
+
+    // Totals: slot remap — actuals=CurBud, budget=LYBud, ly=LYAct
+    const totalRows = calculateF90PLRows(curBudData, lyBudData, lyActData, rowConfig, skipFilter);
+
+    // Monthly breakdown: one set of rows per period
+    const monthly: Record<string, string> = {};
+    for (let i = 0; i < currentPeriods.length; i++) {
+      const monthData = results[3 + i].rows[0] as any || {};
+      applyProteaAccountMovement(monthData);
+      // Only the "actuals" slot is populated (= this month's budget)
+      const monthRows = calculateF90PLRows(monthData, {}, {}, rowConfig, true);
+      monthly[currentPeriods[i]] = JSON.stringify(monthRows);
+    }
+
+    return { total: JSON.stringify(totalRows), monthly };
+  } catch (error) {
+    console.error("Error generating Protea Budget F90 P&L data:", error);
+    throw error;
+  }
+}
+
+// ============================================================================
+// PROTEA BUDGET PACK — PER-PERIOD BUDGET BREAKDOWN FOR DEPARTMENT DETAIL
+// Returns budget amount per account per period using a CASE-WHEN pivot.
+// ============================================================================
+
+export async function getProteaDepartmentBudgetByPeriod(
+  ou: string,
+  department: string,
+  periods: string[],
+  version: string = 'MAIN'
+): Promise<Array<{ account: string; [period: string]: number }>> {
+  try {
+    if (periods.length === 0) return [];
+
+    const periodColumns = periods.map((_, i) =>
+      `SUM(CASE WHEN fd.period_combo = ? THEN fd.amount ELSE 0 END) AS p${i}`
+    ).join(',\n      ');
+
+    const periodPlaceholders = periods.map(() => '?').join(', ');
+
+    const query = `
+      SELECT
+        fd.account,
+        ${periodColumns}
+      FROM financial_data fd
+      WHERE fd.scenario = 'BUD'
+        AND fd.ou = ?
+        AND fd.version = ?
+        AND fd.department = ?
+        AND ${excludeBalanceSheet('fd.account')}
+        AND fd.period_combo IN (${periodPlaceholders})
+      GROUP BY fd.account
+    `;
+
+    const params: any[] = [
+      ...periods,           // for CASE WHEN columns
+      ou, version, department,
+      ...periods            // for IN clause
+    ];
+
+    const result = await client.execute({ sql: query, args: params });
+
+    return (result.rows as any[]).map(row => {
+      const mapped: any = { account: row.account as string };
+      for (let i = 0; i < periods.length; i++) {
+        mapped[periods[i]] = Number(row[`p${i}`]) || 0;
+      }
+      return mapped;
+    });
+  } catch (error) {
+    console.error(`Error getting budget by period for ${department}:`, error);
+    throw error;
+  }
+}
+
+export async function getProteaGroupDepartmentBudgetByPeriod(
+  ou: string,
+  departments: string[],
+  periods: string[],
+  version: string = 'MAIN'
+): Promise<Array<{ account: string; [period: string]: number }>> {
+  try {
+    if (periods.length === 0 || departments.length === 0) return [];
+
+    const periodColumns = periods.map((_, i) =>
+      `SUM(CASE WHEN fd.period_combo = ? THEN fd.amount ELSE 0 END) AS p${i}`
+    ).join(',\n      ');
+
+    const periodPlaceholders = periods.map(() => '?').join(', ');
+    const deptPlaceholders = departments.map(() => '?').join(', ');
+
+    const query = `
+      SELECT
+        fd.account,
+        ${periodColumns}
+      FROM financial_data fd
+      WHERE fd.scenario = 'BUD'
+        AND fd.ou = ?
+        AND fd.version = ?
+        AND fd.department IN (${deptPlaceholders})
+        AND ${excludeBalanceSheet('fd.account')}
+        AND fd.period_combo IN (${periodPlaceholders})
+      GROUP BY fd.account
+    `;
+
+    const params: any[] = [
+      ...periods,                  // for CASE WHEN columns
+      ou, version, ...departments,
+      ...periods                   // for IN clause
+    ];
+
+    const result = await client.execute({ sql: query, args: params });
+
+    return (result.rows as any[]).map(row => {
+      const mapped: any = { account: row.account as string };
+      for (let i = 0; i < periods.length; i++) {
+        mapped[periods[i]] = Number(row[`p${i}`]) || 0;
+      }
+      return mapped;
+    });
+  } catch (error) {
+    console.error(`Error getting group budget by period:`, error);
+    throw error;
+  }
+}
+
 //------------------------------------------------------------------------------------------------------------------
 //--- GET STAGING VS BUDGET DATA TABLE ---------------------------------------------------------------------------------
 export async function getStagingVsBudgetData(ou?: string, version: string = 'MAIN'): Promise<string> {

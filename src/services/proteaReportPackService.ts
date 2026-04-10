@@ -12,26 +12,59 @@ import { PROTEA_F90_PL_ROW_CONFIG, PROTEA_F90_PL_ROW_CONFIG_WITH_BANQUETING } fr
 import { PLRow } from '../types/plReportTypes';
 import { INVEST_CUSTOM_SUBGROUPS, InvestSubgroupDef } from './reports/investSubgroupConfig';
 
-// ============================================================================
-// KPI ROW CONFIGS — used to compute KPIs via the F90 calculation engine
-// instead of from raw department detail data (which can miss stats/categories)
-// ============================================================================
-
-const ROOMS_KPI_CONFIG: PLRow[] = [
-  { type: 'measure', label: 'Rooms Available', measureId: 'total_rooms', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Sold Rooms', measureId: 'sold_rooms', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Rooms Revenue', measureId: 'rooms_reservations_revenue', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Occupancy %', measureId: 'occupancy_rooms', formatting: 'percentage', indentLevel: 1 },
-  { type: 'measure', label: 'ADR', measureId: 'adr', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'RevPAR', measureId: 'rev_par', formatting: 'number', indentLevel: 1 },
-  { type: 'measure', label: 'Rooms Dept Profit %', measureId: 'rooms_dept_profit_pct', formatting: 'percentage', indentLevel: 1 },
-];
-
-const FB_KPI_CONFIG: PLRow[] = [
-  { type: 'measure', label: '% Food COS', measureId: 'food_cost_pct_sales', formatting: 'percentage', indentLevel: 1 },
-  { type: 'measure', label: '% Beverage COS', measureId: 'bev_cost_pct_sales', formatting: 'percentage', indentLevel: 1 },
-  { type: 'measure', label: 'F&B Dept Profit %', measureId: 'fb_dept_profit_pct', formatting: 'percentage', indentLevel: 1 },
-];
+// Shared constants, styling, configs, and utilities (single source of truth with Budget Pack)
+import {
+  ROOMS_KPI_CONFIG,
+  FB_KPI_CONFIG,
+  MONTH_NAMES,
+  TAB_COLOR_REPORT,
+  TAB_COLOR_GROUP_SUMMARY,
+  TAB_COLOR_DEPARTMENT,
+  HEADER_FILL,
+  HEADER_FONT,
+  SECTION_HEADER_FILL,
+  SECTION_HEADER_FONT,
+  CATEGORY_HEADER_FILL,
+  CATEGORY_HEADER_FONT,
+  SEPARATOR_FILL,
+  SUBTOTAL_FILL,
+  GROUP_HEADER_FILL,
+  GROUP_HEADER_FONT,
+  GROUP_SUBTOTAL_FILL,
+  GROUP_SUBTOTAL_FONT,
+  CATEGORY_TOTAL_FILL,
+  CATEGORY_TOTAL_FONT,
+  CATEGORY_TOTAL_BORDER,
+  GROUP_SUBTOTAL_BORDER,
+  DATA_FONT,
+  TOTAL_ROW_BORDER,
+  BORDER_STYLE,
+  applyHeaderStyle,
+  applySectionHeaderStyle,
+  applyCategoryHeaderStyle,
+  applyDataRowStyle,
+  applyGroupHeaderStyle,
+  applyGroupSubtotalStyle,
+  applyCategorySubtotalStyle,
+  formatNumber,
+  formatPercentage,
+  sanitizeSheetName,
+  getRangeLabel,
+  aggregateDuplicateAccounts,
+  proteaRenameLabel,
+  EXCEL_EXCLUDED_DEPARTMENTS,
+  PROTEA_MOVED_ACCOUNT_PREFIXES,
+  PROTEA_MOVED_ACCOUNT_BASES,
+  PROTEA_MOVEMENT_SOURCE_DEPTS,
+  isMovedAccount,
+  DepartmentMovement,
+  PROTEA_DEPARTMENT_MOVEMENTS,
+  BANQUETING_DEPARTMENTS,
+  PROTEA_GROUP_DISPLAY_ORDER,
+  MOVED_DEPT_SET,
+  MOVED_DEPT_BY_SOURCE,
+  MOVEMENT_TARGET_GROUPS,
+} from './reports/proteaShared';
 
 // ============================================================================
 // TYPES
@@ -50,324 +83,6 @@ export interface ProteaReportPackConfig {
   generateDetailTabs: boolean;  // Include individual department detail sheets (vs summary-only)
   includeBanquetingBreakdown: boolean;  // Split banqueting depts (D0230/D0231/D0232) out of F&B
 }
-
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-// ============================================================================
-// STYLING HELPERS
-// ============================================================================
-
-// Tab color scheme for worksheet tabs
-const TAB_COLOR_REPORT: Partial<ExcelJS.Color> = { argb: 'FF1E3A5F' };    // Dark blue - F90, Room Segments
-const TAB_COLOR_GROUP_SUMMARY: Partial<ExcelJS.Color> = { argb: 'FF2D5F8A' }; // Medium navy - Group summaries
-const TAB_COLOR_DEPARTMENT: Partial<ExcelJS.Color> = { argb: 'FF8899AA' };   // Blue-gray - Individual departments
-
-const HEADER_FILL: ExcelJS.Fill = {
-  type: 'pattern',
-  pattern: 'solid',
-  fgColor: { argb: 'FF1E3A5F' }  // Dark blue
-};
-
-const HEADER_FONT: Partial<ExcelJS.Font> = {
-  bold: true,
-  color: { argb: 'FFFFFFFF' },  // White
-  size: 11
-};
-
-const SECTION_HEADER_FILL: ExcelJS.Fill = {
-  type: 'pattern',
-  pattern: 'solid',
-  fgColor: { argb: 'FF4A4A4A' }  // Dark charcoal gray
-};
-
-const SECTION_HEADER_FONT: Partial<ExcelJS.Font> = {
-  bold: true,
-  size: 11,
-  color: { argb: 'FFFFFFFF' }  // White
-};
-
-const CATEGORY_HEADER_FILL: ExcelJS.Fill = {
-  type: 'pattern',
-  pattern: 'solid',
-  fgColor: { argb: 'FFF0F4F8' }  // Very light blue-gray
-};
-
-const CATEGORY_HEADER_FONT: Partial<ExcelJS.Font> = {
-  bold: true,
-  size: 10
-};
-
-const SEPARATOR_FILL: ExcelJS.Fill = {
-  type: 'pattern',
-  pattern: 'solid',
-  fgColor: { argb: 'FF8899AA' }  // Blue-gray separator
-};
-
-const SUBTOTAL_FILL: ExcelJS.Fill = {
-  type: 'pattern',
-  pattern: 'solid',
-  fgColor: { argb: 'FFDCE6F0' }  // Light blue for subtotals
-};
-
-// level_12 group header - slightly indented, subtle background
-const GROUP_HEADER_FILL: ExcelJS.Fill = {
-  type: 'pattern',
-  pattern: 'solid',
-  fgColor: { argb: 'FFF5F7FA' }  // Very subtle blue-gray, lighter than category
-};
-
-const GROUP_HEADER_FONT: Partial<ExcelJS.Font> = {
-  bold: true,
-  size: 10,
-  color: { argb: 'FF4A5568' }  // Dark gray
-};
-
-// level_12 group subtotal - subtle distinction from category subtotal
-const GROUP_SUBTOTAL_FILL: ExcelJS.Fill = {
-  type: 'pattern',
-  pattern: 'solid',
-  fgColor: { argb: 'FFEDF2F7' }  // Light blue-gray
-};
-
-const GROUP_SUBTOTAL_FONT: Partial<ExcelJS.Font> = {
-  bold: true,
-  size: 10
-};
-
-// Category total header - medium navy with white text, strong visual separator
-const CATEGORY_TOTAL_FILL: ExcelJS.Fill = {
-  type: 'pattern',
-  pattern: 'solid',
-  fgColor: { argb: 'FF2D5F8A' }  // Medium navy
-};
-
-const CATEGORY_TOTAL_FONT: Partial<ExcelJS.Font> = {
-  bold: true,
-  size: 10,
-  color: { argb: 'FFFFFFFF' }  // White
-};
-
-const CATEGORY_TOTAL_BORDER: Partial<ExcelJS.Borders> = {
-  top: { style: 'medium', color: { argb: 'FF1E3A5F' } },
-  left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
-  bottom: { style: 'thin', color: { argb: 'FF1E3A5F' } },
-  right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
-};
-
-const GROUP_SUBTOTAL_BORDER: Partial<ExcelJS.Borders> = {
-  top: { style: 'thin', color: { argb: 'FF1E3A5F' } },
-  left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
-  bottom: { style: 'thin', color: { argb: 'FF1E3A5F' } },
-  right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
-};
-
-const DATA_FONT: Partial<ExcelJS.Font> = {
-  size: 10
-};
-
-const TOTAL_ROW_BORDER: Partial<ExcelJS.Borders> = {
-  top: { style: 'medium', color: { argb: 'FF000000' } },
-  left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
-  bottom: { style: 'thin', color: { argb: 'FF000000' } },
-  right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
-};
-
-const BORDER_STYLE: Partial<ExcelJS.Borders> = {
-  top: { style: 'thin', color: { argb: 'FFD0D0D0' } },
-  left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
-  bottom: { style: 'thin', color: { argb: 'FFD0D0D0' } },
-  right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
-};
-
-function applyHeaderStyle(row: ExcelJS.Row): void {
-  row.eachCell({ includeEmpty: true }, (cell) => {
-    cell.fill = HEADER_FILL;
-    cell.font = HEADER_FONT;
-    cell.border = BORDER_STYLE;
-    cell.alignment = { vertical: 'middle', horizontal: 'center' };
-  });
-  row.height = 24;
-}
-
-function applySectionHeaderStyle(row: ExcelJS.Row): void {
-  row.eachCell({ includeEmpty: true }, (cell) => {
-    cell.fill = SECTION_HEADER_FILL;
-    cell.font = SECTION_HEADER_FONT;
-    cell.border = BORDER_STYLE;
-    cell.alignment = { vertical: 'middle' };
-  });
-  row.height = 28;
-}
-
-function applyCategoryHeaderStyle(row: ExcelJS.Row): void {
-  row.eachCell({ includeEmpty: true }, (cell) => {
-    cell.fill = CATEGORY_HEADER_FILL;
-    cell.font = CATEGORY_HEADER_FONT;
-    cell.border = BORDER_STYLE;
-  });
-  row.height = 20;
-}
-
-function applyDataRowStyle(row: ExcelJS.Row, isHeader: boolean = false): void {
-  row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-    cell.font = isHeader ? { ...DATA_FONT, bold: true } : DATA_FONT;
-    cell.border = BORDER_STYLE;
-    cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
-  });
-}
-
-function applyGroupHeaderStyle(row: ExcelJS.Row): void {
-  row.eachCell({ includeEmpty: true }, (cell) => {
-    cell.fill = GROUP_HEADER_FILL;
-    cell.font = GROUP_HEADER_FONT;
-    cell.border = BORDER_STYLE;
-    cell.alignment = { vertical: 'middle' };
-  });
-  row.height = 18;
-}
-
-function applyGroupSubtotalStyle(row: ExcelJS.Row): void {
-  row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-    cell.fill = GROUP_SUBTOTAL_FILL;
-    cell.font = GROUP_SUBTOTAL_FONT;
-    cell.border = GROUP_SUBTOTAL_BORDER;
-    cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
-  });
-  row.height = 18;
-}
-
-function applyCategorySubtotalStyle(row: ExcelJS.Row): void {
-  row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-    cell.fill = CATEGORY_TOTAL_FILL;
-    cell.font = CATEGORY_TOTAL_FONT;
-    cell.border = CATEGORY_TOTAL_BORDER;
-    cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
-  });
-  row.height = 22;
-}
-
-function formatNumber(value: number | null, decimals: number = 0): number | string {
-  if (value === null || value === undefined) return '';
-  return Math.round(value * Math.pow(10, decimals)) / Math.pow(10, decimals);
-}
-
-function formatPercentage(value: number | null): string {
-  if (value === null || value === undefined) return '';
-  // Values from the engine are already in 0-100 scale (e.g. 72.5 for 72.5%)
-  return `${value.toFixed(1)}%`;
-}
-
-function sanitizeSheetName(name: string): string {
-  // Excel sheet names: max 31 chars, no special chars: \ / * ? : [ ]
-  // department_description_detail_level_max already contains dept name + ID
-  const sanitized = name.replace(/[\\/*?:\[\]]/g, '').trim();
-  return sanitized.substring(0, 31) || 'Sheet';
-}
-
-function getRangeLabel(
-  startMonth: number,
-  startYear: number,
-  endMonth: number,
-  endYear: number
-): string {
-  // Single month: start and end are identical
-  if (startMonth === endMonth && startYear === endYear) {
-    return `Period: ${MONTH_NAMES[startMonth - 1]} ${startYear}`;
-  }
-
-  // Jan through Dec of the same year = full year
-  if (startMonth === 1 && endMonth === 12 && startYear === endYear) {
-    return `Full Year: ${startYear}`;
-  }
-
-  // Jan through some month of the same year = year to date
-  if (startMonth === 1 && startYear === endYear) {
-    return `Year to Date: ${MONTH_NAMES[startMonth - 1]} ${startYear} - ${MONTH_NAMES[endMonth - 1]} ${endYear}`;
-  }
-
-  // Everything else is a custom range
-  return `Custom Range: ${MONTH_NAMES[startMonth - 1]} ${startYear} - ${MONTH_NAMES[endMonth - 1]} ${endYear}`;
-}
-
-// ============================================================================
-// DUPLICATE ACCOUNT AGGREGATION
-// ============================================================================
-
-/** Aggregate rows that share the same account code by summing their numeric fields.
- *  Keeps the first row's metadata (accountName, category, level12Group, level13Group).
- *  Needed after merging data from moved departments, which may share accounts with
- *  the target group's native departments. */
-function aggregateDuplicateAccounts(rows: any[]): any[] {
-  const map = new Map<string, any>();
-  for (const row of rows) {
-    const existing = map.get(row.account);
-    if (existing) {
-      existing.actuals = (existing.actuals || 0) + (row.actuals || 0);
-      existing.budget = (existing.budget || 0) + (row.budget || 0);
-      existing.ly = (existing.ly || 0) + (row.ly || 0);
-      existing.vsBud = (existing.vsBud || 0) + (row.vsBud || 0);
-      existing.vsLy = (existing.vsLy || 0) + (row.vsLy || 0);
-    } else {
-      map.set(row.account, { ...row });
-    }
-  }
-  return Array.from(map.values());
-}
-
-// ============================================================================
-// EXCEL EXPORT SERVICE CLASS
-// ============================================================================
-
-const EXCEL_EXCLUDED_DEPARTMENTS = db.NON_OPERATING_EXCLUDED_DEPARTMENTS;
-
-// ============================================================================
-// PROTEA ACCOUNT MOVEMENT CONFIG
-// Insurance (A730xxx), audit (A745xxx), and A701603 accounts on D0480/D0490/D0690
-// are reported as if they belong to D0410 (Admin & General).  This is a
-// report-level-only adjustment — the underlying data is unchanged.
-// ============================================================================
-const PROTEA_MOVED_ACCOUNT_PREFIXES = ['A730', 'A745'];
-const PROTEA_MOVED_ACCOUNT_BASES = ['A701603'];
-const PROTEA_MOVEMENT_SOURCE_DEPTS = ['D0480', 'D0490', 'D0690'];
-const isMovedAccount = (acct: string) =>
-  PROTEA_MOVED_ACCOUNT_PREFIXES.some(p => acct.startsWith(p)) ||
-  PROTEA_MOVED_ACCOUNT_BASES.includes(acct);
-
-// ============================================================================
-// PROTEA DEPARTMENT-LEVEL MOVEMENT CONFIG
-// Certain departments report under a different group in the Protea extract.
-// Report-level only — underlying data is unchanged.  The F90 is unaffected.
-// ============================================================================
-interface DepartmentMovement {
-  sourceDept: string;        // Department to move from its native level_7 group
-  targetGroup: string;       // level_7 group name it merges into
-  detailMergeTarget: string; // Department whose detail tab receives the merged data
-}
-
-const PROTEA_DEPARTMENT_MOVEMENTS: DepartmentMovement[] = [
-  { sourceDept: 'D0400', targetGroup: 'Administrative & General', detailMergeTarget: 'D0410' },
-  { sourceDept: 'D0480', targetGroup: 'Invest Factor Owner',     detailMergeTarget: 'D0490' },
-  { sourceDept: 'D0690', targetGroup: 'Invest Factor Owner',     detailMergeTarget: 'D0490' },
-];
-
-// Banqueting departments — split out of F&B when banqueting toggle is on
-const BANQUETING_DEPARTMENTS = new Set(['D0230', 'D0231', 'D0232']);
-
-/** Preferred display order for department groups in the Protea report pack.
- *  Groups not listed here appear after these in their natural (alphabetical) order.
- *  'Total Banqueting' only appears when the banqueting toggle is enabled. */
-const PROTEA_GROUP_DISPLAY_ORDER: string[] = [
-  'Rooms and Reservation',
-  'Total Food & Beverage',
-  'Total Banqueting',
-  'Other Operated Departments',
-  'Administrative & General',
-];
-
-// Derived lookups for fast access
-const MOVED_DEPT_SET = new Set(PROTEA_DEPARTMENT_MOVEMENTS.map(m => m.sourceDept));
-const MOVED_DEPT_BY_SOURCE = new Map(PROTEA_DEPARTMENT_MOVEMENTS.map(m => [m.sourceDept, m]));
-const MOVEMENT_TARGET_GROUPS = new Set(PROTEA_DEPARTMENT_MOVEMENTS.map(m => m.targetGroup));
 
 // ============================================================================
 // INVEST FACTOR OWNER — CUSTOM SUBGROUP CONFIGURATION
@@ -890,7 +605,7 @@ class ProteaReportPackService {
       return null;
     }
 
-    let sheetName = sanitizeSheetName(`${this.proteaRenameLabel(groupName)} Summary`.toUpperCase());
+    let sheetName = sanitizeSheetName(`${proteaRenameLabel(groupName)} Summary`.toUpperCase());
     let finalName = sheetName;
     let counter = 1;
     while (usedSheetNames.has(finalName.toLowerCase())) {
@@ -922,7 +637,7 @@ class ProteaReportPackService {
     ];
 
     // Title header rows (report name, hotel name + timestamp)
-    this.addSheetTitleHeader(sheet, config, totalCols, this.proteaRenameLabel(groupName));
+    this.addSheetTitleHeader(sheet, config, totalCols, proteaRenameLabel(groupName));
 
     // Period group headers
     const groupRow = sheet.addRow(new Array(totalCols).fill(''));
@@ -1062,7 +777,7 @@ class ProteaReportPackService {
       return null;
     }
 
-    let sheetName = sanitizeSheetName(this.proteaRenameLabel(nameOverride || dept.departmentName || dept.baseDepartment));
+    let sheetName = sanitizeSheetName(proteaRenameLabel(nameOverride || dept.departmentName || dept.baseDepartment));
     let finalName = sheetName;
     let counter = 1;
     while (usedSheetNames.has(finalName.toLowerCase())) {
@@ -1094,7 +809,7 @@ class ProteaReportPackService {
     ];
 
     // Title header rows (report name, hotel name + timestamp)
-    this.addSheetTitleHeader(sheet, config, totalCols, this.proteaRenameLabel(nameOverride || dept.departmentName));
+    this.addSheetTitleHeader(sheet, config, totalCols, proteaRenameLabel(nameOverride || dept.departmentName));
 
     // Period group headers
     const groupRow = sheet.addRow(new Array(totalCols).fill(''));
@@ -1185,7 +900,7 @@ class ProteaReportPackService {
 
       if (entry.type === 'groupHeader') {
         // Uppercase bold group name (not a hyperlink)
-        row.getCell(1).value = this.proteaRenameLabel(entry.groupName || '').toUpperCase();
+        row.getCell(1).value = proteaRenameLabel(entry.groupName || '').toUpperCase();
         row.getCell(1).font = { bold: true, size: 11, color: { argb: 'FF1E3A5F' } };
         row.height = 22;
       } else {
@@ -1206,22 +921,14 @@ class ProteaReportPackService {
     }
   }
 
-  /**
-   * Replace "Miscellaneous"/"Misc" with "Sundry" for Protea display labels.
-   * Applied at render level only — underlying data is unchanged.
-   */
-  private proteaRenameLabel(label: string): string {
-    return label
-      .replace(/\bMiscellaneous\b/gi, 'Sundry')
-      .replace(/\bMisc\b/gi, 'Sundry');
-  }
+  // proteaRenameLabel is now imported from proteaShared.ts
 
   /**
    * Returns a rich text value with the AccPac description in light grey brackets,
    * or a plain string if no AccPac description exists.
    */
   private buildAccountLabel(displayName: string, accountCode: string, movedFrom?: string): string | ExcelJS.CellRichTextValue {
-    displayName = this.proteaRenameLabel(displayName);
+    displayName = proteaRenameLabel(displayName);
     const descriptions = this.accpacDescriptions.get(accountCode);
     const hasDescriptions = descriptions && descriptions.length > 0;
 
@@ -2035,7 +1742,7 @@ class ProteaReportPackService {
 
           // Subgroup header row (name only)
           const groupHeaderRow = sheet.addRow(new Array(totalCols).fill(''));
-          groupHeaderRow.getCell(1).value = this.proteaRenameLabel(groupName);
+          groupHeaderRow.getCell(1).value = proteaRenameLabel(groupName);
           applyGroupHeaderStyle(groupHeaderRow);
           this.styleDeptSeparator(groupHeaderRow);
 
@@ -2088,7 +1795,7 @@ class ProteaReportPackService {
           }
 
           // level_12 group subtotal row (at bottom of sub-group)
-          addHeaderWithTotals(`  Total ${this.proteaRenameLabel(groupName)}`, mGroupRows, rGroupRows, applyGroupSubtotalStyle, false, sign);
+          addHeaderWithTotals(`  Total ${proteaRenameLabel(groupName)}`, mGroupRows, rGroupRows, applyGroupSubtotalStyle, false, sign);
 
           // Blank row separator after each level_12 sub-group
           this.addBlankSeparatorRow(sheet, totalCols);
@@ -2285,7 +1992,7 @@ class ProteaReportPackService {
 
       // Subgroup header row (name only)
       const sgHeaderRow = sheet.addRow(new Array(totalCols).fill(''));
-      sgHeaderRow.getCell(1).value = this.proteaRenameLabel(sg.name);
+      sgHeaderRow.getCell(1).value = proteaRenameLabel(sg.name);
       applyGroupHeaderStyle(sgHeaderRow);
       this.styleDeptSeparator(sgHeaderRow);
 
@@ -2338,7 +2045,7 @@ class ProteaReportPackService {
       }
 
       // Subgroup subtotal row
-      addHeaderWithTotals(`  Total ${this.proteaRenameLabel(sg.name)}`, mRows, rRows, applyGroupSubtotalStyle);
+      addHeaderWithTotals(`  Total ${proteaRenameLabel(sg.name)}`, mRows, rRows, applyGroupSubtotalStyle);
 
       // Blank separator after subgroup
       this.addBlankSeparatorRow(sheet, totalCols);

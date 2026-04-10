@@ -35,6 +35,11 @@ export const SETTINGS_KEYS = {
   PROTEA_REPORT_PACK_YTD_START_YEAR: 'proteaReportPackYtdStartYear',
   PROTEA_REPORT_PACK_YTD_END_MONTH: 'proteaReportPackYtdEndMonth',
   PROTEA_REPORT_PACK_YTD_END_YEAR: 'proteaReportPackYtdEndYear',
+  // Protea Budget Pack settings
+  PROTEA_BUDGET_PACK_START_MONTH: 'proteaBudgetPackStartMonth',
+  PROTEA_BUDGET_PACK_START_YEAR: 'proteaBudgetPackStartYear',
+  PROTEA_BUDGET_PACK_END_MONTH: 'proteaBudgetPackEndMonth',
+  PROTEA_BUDGET_PACK_END_YEAR: 'proteaBudgetPackEndYear',
   // Shared report settings
   INCLUDE_DETAIL_BREAKDOWN: 'includeDetailBreakdown',
   INCLUDE_BANQUETING_BREAKDOWN: 'includeBanquetingBreakdown',
@@ -71,6 +76,11 @@ export interface AppSettings {
   [SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_START_YEAR]: number;
   [SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_MONTH]: number;
   [SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_YEAR]: number;
+  // Protea Budget Pack settings
+  [SETTINGS_KEYS.PROTEA_BUDGET_PACK_START_MONTH]: number;
+  [SETTINGS_KEYS.PROTEA_BUDGET_PACK_START_YEAR]: number;
+  [SETTINGS_KEYS.PROTEA_BUDGET_PACK_END_MONTH]: number;
+  [SETTINGS_KEYS.PROTEA_BUDGET_PACK_END_YEAR]: number;
   // Shared report settings
   [SETTINGS_KEYS.INCLUDE_DETAIL_BREAKDOWN]: boolean;
   [SETTINGS_KEYS.INCLUDE_BANQUETING_BREAKDOWN]: boolean;
@@ -108,6 +118,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   [SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_START_YEAR]: currentYear,
   [SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_MONTH]: currentMonth,
   [SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_YEAR]: currentYear,
+  // Protea Budget Pack defaults (next year since budget packs review future budgets)
+  [SETTINGS_KEYS.PROTEA_BUDGET_PACK_START_MONTH]: 1,
+  [SETTINGS_KEYS.PROTEA_BUDGET_PACK_START_YEAR]: currentYear + 1,
+  [SETTINGS_KEYS.PROTEA_BUDGET_PACK_END_MONTH]: 12,
+  [SETTINGS_KEYS.PROTEA_BUDGET_PACK_END_YEAR]: currentYear + 1,
   // Shared report settings
   [SETTINGS_KEYS.INCLUDE_DETAIL_BREAKDOWN]: false,
   [SETTINGS_KEYS.INCLUDE_BANQUETING_BREAKDOWN]: false,

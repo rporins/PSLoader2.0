@@ -32,6 +32,11 @@ type SettingsState = {
   proteaReportPackYtdStartYear: number;
   proteaReportPackYtdEndMonth: number;
   proteaReportPackYtdEndYear: number;
+  // Protea Budget Pack settings
+  proteaBudgetPackStartMonth: number;
+  proteaBudgetPackStartYear: number;
+  proteaBudgetPackEndMonth: number;
+  proteaBudgetPackEndYear: number;
   // Shared report settings
   includeDetailBreakdown: boolean;
   includeBanquetingBreakdown: boolean;
@@ -69,6 +74,11 @@ type SettingsState = {
   setProteaReportPackYtdStartYear: (year: number) => Promise<void>;
   setProteaReportPackYtdEndMonth: (month: number) => Promise<void>;
   setProteaReportPackYtdEndYear: (year: number) => Promise<void>;
+  // Protea Budget Pack setters
+  setProteaBudgetPackStartMonth: (month: number) => Promise<void>;
+  setProteaBudgetPackStartYear: (year: number) => Promise<void>;
+  setProteaBudgetPackEndMonth: (month: number) => Promise<void>;
+  setProteaBudgetPackEndYear: (year: number) => Promise<void>;
   // Shared report setters
   setIncludeDetailBreakdown: (enabled: boolean) => Promise<void>;
   setIncludeBanquetingBreakdown: (enabled: boolean) => Promise<void>;
@@ -109,6 +119,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   proteaReportPackYtdStartYear: new Date().getFullYear(),
   proteaReportPackYtdEndMonth: new Date().getMonth() + 1,
   proteaReportPackYtdEndYear: new Date().getFullYear(),
+  // Protea Budget Pack defaults (next year since budget packs review future budgets)
+  proteaBudgetPackStartMonth: 1,
+  proteaBudgetPackStartYear: new Date().getFullYear() + 1,
+  proteaBudgetPackEndMonth: 12,
+  proteaBudgetPackEndYear: new Date().getFullYear() + 1,
   // Shared report defaults
   includeDetailBreakdown: false,
   includeBanquetingBreakdown: false,
@@ -439,6 +454,51 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
   },
 
+  // Protea Budget Pack settings
+  setProteaBudgetPackStartMonth: async (month) => {
+    const previous = get().proteaBudgetPackStartMonth;
+    set({ proteaBudgetPackStartMonth: month });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.PROTEA_BUDGET_PACK_START_MONTH, month);
+    } catch (error) {
+      console.error("Failed to save Protea budget pack start month:", error);
+      set({ proteaBudgetPackStartMonth: previous });
+    }
+  },
+
+  setProteaBudgetPackStartYear: async (year) => {
+    const previous = get().proteaBudgetPackStartYear;
+    set({ proteaBudgetPackStartYear: year });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.PROTEA_BUDGET_PACK_START_YEAR, year);
+    } catch (error) {
+      console.error("Failed to save Protea budget pack start year:", error);
+      set({ proteaBudgetPackStartYear: previous });
+    }
+  },
+
+  setProteaBudgetPackEndMonth: async (month) => {
+    const previous = get().proteaBudgetPackEndMonth;
+    set({ proteaBudgetPackEndMonth: month });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.PROTEA_BUDGET_PACK_END_MONTH, month);
+    } catch (error) {
+      console.error("Failed to save Protea budget pack end month:", error);
+      set({ proteaBudgetPackEndMonth: previous });
+    }
+  },
+
+  setProteaBudgetPackEndYear: async (year) => {
+    const previous = get().proteaBudgetPackEndYear;
+    set({ proteaBudgetPackEndYear: year });
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.PROTEA_BUDGET_PACK_END_YEAR, year);
+    } catch (error) {
+      console.error("Failed to save Protea budget pack end year:", error);
+      set({ proteaBudgetPackEndYear: previous });
+    }
+  },
+
   // Shared report settings
   setIncludeDetailBreakdown: async (enabled) => {
     const previous = get().includeDetailBreakdown;
@@ -555,6 +615,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         proteaReportPackYtdStartYear: settings[SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_START_YEAR],
         proteaReportPackYtdEndMonth: settings[SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_MONTH],
         proteaReportPackYtdEndYear: settings[SETTINGS_KEYS.PROTEA_REPORT_PACK_YTD_END_YEAR],
+        // Protea Budget Pack settings
+        proteaBudgetPackStartMonth: settings[SETTINGS_KEYS.PROTEA_BUDGET_PACK_START_MONTH],
+        proteaBudgetPackStartYear: settings[SETTINGS_KEYS.PROTEA_BUDGET_PACK_START_YEAR],
+        proteaBudgetPackEndMonth: settings[SETTINGS_KEYS.PROTEA_BUDGET_PACK_END_MONTH],
+        proteaBudgetPackEndYear: settings[SETTINGS_KEYS.PROTEA_BUDGET_PACK_END_YEAR],
         // Shared report settings
         includeDetailBreakdown: settings[SETTINGS_KEYS.INCLUDE_DETAIL_BREAKDOWN],
         includeBanquetingBreakdown: settings[SETTINGS_KEYS.INCLUDE_BANQUETING_BREAKDOWN],

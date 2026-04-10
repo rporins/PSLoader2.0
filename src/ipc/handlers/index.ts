@@ -14,6 +14,7 @@ export * from "./app";
 export * from "./excelExport";
 export * from "./templateExport";
 export * from "./proteaReportPack";
+export * from "./proteaBudgetPack";
 
 // You can add more handler modules here as your application grows:
 // export * from "./file-system";
