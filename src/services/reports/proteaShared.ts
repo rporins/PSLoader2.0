@@ -333,11 +333,9 @@ export const EXCEL_EXCLUDED_DEPARTMENTS = db.NON_OPERATING_EXCLUDED_DEPARTMENTS;
 // report-level-only adjustment — the underlying data is unchanged.
 // ============================================================================
 export const PROTEA_MOVED_ACCOUNT_PREFIXES = ['A730', 'A745'];
-export const PROTEA_MOVED_ACCOUNT_BASES = ['A701603'];
-export const PROTEA_MOVEMENT_SOURCE_DEPTS = ['D0480', 'D0490', 'D0690'];
+export const PROTEA_MOVEMENT_SOURCE_DEPTS = ['D0480', 'D0490', 'D0690', 'D0691'];
 export const isMovedAccount = (acct: string) =>
-  PROTEA_MOVED_ACCOUNT_PREFIXES.some(p => acct.startsWith(p)) ||
-  PROTEA_MOVED_ACCOUNT_BASES.includes(acct);
+  PROTEA_MOVED_ACCOUNT_PREFIXES.some(p => acct.startsWith(p));
 
 // ============================================================================
 // PROTEA DEPARTMENT-LEVEL MOVEMENT CONFIG
@@ -354,6 +352,7 @@ export const PROTEA_DEPARTMENT_MOVEMENTS: DepartmentMovement[] = [
   { sourceDept: 'D0400', targetGroup: 'Administrative & General', detailMergeTarget: 'D0410' },
   { sourceDept: 'D0480', targetGroup: 'Invest Factor Owner',     detailMergeTarget: 'D0490' },
   { sourceDept: 'D0690', targetGroup: 'Invest Factor Owner',     detailMergeTarget: 'D0490' },
+  { sourceDept: 'D0691', targetGroup: 'Invest Factor Owner',     detailMergeTarget: 'D0490' },
 ];
 
 // Banqueting departments — split out of F&B when banqueting toggle is on
@@ -374,3 +373,54 @@ export const PROTEA_GROUP_DISPLAY_ORDER: string[] = [
 export const MOVED_DEPT_SET = new Set(PROTEA_DEPARTMENT_MOVEMENTS.map(m => m.sourceDept));
 export const MOVED_DEPT_BY_SOURCE = new Map(PROTEA_DEPARTMENT_MOVEMENTS.map(m => [m.sourceDept, m]));
 export const MOVEMENT_TARGET_GROUPS = new Set(PROTEA_DEPARTMENT_MOVEMENTS.map(m => m.targetGroup));
+
+// ============================================================================
+// INVEST FACTOR OWNER — LEVEL 20 ACCOUNT CLASSIFIER
+// Shared by both report and budget pack for consistent subgroup assignment.
+// ============================================================================
+
+import { InvestSubgroupDef } from './investSubgroupConfig';
+
+export interface AccountClassification {
+  subgroup: string;
+  isUnmapped: boolean;  // true when account fell to catch-all without a recognized level_20 value
+}
+
+/**
+ * Classify accounts into invest subgroups using level_20 mapping table lookups.
+ * Priority: level_13 match (Management Fees) → level_20 match → catch-all.
+ * Returns a map from account code to its classification.
+ */
+export function classifyAccountsByLevel20(
+  rows: any[],
+  subgroups: InvestSubgroupDef[]
+): Map<string, AccountClassification> {
+  const result = new Map<string, AccountClassification>();
+  const catchAllName = subgroups.find(sg => sg.isCatchAll)?.name || 'Other';
+  const knownLevel20Values = new Set(
+    subgroups.filter(sg => sg.level20Value).map(sg => sg.level20Value)
+  );
+
+  for (const row of rows) {
+    if (result.has(row.account)) continue;
+
+    // Priority 1: level_13 match (Management Fees)
+    const l13Match = subgroups.find(sg => sg.useLevel13 && row.level13Group === sg.useLevel13);
+    if (l13Match) {
+      result.set(row.account, { subgroup: l13Match.name, isUnmapped: false });
+      continue;
+    }
+
+    // Priority 2: level_20 match
+    const l20Match = subgroups.find(sg => sg.level20Value && row.level20Group === sg.level20Value);
+    if (l20Match) {
+      result.set(row.account, { subgroup: l20Match.name, isUnmapped: false });
+      continue;
+    }
+
+    // Priority 3: Catch-all — flag as unmapped if level_20 isn't a recognized value
+    result.set(row.account, { subgroup: catchAllName, isUnmapped: true });
+  }
+
+  return result;
+}

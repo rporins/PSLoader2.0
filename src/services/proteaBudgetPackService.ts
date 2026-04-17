@@ -65,6 +65,7 @@ import {
   MOVED_DEPT_SET,
   MOVED_DEPT_BY_SOURCE,
   MOVEMENT_TARGET_GROUPS,
+  classifyAccountsByLevel20,
 } from './reports/proteaShared';
 
 // ============================================================================
@@ -665,8 +666,13 @@ class ProteaBudgetPackService {
     this.addSheetTitleHeader(sheet, config, proteaRenameLabel(groupName));
     this.addColumnHeaders(sheet, config);
 
-    // Render data
-    this.addBudgetDepartmentDataSection(sheet, currentData, lyData, budgetByPeriod);
+    // Render data — Invest Factor Owner uses custom subgroup layout
+    const isInvestGroup = groupName === 'Invest Factor Owner';
+    if (isInvestGroup) {
+      this.addBudgetCustomSubgroupDataSection(sheet, currentData, lyData, budgetByPeriod);
+    } else {
+      this.addBudgetDepartmentDataSection(sheet, currentData, lyData, budgetByPeriod);
+    }
 
     sheet.views = [{ state: 'frozen', xSplit: 1, ySplit: 5 }];
     return finalName;
@@ -743,7 +749,14 @@ class ProteaBudgetPackService {
     this.addSheetTitleHeader(sheet, config, proteaRenameLabel(nameOverride || dept.departmentName));
     this.addColumnHeaders(sheet, config);
 
-    this.addBudgetDepartmentDataSection(sheet, currentData, lyData, budgetByPeriod);
+    // D0490 detail with incoming movements uses custom subgroup layout
+    const isInvestDetail = dept.baseDepartment === 'D0490' &&
+      PROTEA_DEPARTMENT_MOVEMENTS.some(mv => mv.detailMergeTarget === dept.baseDepartment && mv.sourceDept !== dept.baseDepartment);
+    if (isInvestDetail) {
+      this.addBudgetCustomSubgroupDataSection(sheet, currentData, lyData, budgetByPeriod);
+    } else {
+      this.addBudgetDepartmentDataSection(sheet, currentData, lyData, budgetByPeriod);
+    }
 
     sheet.views = [{ state: 'frozen', xSplit: 1, ySplit: 5 }];
     return finalName;
@@ -935,6 +948,168 @@ class ProteaBudgetPackService {
 
       // Category total
       addTotalRow(`Total ${category}`, curCategoryRows, lyCategoryRows, applyCategorySubtotalStyle, sign);
+      addBlank();
+    }
+  }
+
+  // ============================================================================
+  // INVEST FACTOR OWNER — CUSTOM SUBGROUP RENDERING (Budget Pack Column Layout)
+  // Groups accounts by level_20 mapping table instead of category/level_12.
+  // ============================================================================
+
+  private addBudgetCustomSubgroupDataSection(
+    sheet: ExcelJS.Worksheet,
+    currentData: any[],
+    lyData: any[],
+    budgetByPeriod: Array<{ account: string; [p: string]: number }>
+  ): void {
+    const tc = this.totalCols;
+    const budgetMap = new Map<string, { [p: string]: number }>();
+    for (const row of budgetByPeriod) {
+      const existing = budgetMap.get(row.account);
+      if (existing) {
+        for (const p of this.periods) existing[p] = (existing[p] || 0) + (row[p] || 0);
+      } else {
+        const entry: any = {};
+        for (const p of this.periods) entry[p] = row[p] || 0;
+        budgetMap.set(row.account, entry);
+      }
+    }
+
+    const lyMap = new Map<string, any>();
+    for (const row of lyData) lyMap.set(row.account, row);
+
+    const sumField = (rows: any[], field: string) =>
+      rows.reduce((sum: number, r: any) => sum + (Number(r[field]) || 0), 0);
+
+    const pct = (num: number, base: number) =>
+      base !== 0 ? ((num - base) / Math.abs(base)) * 100 : null;
+
+    // Filter out stats
+    currentData = currentData.filter(r => r.category !== 'Stats');
+    lyData = lyData.filter(r => r.category !== 'Stats');
+
+    // Classify accounts using level_20 mapping table
+    const allRows = [...currentData, ...lyData];
+    const classification = classifyAccountsByLevel20(allRows, INVEST_CUSTOM_SUBGROUPS);
+    const catchAllName = INVEST_CUSTOM_SUBGROUPS.find(sg => sg.isCatchAll)?.name || 'Other';
+
+    // Build per-subgroup data sets
+    const curBySubgroup = new Map<string, any[]>();
+    const lyBySubgroup = new Map<string, any[]>();
+    for (const sg of INVEST_CUSTOM_SUBGROUPS) {
+      curBySubgroup.set(sg.name, []);
+      lyBySubgroup.set(sg.name, []);
+    }
+    for (const row of currentData) {
+      const sg = classification.get(row.account)?.subgroup || catchAllName;
+      curBySubgroup.get(sg)?.push(row);
+    }
+    for (const row of lyData) {
+      const sg = classification.get(row.account)?.subgroup || catchAllName;
+      lyBySubgroup.get(sg)?.push(row);
+    }
+
+    /** Add a row with aggregated totals */
+    const addTotalRow = (label: string, curRows: any[], lyRows: any[], styleFn: (row: ExcelJS.Row) => void) => {
+      const curBud = sumField(curRows, 'budget');
+      const lyBud = sumField(lyRows, 'budget');
+      const lyAct = sumField(curRows, 'ly');
+
+      const rowData: any = {
+        label: label,
+        lyBud: formatNumber(lyBud),
+        lyBudVar: formatPercentage(pct(curBud, lyBud)),
+        lyAct: formatNumber(lyAct),
+        lyActVar: formatPercentage(pct(curBud, lyAct)),
+        curBud: formatNumber(curBud),
+        comments: '',
+      };
+
+      const accountsInGroup = new Set(curRows.map((r: any) => r.account));
+      for (let i = 0; i < this.periods.length; i++) {
+        const p = this.periods[i];
+        let monthTotal = 0;
+        for (const acct of accountsInGroup) {
+          const bpRow = budgetMap.get(acct);
+          if (bpRow) monthTotal += bpRow[p] || 0;
+        }
+        rowData[`budM${i}`] = formatNumber(monthTotal);
+      }
+
+      const excelRow = sheet.addRow(rowData);
+      styleFn(excelRow);
+      this.applyNumberFormats(excelRow);
+    };
+
+    const addBlank = () => {
+      const blankRow = sheet.addRow(new Array(tc).fill(''));
+      blankRow.eachCell((cell) => { cell.border = BORDER_STYLE; cell.font = DATA_FONT; });
+    };
+
+    // Render each subgroup in config order
+    for (const sg of INVEST_CUSTOM_SUBGROUPS) {
+      const curRows = curBySubgroup.get(sg.name) || [];
+      const lyRows = lyBySubgroup.get(sg.name) || [];
+      if (curRows.length === 0 && lyRows.length === 0) continue;
+
+      // Subgroup header
+      const gHeaderRow = sheet.addRow(new Array(tc).fill(''));
+      gHeaderRow.getCell(1).value = proteaRenameLabel(sg.name);
+      applyGroupHeaderStyle(gHeaderRow);
+
+      // Account detail rows
+      const allAccounts: string[] = [];
+      const curAcctMap = new Map<string, any>();
+      const lyAcctMap = new Map<string, any>();
+      for (const row of curRows) { curAcctMap.set(row.account, row); if (!allAccounts.includes(row.account)) allAccounts.push(row.account); }
+      for (const row of lyRows) { lyAcctMap.set(row.account, row); if (!allAccounts.includes(row.account)) allAccounts.push(row.account); }
+
+      for (const acct of allAccounts) {
+        const curRow = curAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: acct, account: acct };
+        const lyRow = lyAcctMap.get(acct) || { budget: 0 };
+        const bpRow = budgetMap.get(acct);
+
+        const curBud = curRow.budget;
+        const lyBud = lyRow.budget;
+        const lyAct = curRow.ly;
+        const displayName = curRow.accountName || curRow.account;
+
+        const rowData: any = {
+          label: `    ${displayName}`,
+          lyBud: formatNumber(lyBud),
+          lyBudVar: formatPercentage(pct(curBud, lyBud)),
+          lyAct: formatNumber(lyAct),
+          lyActVar: formatPercentage(pct(curBud, lyAct)),
+          curBud: formatNumber(curBud),
+          comments: '',
+        };
+        for (let i = 0; i < this.periods.length; i++) {
+          const p = this.periods[i];
+          rowData[`budM${i}`] = bpRow ? formatNumber(bpRow[p] || 0) : '';
+        }
+
+        const excelRow = sheet.addRow(rowData);
+
+        // Rich text account label
+        const accountLabel = this.buildAccountLabel(displayName, curRow.account);
+        if (typeof accountLabel !== 'string') {
+          excelRow.getCell(1).value = { richText: [{ font: { size: 10 }, text: '    ' }, ...accountLabel.richText] };
+        }
+
+        applyDataRowStyle(excelRow);
+
+        // Highlight unmapped accounts
+        const acctClassification = classification.get(acct);
+        if (acctClassification?.isUnmapped) {
+          excelRow.getCell(1).font = { ...DATA_FONT, italic: true, color: { argb: 'FFCC6600' } };
+        }
+
+        this.applyNumberFormats(excelRow);
+      }
+
+      // Subgroup subtotal
+      addTotalRow(`  Total ${proteaRenameLabel(sg.name)}`, curRows, lyRows, applyGroupSubtotalStyle);
       addBlank();
     }
   }

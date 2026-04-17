@@ -406,23 +406,20 @@ export function calculateSummaryPLRows(
 
 // ============================================================================
 // PROTEA REPORT: ACCOUNT MOVEMENT MUTATION
-// Shifts insurance (A730xxx) and audit (A745xxx) accounts from D0480/D0490
-// into Admin & General (D0410) at the report level.  Mutates the raw query
-// result object IN-PLACE so that all downstream measure evaluators
+// Shifts insurance (A730xxx) and audit (A745xxx) accounts from D0480/D0490/
+// D0690/D0691 into Admin & General (D0410) at the report level.  Mutates the
+// raw query result object IN-PLACE so that all downstream measure evaluators
 // automatically cascade the adjusted values.
 // ============================================================================
 
 export function applyProteaAccountMovement(queryResult: any): void {
-  // Existing A730/A745 insurance/audit movement
+  // A730/A745 insurance/audit movement from all owner departments
   const moved0480 = Number(queryResult.protea_moved_accounts_d0480_act) || 0;
   const moved0490 = Number(queryResult.protea_moved_accounts_d0490_act) || 0;
+  const moved0690 = Number(queryResult.protea_moved_accounts_d0690_act) || 0;
+  const moved0691 = Number(queryResult.protea_moved_accounts_d0691_act) || 0;
 
-  // A701603 movement from D0480/D0490/D0690
-  const a701603_d0480 = Number(queryResult.protea_moved_accounts_a701603_d0480_act) || 0;
-  const a701603_d0490 = Number(queryResult.protea_moved_accounts_a701603_d0490_act) || 0;
-  const a701603_d0690 = Number(queryResult.protea_moved_accounts_a701603_d0690_act) || 0;
-
-  const totalMoved = moved0480 + moved0490 + a701603_d0480 + a701603_d0490 + a701603_d0690;
+  const totalMoved = moved0480 + moved0490 + moved0690 + moved0691;
 
   // Shift into UOE / Admin & General (increases expense, decreases profit)
   queryResult.admin_general_dept_expense_act = (Number(queryResult.admin_general_dept_expense_act) || 0) + totalMoved;
@@ -430,13 +427,10 @@ export function applyProteaAccountMovement(queryResult: any): void {
   queryResult.total_profit_act = (Number(queryResult.total_profit_act) || 0) + totalMoved;
 
   // Remove from source department aggregates (below-the-line)
-  queryResult.f90_d0480_all_act = (Number(queryResult.f90_d0480_all_act) || 0) - moved0480 - a701603_d0480;
-  queryResult.f90_d0490_all_act = (Number(queryResult.f90_d0490_all_act) || 0) - moved0490 - a701603_d0490;
-  queryResult.f90_d0690_all_act = (Number(queryResult.f90_d0690_all_act) || 0) - a701603_d0690;
-
-  // Remove A701603 from fixed expense prefix sub-measure (A701603 matches A701* prefix)
-  // a701603_d04xx values are already negated (negate:true), so + effectively subtracts the raw amount
-  queryResult.fixed_expenses_act = (Number(queryResult.fixed_expenses_act) || 0) + a701603_d0480 + a701603_d0490;
+  queryResult.f90_d0480_all_act = (Number(queryResult.f90_d0480_all_act) || 0) - moved0480;
+  queryResult.f90_d0490_all_act = (Number(queryResult.f90_d0490_all_act) || 0) - moved0490;
+  queryResult.f90_d0690_all_act = (Number(queryResult.f90_d0690_all_act) || 0) - moved0690;
+  queryResult.f90_d0691_all_act = (Number(queryResult.f90_d0691_all_act) || 0) - moved0691;
 }
 
 export function calculateF90PLRows(

@@ -5849,6 +5849,7 @@ export interface DepartmentDetailRow {
   category: string;
   level12Group: string | null;
   level13Group: string | null;
+  level20Group: string | null;
   actuals: number;
   budget: number;
   vsBud: number;
@@ -5895,6 +5896,7 @@ function mapDetailRows(rows: any[]): DepartmentDetailRow[] {
     category: row.category as string,
     level12Group: (row.level_12_group as string) || null,
     level13Group: (row.level_13_group as string) || null,
+    level20Group: (row.level_20_group as string) || null,
     actuals: Number(row.actuals) || 0,
     budget: Number(row.budget) || 0,
     vsBud: Number(row.vs_bud) || 0,
@@ -6496,6 +6498,7 @@ export async function getProteaDepartmentDetailData(
         am.account_description_detail_level_max AS account_name,
         am.level_12 AS level_12_group,
         am.level_13 AS level_13_group,
+        am.level_20 AS level_20_group,
         CASE ${proteaClauses.categoryCase}
         END AS category,
         COALESCE(a.actuals, 0) AS actuals,
@@ -6640,6 +6643,7 @@ export async function getProteaGroupDepartmentDetailData(
         am.account_description_detail_level_max AS account_name,
         am.level_12 AS level_12_group,
         am.level_13 AS level_13_group,
+        am.level_20 AS level_20_group,
         CASE ${proteaClauses.categoryCase}
         END AS category,
         COALESCE(a.actuals, 0) AS actuals,

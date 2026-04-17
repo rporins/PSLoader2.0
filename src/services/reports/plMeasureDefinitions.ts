@@ -1,12 +1,5 @@
 import { SubMeasure, Measure, MeasureContext } from '../../types/plReportTypes';
-import {
-  getSubgroupAccounts,
-  getSubgroupPrefixes,
-  getSubgroupLevel13,
-  getFixedExpensesOverlapAccounts,
-  getFixedExpensesExtraAccounts,
-  getTaxExtraAccounts,
-} from './investSubgroupConfig';
+// investSubgroupConfig accessors removed — F90 measures now use level_20 filters directly
 
 // ============================================================================
 // SUB-MEASURE DEFINITIONS
@@ -2093,7 +2086,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     negate: true,
     filters: [
       { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_level', level: 13, value: getSubgroupLevel13('Management Fees')! },
+      { type: 'acc_level', level: 13, value: 'Managed Fees' },
       { type: 'acc_level', level: 14, value: 'Lease Expenses' },
       { type: 'acc_level', level: 15, value: 'Base Fees' }
     ]
@@ -2106,7 +2099,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     negate: true,
     filters: [
       { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_level', level: 13, value: getSubgroupLevel13('Management Fees')! },
+      { type: 'acc_level', level: 13, value: 'Managed Fees' },
       { type: 'acc_level', level: 14, value: 'Lease Expenses' },
       { type: 'acc_level', level: 15, value: 'Incentive Fees' }
     ]
@@ -2119,7 +2112,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     negate: true,
     filters: [
       { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_level', level: 13, value: getSubgroupLevel13('Management Fees')! },
+      { type: 'acc_level', level: 13, value: 'Managed Fees' },
       { type: 'acc_level', level: 14, value: 'Royalty Costs' },
       { type: 'acc_level', level: 15, value: 'Base Fees' }
     ]
@@ -2180,211 +2173,115 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     ]
   },
 
-  // F90 P&L - Fixed Expenses (D0490, D0480 with prefix patterns from config)
-  fixed_expenses_act: {
-    id: 'fixed_expenses_act',
+  // ============================================================================
+  // LEVEL 20 — INVEST FACTOR OWNER SUBGROUP SUB-MEASURES
+  // Each subgroup is a single filter across all 4 owner departments.
+  // Replaces the old prefix/overlap/extra account pattern.
+  // ============================================================================
+
+  // Fixed Expenses (debit-balance: stored positive, no negate)
+  f90_fixed_expenses_l20_act: {
+    id: 'f90_fixed_expenses_l20_act',
     formula: 'CALCULATE',
     filters: [
-      { type: 'dept_base', value: ['D0490', 'D0480'] },
-      { type: 'acc_prefix', value: getSubgroupPrefixes('Fixed Expenses') }
+      { type: 'dept_base', value: ['D0480', 'D0490', 'D0690', 'D0691'] },
+      { type: 'acc_level', level: 20, value: 'Fixed Expenses' }
     ]
   },
 
-  // All Managed Fees in D0490 (for exclusion from Owner Expense)
-  f90_d0490_all_fees_act: {
-    id: 'f90_d0490_all_fees_act',
+  // Depreciation
+  f90_depreciation_l20_act: {
+    id: 'f90_depreciation_l20_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
-      { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_level', level: 13, value: getSubgroupLevel13('Management Fees')! }
+      { type: 'dept_base', value: ['D0480', 'D0490', 'D0690', 'D0691'] },
+      { type: 'acc_level', level: 20, value: 'Depreciation' }
     ]
   },
 
-  // All Managed Fees in D0480 (for exclusion from Abnormal Items)
-  f90_d0480_all_fees_act: {
-    id: 'f90_d0480_all_fees_act',
+  // Owner Expense
+  f90_owner_expense_l20_act: {
+    id: 'f90_owner_expense_l20_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
-      { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_level', level: 13, value: getSubgroupLevel13('Management Fees')! }
+      { type: 'dept_base', value: ['D0480', 'D0490', 'D0690', 'D0691'] },
+      { type: 'acc_level', level: 20, value: 'Owner Expense' }
     ]
   },
 
-  // Interest in D0490 (prefix from config)
-  f90_d0490_interest_act: {
-    id: 'f90_d0490_interest_act',
+  // Interest
+  f90_interest_l20_act: {
+    id: 'f90_interest_l20_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
-      { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_prefix', value: getSubgroupPrefixes('Net Interest Income / (Expense)') }
+      { type: 'dept_base', value: ['D0480', 'D0490', 'D0690', 'D0691'] },
+      { type: 'acc_level', level: 20, value: 'Interest' }
     ]
   },
 
-  // Interest in D0480 (prefix from config)
-  f90_d0480_interest_act: {
-    id: 'f90_d0480_interest_act',
+  // Refurbishment Fund
+  f90_refurbishment_fund_l20_act: {
+    id: 'f90_refurbishment_fund_l20_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
-      { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_prefix', value: getSubgroupPrefixes('Net Interest Income / (Expense)') }
+      { type: 'dept_base', value: ['D0480', 'D0490', 'D0690', 'D0691'] },
+      { type: 'acc_level', level: 20, value: 'Refurbishment Fund' }
     ]
   },
 
-  // Tax in D0490 (prefix from config)
-  f90_d0490_tax_act: {
-    id: 'f90_d0490_tax_act',
+  // Tax
+  f90_tax_l20_act: {
+    id: 'f90_tax_l20_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
-      { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_prefix', value: getSubgroupPrefixes('Tax') }
+      { type: 'dept_base', value: ['D0480', 'D0490', 'D0690', 'D0691'] },
+      { type: 'acc_level', level: 20, value: 'Tax' }
     ]
   },
 
-  // Dividends in D0490 (A701601)
-  f90_d0490_dividends_act: {
-    id: 'f90_d0490_dividends_act',
+  // Deferred Tax
+  f90_deferred_tax_l20_act: {
+    id: 'f90_deferred_tax_l20_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
-      { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_base', value: 'A701601' }
+      { type: 'dept_base', value: ['D0480', 'D0490', 'D0690', 'D0691'] },
+      { type: 'acc_level', level: 20, value: 'Deferred Tax' }
     ]
   },
 
-  // Tax in D0480 (prefix from config)
-  f90_d0480_tax_act: {
-    id: 'f90_d0480_tax_act',
+  // Dividends
+  f90_dividends_l20_act: {
+    id: 'f90_dividends_l20_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
-      { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_prefix', value: getSubgroupPrefixes('Tax') }
+      { type: 'dept_base', value: ['D0480', 'D0490', 'D0690', 'D0691'] },
+      { type: 'acc_level', level: 20, value: 'Dividends' }
     ]
   },
 
-  // Tax extra: explicit Tax accounts that don't match the Tax prefix (e.g. A720601)
-  // Parallels the Fixed Expenses "extra" pattern for non-prefix accounts
-  f90_tax_extra_act: {
-    id: 'f90_tax_extra_act',
+  // Abnormal Items (explicit level_20 match — catch-all residual is computed in the calculated measure)
+  f90_abnormal_items_l20_act: {
+    id: 'f90_abnormal_items_l20_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
-      { type: 'dept_base', value: ['D0480', 'D0490'] },
-      { type: 'acc_base', value: getTaxExtraAccounts() }
+      { type: 'dept_base', value: ['D0480', 'D0490', 'D0690', 'D0691'] },
+      { type: 'acc_level', level: 20, value: 'Abnormal Items' }
     ]
   },
 
-  // Depreciation extra: explicit accounts from D0480 (from config)
-  f90_depreciation_extra_d0480_act: {
-    id: 'f90_depreciation_extra_d0480_act',
-    formula: 'CALCULATE',
-    negate: true,
-    filters: [
-      { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_base', value: getSubgroupAccounts('Depreciation') }
-    ]
-  },
+  // ============================================================================
+  // PROTEA ACCOUNT MOVEMENT — A730/A745 insurance/audit sub-measures per dept
+  // Used by applyProteaAccountMovement() to shift costs into Admin & General
+  // ============================================================================
 
-  // Depreciation extra: explicit accounts from D0490 (from config)
-  f90_depreciation_extra_d0490_act: {
-    id: 'f90_depreciation_extra_d0490_act',
-    formula: 'CALCULATE',
-    negate: true,
-    filters: [
-      { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_base', value: getSubgroupAccounts('Depreciation') }
-    ]
-  },
-
-  // Fixed Expenses extra: explicit accounts that don't match Fixed Expenses prefixes (from config)
-  f90_fixed_exp_extra_act: {
-    id: 'f90_fixed_exp_extra_act',
-    formula: 'CALCULATE',
-    filters: [
-      { type: 'dept_base', value: ['D0480', 'D0490'] },
-      { type: 'acc_base', value: getFixedExpensesExtraAccounts() }
-    ]
-  },
-
-  // Explicit Abnormal Items accounts (from config)
-  f90_abnormal_items_explicit_act: {
-    id: 'f90_abnormal_items_explicit_act',
-    formula: 'CALCULATE',
-    negate: true,
-    filters: [
-      { type: 'dept_base', value: ['D0480', 'D0490'] },
-      { type: 'acc_base', value: getSubgroupAccounts('Abnormal Items') }
-    ]
-  },
-
-  // Overlap: A701* accounts classified as Managed Fees (e.g. A701120) per department
-  // Used to correct fixed_expenses (which captures A701* broadly) and avoid double-subtraction in residuals
-  f90_fixed_exp_fees_overlap_d0480_act: {
-    id: 'f90_fixed_exp_fees_overlap_d0480_act',
-    formula: 'CALCULATE',
-    filters: [
-      { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_prefix', value: 'A701' },
-      { type: 'acc_level', level: 13, value: getSubgroupLevel13('Management Fees')! }
-    ]
-  },
-  f90_fixed_exp_fees_overlap_d0490_act: {
-    id: 'f90_fixed_exp_fees_overlap_d0490_act',
-    formula: 'CALCULATE',
-    filters: [
-      { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_prefix', value: 'A701' },
-      { type: 'acc_level', level: 13, value: getSubgroupLevel13('Management Fees')! }
-    ]
-  },
-
-  // Overlap: Owner Expense accounts within Fixed Expenses prefix range — subtract from fixed expenses (from config)
-  f90_fixed_exp_a701601_d0480_act: {
-    id: 'f90_fixed_exp_a701601_d0480_act',
-    formula: 'CALCULATE',
-    filters: [
-      { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_base', value: getFixedExpensesOverlapAccounts().ownerOverlap }
-    ]
-  },
-  f90_fixed_exp_a701601_d0490_act: {
-    id: 'f90_fixed_exp_a701601_d0490_act',
-    formula: 'CALCULATE',
-    filters: [
-      { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_base', value: getFixedExpensesOverlapAccounts().ownerOverlap }
-    ]
-  },
-
-  // Interest in D0690 (prefix from config) — for inclusion in f90_interest
-  f90_d0690_interest_act: {
-    id: 'f90_d0690_interest_act',
-    formula: 'CALCULATE',
-    negate: true,
-    filters: [
-      { type: 'dept_base', value: 'D0690' },
-      { type: 'acc_prefix', value: getSubgroupPrefixes('Net Interest Income / (Expense)') }
-    ]
-  },
-
-  // Owner Expense extra: A720701 from D0480 (moved from Abnormal Items to Owners Expense)
-  f90_owner_exp_extra_d0480_act: {
-    id: 'f90_owner_exp_extra_d0480_act',
-    formula: 'CALCULATE',
-    negate: true,
-    filters: [
-      { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_base', value: 'A720701' }
-    ]
-  },
-
-  // Protea Report: Moved accounts (insurance A730xxx + audit A745xxx) on D0480
-  // Used by applyProteaAccountMovement() to shift these costs into Admin & General (D0410) at report level
   protea_moved_accounts_d0480_act: {
     id: 'protea_moved_accounts_d0480_act',
     formula: 'CALCULATE',
@@ -2395,7 +2292,6 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     ]
   },
 
-  // Protea Report: Moved accounts (insurance A730xxx + audit A745xxx) on D0490
   protea_moved_accounts_d0490_act: {
     id: 'protea_moved_accounts_d0490_act',
     formula: 'CALCULATE',
@@ -2406,48 +2302,23 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     ]
   },
 
-  // Protea Report: Moved account A701603 on D0480 — shifted to Admin & General (D0410)
-  protea_moved_accounts_a701603_d0480_act: {
-    id: 'protea_moved_accounts_a701603_d0480_act',
-    formula: 'CALCULATE',
-    negate: true,
-    filters: [
-      { type: 'dept_base', value: 'D0480' },
-      { type: 'acc_base', value: 'A701603' }
-    ]
-  },
-
-  // Protea Report: Moved account A701603 on D0490
-  protea_moved_accounts_a701603_d0490_act: {
-    id: 'protea_moved_accounts_a701603_d0490_act',
-    formula: 'CALCULATE',
-    negate: true,
-    filters: [
-      { type: 'dept_base', value: 'D0490' },
-      { type: 'acc_base', value: 'A701603' }
-    ]
-  },
-
-  // Protea Report: Moved account A701603 on D0690
-  protea_moved_accounts_a701603_d0690_act: {
-    id: 'protea_moved_accounts_a701603_d0690_act',
+  protea_moved_accounts_d0690_act: {
+    id: 'protea_moved_accounts_d0690_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
       { type: 'dept_base', value: 'D0690' },
-      { type: 'acc_base', value: 'A701603' }
+      { type: 'acc_prefix', value: ['A730', 'A745'] }
     ]
   },
 
-  // Protea Owner Expense: explicit accounts matching INVEST_CUSTOM_SUBGROUPS
-  // A701601 (dividends) + A720701 + A701502 from D0480/D0490
-  f90_protea_owner_explicit_act: {
-    id: 'f90_protea_owner_explicit_act',
+  protea_moved_accounts_d0691_act: {
+    id: 'protea_moved_accounts_d0691_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
-      { type: 'dept_base', value: ['D0480', 'D0490'] },
-      { type: 'acc_base', value: getSubgroupAccounts('Owners Expense') }
+      { type: 'dept_base', value: 'D0691' },
+      { type: 'acc_prefix', value: ['A730', 'A745'] }
     ]
   }
 };
@@ -3478,27 +3349,16 @@ export const MEASURES: Record<string, Measure> = {
   f90_income_before_nonop: {
     id: 'f90_income_before_nonop',
     type: 'calculated',
-    subMeasures: ['total_profit_act', 'fixed_expenses_act', 'f90_fixed_exp_extra_act',
-      'f90_fixed_exp_fees_overlap_d0480_act', 'f90_fixed_exp_fees_overlap_d0490_act',
-      'f90_fixed_exp_a701601_d0480_act', 'f90_fixed_exp_a701601_d0490_act',
-      'f90_abnormal_items_explicit_act',
+    subMeasures: ['total_profit_act', 'f90_fixed_expenses_l20_act',
       'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act', 'f90_incentive_fee_act'],
     evaluator: (ctx: MeasureContext) => {
       const gop = ctx.subMeasures.total_profit_act || 0;
-      // Corrected fixed expenses (prefix + extra - overlaps)
-      const prefix = ctx.subMeasures.fixed_expenses_act || 0;
-      const extra = ctx.subMeasures.f90_fixed_exp_extra_act || 0;
-      const feesOverlap = (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0480_act || 0)
-        + (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0490_act || 0);
-      const ownerOverlap = (ctx.subMeasures.f90_fixed_exp_a701601_d0480_act || 0)
-        + (ctx.subMeasures.f90_fixed_exp_a701601_d0490_act || 0);
-      const abnormalOverlap = ctx.subMeasures.f90_abnormal_items_explicit_act || 0;
-      const correctedFixed = prefix + extra - feesOverlap - ownerOverlap + abnormalOverlap;
+      const fixed = ctx.subMeasures.f90_fixed_expenses_l20_act || 0;
       // Management fees (negate:true so values are negative, addition subtracts)
-      const baseMgmt = ctx.subMeasures.f90_base_mgmt_fee_act || 0;
-      const baseRoyalty = ctx.subMeasures.f90_base_royalty_fee_act || 0;
-      const incentive = ctx.subMeasures.f90_incentive_fee_act || 0;
-      return gop - correctedFixed + baseMgmt + baseRoyalty + incentive;
+      const fees = (ctx.subMeasures.f90_base_mgmt_fee_act || 0)
+        + (ctx.subMeasures.f90_base_royalty_fee_act || 0)
+        + (ctx.subMeasures.f90_incentive_fee_act || 0);
+      return gop - fixed + fees;
     }
   },
 
@@ -3634,215 +3494,163 @@ export const MEASURES: Record<string, Measure> = {
     }
   },
 
-  // F90 P&L - Fixed Expenses (A701*/A770* prefix + extra accounts, minus overlaps with Managed Fees, Owner Expense, and Abnormal Items)
+  // F90 P&L - Fixed Expenses (level_20 = 'Fixed Expenses' across all owner departments)
   fixed_expenses: {
     id: 'fixed_expenses',
-    type: 'calculated',
-    subMeasures: ['fixed_expenses_act', 'f90_fixed_exp_extra_act',
-      'f90_fixed_exp_fees_overlap_d0480_act', 'f90_fixed_exp_fees_overlap_d0490_act',
-      'f90_fixed_exp_a701601_d0480_act', 'f90_fixed_exp_a701601_d0490_act',
-      'f90_abnormal_items_explicit_act'],
-    evaluator: (ctx: MeasureContext) => {
-      const prefix = ctx.subMeasures.fixed_expenses_act || 0;       // A701*/A770* (mutated: A701603 removed)
-      const extra = ctx.subMeasures.f90_fixed_exp_extra_act || 0;   // A720901/A740002/A715103
-      const feesOverlap = (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0480_act || 0)
-        + (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0490_act || 0);  // A701120 etc.
-      const ownerOverlap = (ctx.subMeasures.f90_fixed_exp_a701601_d0480_act || 0)
-        + (ctx.subMeasures.f90_fixed_exp_a701601_d0490_act || 0);      // A701601
-      const abnormalOverlap = ctx.subMeasures.f90_abnormal_items_explicit_act || 0; // A701602/A701130 (negative via negate:true)
-      return prefix + extra - feesOverlap - ownerOverlap + abnormalOverlap;
-    }
+    type: 'simple',
+    subMeasures: ['f90_fixed_expenses_l20_act']
   },
 
-  // F90 P&L - Hotel Profit Before Mgt Fees (MCP minus corrected Fixed Expenses)
+  // F90 P&L - Hotel Profit Before Mgt Fees (MCP minus Fixed Expenses)
   hotel_profit_before_mgt_fees: {
     id: 'hotel_profit_before_mgt_fees',
     type: 'calculated',
-    subMeasures: ['total_profit_act', 'fixed_expenses_act', 'f90_fixed_exp_extra_act',
-      'f90_fixed_exp_fees_overlap_d0480_act', 'f90_fixed_exp_fees_overlap_d0490_act',
-      'f90_fixed_exp_a701601_d0480_act', 'f90_fixed_exp_a701601_d0490_act',
-      'f90_abnormal_items_explicit_act'],
+    subMeasures: ['total_profit_act', 'f90_fixed_expenses_l20_act'],
     evaluator: (ctx: MeasureContext) => {
-      const gop = ctx.subMeasures.total_profit_act || 0;
-      const prefix = ctx.subMeasures.fixed_expenses_act || 0;
-      const extra = ctx.subMeasures.f90_fixed_exp_extra_act || 0;
-      const feesOverlap = (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0480_act || 0)
-        + (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0490_act || 0);
-      const ownerOverlap = (ctx.subMeasures.f90_fixed_exp_a701601_d0480_act || 0)
-        + (ctx.subMeasures.f90_fixed_exp_a701601_d0490_act || 0);
-      const abnormalOverlap = ctx.subMeasures.f90_abnormal_items_explicit_act || 0;
-      const correctedFixed = prefix + extra - feesOverlap - ownerOverlap + abnormalOverlap;
-      return gop - correctedFixed;
+      return (ctx.subMeasures.total_profit_act || 0) - (ctx.subMeasures.f90_fixed_expenses_l20_act || 0);
     }
   },
 
-  // F90 P&L - Depreciation (D0690 all + explicit accounts A766931, A710001, A711001 from D0480/D0490)
+  // F90 P&L - Depreciation (level_20 = 'Depreciation')
   f90_depreciation: {
     id: 'f90_depreciation',
-    type: 'calculated',
-    subMeasures: ['f90_d0690_all_act', 'f90_depreciation_extra_d0480_act', 'f90_depreciation_extra_d0490_act'],
-    evaluator: (ctx: MeasureContext) => {
-      return (ctx.subMeasures.f90_d0690_all_act || 0)
-        + (ctx.subMeasures.f90_depreciation_extra_d0480_act || 0)
-        + (ctx.subMeasures.f90_depreciation_extra_d0490_act || 0);
-    }
+    type: 'simple',
+    subMeasures: ['f90_depreciation_l20_act']
   },
 
-  // F90 P&L - Owners Expense (explicit accounts matching INVEST_CUSTOM_SUBGROUPS: A701601 + A720701)
+  // F90 P&L - Owners Expense (level_20 = 'Owner Expense')
   f90_protea_owner_expense: {
     id: 'f90_protea_owner_expense',
-    type: 'calculated',
-    subMeasures: ['f90_protea_owner_explicit_act'],
-    evaluator: (ctx: MeasureContext) => {
-      return ctx.subMeasures.f90_protea_owner_explicit_act || 0;
-    }
+    type: 'simple',
+    subMeasures: ['f90_owner_expense_l20_act']
   },
 
-  // F90 P&L - Interest (726xxx in D0490 + D0480 + D0690)
+  // F90 P&L - Interest (level_20 = 'Interest')
   f90_interest: {
     id: 'f90_interest',
-    type: 'calculated',
-    subMeasures: ['f90_d0490_interest_act', 'f90_d0480_interest_act', 'f90_d0690_interest_act'],
-    evaluator: (ctx: MeasureContext) => {
-      return (ctx.subMeasures.f90_d0490_interest_act || 0)
-        + (ctx.subMeasures.f90_d0480_interest_act || 0)
-        + (ctx.subMeasures.f90_d0690_interest_act || 0);
-    }
+    type: 'simple',
+    subMeasures: ['f90_interest_l20_act']
   },
 
-  // F90 P&L - Abnormal Items (residual — replicates Invest Factor Owner catch-all behaviour)
-  // Computed as: profitBeforeTax (dept totals) minus all other classified line items.
-  // Any account not classified elsewhere (e.g. A700341) automatically falls into this line.
+  // F90 P&L - Refurbishment Fund (level_20 = 'Refurbishment Fund')
+  f90_refurbishment_fund: {
+    id: 'f90_refurbishment_fund',
+    type: 'simple',
+    subMeasures: ['f90_refurbishment_fund_l20_act']
+  },
+
+  // F90 P&L - Abnormal Items (residual — department totals minus all classified line items)
+  // Any account not classified via level_20 automatically falls into this line.
   f90_abnormal_items: {
     id: 'f90_abnormal_items',
     type: 'calculated',
     subMeasures: [
-      // Department totals for profitBeforeTax
-      'total_profit_act', 'f90_d0480_all_act', 'f90_d0490_all_act', 'f90_d0690_all_act',
-      'f90_d0490_tax_act', 'f90_d0480_tax_act', 'f90_tax_extra_act',
-      // incomeBeforeNonOp components
-      'fixed_expenses_act', 'f90_fixed_exp_extra_act',
-      'f90_fixed_exp_fees_overlap_d0480_act', 'f90_fixed_exp_fees_overlap_d0490_act',
-      'f90_fixed_exp_a701601_d0480_act', 'f90_fixed_exp_a701601_d0490_act',
-      'f90_abnormal_items_explicit_act',
+      'total_profit_act', 'f90_d0480_all_act', 'f90_d0490_all_act',
+      'f90_d0690_all_act', 'f90_d0691_all_act',
+      'f90_fixed_expenses_l20_act',
       'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act', 'f90_incentive_fee_act',
-      // depreciation components
-      'f90_depreciation_extra_d0480_act', 'f90_depreciation_extra_d0490_act',
-      // owner expense
-      'f90_protea_owner_explicit_act',
-      // interest (D0480+D0490+D0690)
-      'f90_d0490_interest_act', 'f90_d0480_interest_act', 'f90_d0690_interest_act'
+      'f90_depreciation_l20_act', 'f90_owner_expense_l20_act',
+      'f90_interest_l20_act', 'f90_refurbishment_fund_l20_act',
+      'f90_tax_l20_act', 'f90_deferred_tax_l20_act', 'f90_dividends_l20_act'
     ],
     evaluator: (ctx: MeasureContext) => {
-      // Profit before tax from department totals (authoritative)
-      const gop = ctx.subMeasures.total_profit_act || 0;
-      const d0480 = ctx.subMeasures.f90_d0480_all_act || 0;
-      const d0490 = ctx.subMeasures.f90_d0490_all_act || 0;
-      const d0690 = ctx.subMeasures.f90_d0690_all_act || 0;
-      const tax = (ctx.subMeasures.f90_d0490_tax_act || 0)
-        + (ctx.subMeasures.f90_d0480_tax_act || 0)
-        + (ctx.subMeasures.f90_tax_extra_act || 0);
-      const profitBeforeTax = gop + d0480 + d0490 + d0690 - tax;
+      // Total across all 4 owner departments (authoritative)
+      const deptTotal = (ctx.subMeasures.total_profit_act || 0)
+        + (ctx.subMeasures.f90_d0480_all_act || 0)
+        + (ctx.subMeasures.f90_d0490_all_act || 0)
+        + (ctx.subMeasures.f90_d0690_all_act || 0)
+        + (ctx.subMeasures.f90_d0691_all_act || 0);
 
-      // Income before non-op (inlined from f90_income_before_nonop)
-      const abnormalOverlap = ctx.subMeasures.f90_abnormal_items_explicit_act || 0;
-      const correctedFixed = (ctx.subMeasures.fixed_expenses_act || 0)
-        + (ctx.subMeasures.f90_fixed_exp_extra_act || 0)
-        - (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0480_act || 0)
-        - (ctx.subMeasures.f90_fixed_exp_fees_overlap_d0490_act || 0)
-        - (ctx.subMeasures.f90_fixed_exp_a701601_d0480_act || 0)
-        - (ctx.subMeasures.f90_fixed_exp_a701601_d0490_act || 0)
-        + abnormalOverlap;
-      const baseMgmt = ctx.subMeasures.f90_base_mgmt_fee_act || 0;
-      const baseRoyalty = ctx.subMeasures.f90_base_royalty_fee_act || 0;
-      const incentive = ctx.subMeasures.f90_incentive_fee_act || 0;
-      const incomeBeforeNonOp = gop - correctedFixed + baseMgmt + baseRoyalty + incentive;
+      // Sum of all classified line items (each negate:true → negative values, except fixed expenses)
+      const fixed = ctx.subMeasures.f90_fixed_expenses_l20_act || 0;  // positive (no negate)
+      const fees = (ctx.subMeasures.f90_base_mgmt_fee_act || 0)
+        + (ctx.subMeasures.f90_base_royalty_fee_act || 0)
+        + (ctx.subMeasures.f90_incentive_fee_act || 0);               // negative (negate:true)
+      const depreciation = ctx.subMeasures.f90_depreciation_l20_act || 0;
+      const ownerExp = ctx.subMeasures.f90_owner_expense_l20_act || 0;
+      const interest = ctx.subMeasures.f90_interest_l20_act || 0;
+      const refurbFund = ctx.subMeasures.f90_refurbishment_fund_l20_act || 0;
+      const tax = ctx.subMeasures.f90_tax_l20_act || 0;
+      const deferredTax = ctx.subMeasures.f90_deferred_tax_l20_act || 0;
+      const dividends = ctx.subMeasures.f90_dividends_l20_act || 0;
 
-      // Depreciation (inlined from f90_depreciation)
-      const depreciation = (ctx.subMeasures.f90_d0690_all_act || 0)
-        + (ctx.subMeasures.f90_depreciation_extra_d0480_act || 0)
-        + (ctx.subMeasures.f90_depreciation_extra_d0490_act || 0);
-
-      // Owner expense (explicit accounts from config)
-      const ownerExp = ctx.subMeasures.f90_protea_owner_explicit_act || 0;
-
-      // Interest (inlined from f90_interest)
-      const interest = (ctx.subMeasures.f90_d0490_interest_act || 0)
-        + (ctx.subMeasures.f90_d0480_interest_act || 0)
-        + (ctx.subMeasures.f90_d0690_interest_act || 0);
-
-      // Residual: everything not classified above = abnormal items (catch-all)
-      return profitBeforeTax - incomeBeforeNonOp - depreciation - ownerExp - interest;
+      // Residual: department total minus all classified amounts = abnormal items
+      return deptTotal + fixed + fees + depreciation + ownerExp + interest + refurbFund + tax + deferredTax + dividends;
     }
   },
 
-  // F90 P&L - Profit Before Tax (department totals minus tax — guarantees match with Invest Factor Owner tab)
+  // F90 P&L - Profit Before Tax (department totals minus Tax and Deferred Tax)
   f90_profit_before_tax: {
     id: 'f90_profit_before_tax',
     type: 'calculated',
     subMeasures: [
-      'total_profit_act', 'f90_d0480_all_act', 'f90_d0490_all_act', 'f90_d0690_all_act',
-      'f90_d0490_tax_act', 'f90_d0480_tax_act', 'f90_tax_extra_act'
+      'total_profit_act', 'f90_d0480_all_act', 'f90_d0490_all_act',
+      'f90_d0690_all_act', 'f90_d0691_all_act',
+      'f90_tax_l20_act', 'f90_deferred_tax_l20_act'
     ],
     evaluator: (ctx: MeasureContext) => {
-      const gop = ctx.subMeasures.total_profit_act || 0;
-      const d0480 = ctx.subMeasures.f90_d0480_all_act || 0;
-      const d0490 = ctx.subMeasures.f90_d0490_all_act || 0;
-      const d0690 = ctx.subMeasures.f90_d0690_all_act || 0;
-      const tax = (ctx.subMeasures.f90_d0490_tax_act || 0)
-        + (ctx.subMeasures.f90_d0480_tax_act || 0)
-        + (ctx.subMeasures.f90_tax_extra_act || 0);
-      return gop + d0480 + d0490 + d0690 - tax;
+      const deptTotal = (ctx.subMeasures.total_profit_act || 0)
+        + (ctx.subMeasures.f90_d0480_all_act || 0)
+        + (ctx.subMeasures.f90_d0490_all_act || 0)
+        + (ctx.subMeasures.f90_d0690_all_act || 0)
+        + (ctx.subMeasures.f90_d0691_all_act || 0);
+      // Tax and Deferred Tax are negate:true (negative), so subtracting them adds them back
+      const tax = (ctx.subMeasures.f90_tax_l20_act || 0)
+        + (ctx.subMeasures.f90_deferred_tax_l20_act || 0);
+      return deptTotal - tax;
     }
   },
 
-  // F90 P&L - Tax (prefix from config + extra accounts not matching prefix, e.g. A720601)
+  // F90 P&L - Tax (level_20 = 'Tax')
   f90_tax: {
     id: 'f90_tax',
-    type: 'calculated',
-    subMeasures: ['f90_d0490_tax_act', 'f90_d0480_tax_act', 'f90_tax_extra_act'],
-    evaluator: (ctx: MeasureContext) => {
-      return (ctx.subMeasures.f90_d0490_tax_act || 0)
-        + (ctx.subMeasures.f90_d0480_tax_act || 0)
-        + (ctx.subMeasures.f90_tax_extra_act || 0);
-    }
+    type: 'simple',
+    subMeasures: ['f90_tax_l20_act']
   },
 
-  // F90 P&L - Net Profit (profit before tax + corrected tax)
+  // F90 P&L - Deferred Tax (level_20 = 'Deferred Tax')
+  f90_deferred_tax: {
+    id: 'f90_deferred_tax',
+    type: 'simple',
+    subMeasures: ['f90_deferred_tax_l20_act']
+  },
+
+  // F90 P&L - Net Profit (all department totals — includes everything)
   f90_net_profit: {
     id: 'f90_net_profit',
     type: 'calculated',
-    subMeasures: ['total_profit_act', 'f90_d0480_all_act', 'f90_d0490_all_act', 'f90_d0690_all_act'],
+    subMeasures: ['total_profit_act', 'f90_d0480_all_act', 'f90_d0490_all_act',
+      'f90_d0690_all_act', 'f90_d0691_all_act'],
     evaluator: (ctx: MeasureContext) => {
-      // Department totals — includes ALL accounts (same approach as EBITDA measures)
-      const gop = ctx.subMeasures.total_profit_act || 0;
-      const d0480 = ctx.subMeasures.f90_d0480_all_act || 0;
-      const d0490 = ctx.subMeasures.f90_d0490_all_act || 0;
-      const d0690 = ctx.subMeasures.f90_d0690_all_act || 0;
-      return gop + d0480 + d0490 + d0690;
+      return (ctx.subMeasures.total_profit_act || 0)
+        + (ctx.subMeasures.f90_d0480_all_act || 0)
+        + (ctx.subMeasures.f90_d0490_all_act || 0)
+        + (ctx.subMeasures.f90_d0690_all_act || 0)
+        + (ctx.subMeasures.f90_d0691_all_act || 0);
     }
   },
 
-  // F90 P&L - Dividends placeholder (nothing mapped currently — A701601 is now in Owners Expense)
-  f90_dividends_placeholder: {
-    id: 'f90_dividends_placeholder',
-    type: 'calculated',
-    subMeasures: [],
-    evaluator: () => 0
+  // F90 P&L - Dividends (level_20 = 'Dividends')
+  f90_dividends: {
+    id: 'f90_dividends',
+    type: 'simple',
+    subMeasures: ['f90_dividends_l20_act']
   },
 
-  // F90 P&L - Profit After Dividends (= Net Profit since dividends placeholder is 0)
+  // F90 P&L - Profit After Dividends (net profit + dividends)
   f90_profit_after_dividends: {
     id: 'f90_profit_after_dividends',
     type: 'calculated',
-    subMeasures: ['total_profit_act', 'f90_d0480_all_act', 'f90_d0490_all_act', 'f90_d0690_all_act'],
+    subMeasures: ['total_profit_act', 'f90_d0480_all_act', 'f90_d0490_all_act',
+      'f90_d0690_all_act', 'f90_d0691_all_act', 'f90_dividends_l20_act'],
     evaluator: (ctx: MeasureContext) => {
-      // Same as f90_net_profit (dividends placeholder is 0)
-      const gop = ctx.subMeasures.total_profit_act || 0;
-      const d0480 = ctx.subMeasures.f90_d0480_all_act || 0;
-      const d0490 = ctx.subMeasures.f90_d0490_all_act || 0;
-      const d0690 = ctx.subMeasures.f90_d0690_all_act || 0;
-      return gop + d0480 + d0490 + d0690;
+      const netProfit = (ctx.subMeasures.total_profit_act || 0)
+        + (ctx.subMeasures.f90_d0480_all_act || 0)
+        + (ctx.subMeasures.f90_d0490_all_act || 0)
+        + (ctx.subMeasures.f90_d0690_all_act || 0)
+        + (ctx.subMeasures.f90_d0691_all_act || 0);
+      // Dividends is negate:true (negative), so addition subtracts
+      return netProfit + (ctx.subMeasures.f90_dividends_l20_act || 0);
     }
   },
 
@@ -3851,12 +3659,17 @@ export const MEASURES: Record<string, Measure> = {
   protea_original_gop_pct: {
     id: 'protea_original_gop_pct',
     type: 'calculated',
-    subMeasures: ['total_profit_act', 'protea_moved_accounts_d0480_act', 'protea_moved_accounts_d0490_act', 'total_sales_act'],
+    subMeasures: ['total_profit_act',
+      'protea_moved_accounts_d0480_act', 'protea_moved_accounts_d0490_act',
+      'protea_moved_accounts_d0690_act', 'protea_moved_accounts_d0691_act',
+      'total_sales_act'],
     evaluator: (ctx: MeasureContext) => {
       const adjustedMcp = ctx.subMeasures.total_profit_act || 0;
-      const moved0480 = ctx.subMeasures.protea_moved_accounts_d0480_act || 0;
-      const moved0490 = ctx.subMeasures.protea_moved_accounts_d0490_act || 0;
-      const originalGop = adjustedMcp - moved0480 - moved0490;
+      const moved = (ctx.subMeasures.protea_moved_accounts_d0480_act || 0)
+        + (ctx.subMeasures.protea_moved_accounts_d0490_act || 0)
+        + (ctx.subMeasures.protea_moved_accounts_d0690_act || 0)
+        + (ctx.subMeasures.protea_moved_accounts_d0691_act || 0);
+      const originalGop = adjustedMcp - moved;
       return evaluateDivide(originalGop, ctx.subMeasures.total_sales_act || 0, 0) * 100;
     }
   }

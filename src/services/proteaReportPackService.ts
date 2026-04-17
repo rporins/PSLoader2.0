@@ -54,7 +54,6 @@ import {
   proteaRenameLabel,
   EXCEL_EXCLUDED_DEPARTMENTS,
   PROTEA_MOVED_ACCOUNT_PREFIXES,
-  PROTEA_MOVED_ACCOUNT_BASES,
   PROTEA_MOVEMENT_SOURCE_DEPTS,
   isMovedAccount,
   DepartmentMovement,
@@ -64,6 +63,7 @@ import {
   MOVED_DEPT_SET,
   MOVED_DEPT_BY_SOURCE,
   MOVEMENT_TARGET_GROUPS,
+  classifyAccountsByLevel20,
 } from './reports/proteaShared';
 
 // ============================================================================
@@ -573,24 +573,12 @@ class ProteaReportPackService {
     }
 
     // Merge moved department data into their respective target groups
-    // Build account → source department map for custom subgroup assignment
-    const accountDeptMap = new Map<string, string>();
     const isInvestGroup = groupName === 'Invest Factor Owner';
-
-    if (isInvestGroup) {
-      // Tag base data accounts with the group's native department (D0490)
-      for (const row of monthDetailData) accountDeptMap.set(row.account, 'D0490');
-      for (const row of rangeDetailData) accountDeptMap.set(row.account, 'D0490');
-    }
 
     for (const mv of PROTEA_DEPARTMENT_MOVEMENTS) {
       if (mv.targetGroup === groupName) {
         const data = movedDeptData.get(mv.sourceDept);
         if (data) {
-          if (isInvestGroup) {
-            for (const row of data.month) accountDeptMap.set(row.account, mv.sourceDept);
-            for (const row of data.range) accountDeptMap.set(row.account, mv.sourceDept);
-          }
           monthDetailData = [...monthDetailData, ...data.month];
           rangeDetailData = [...rangeDetailData, ...data.range];
         }
@@ -669,7 +657,6 @@ class ProteaReportPackService {
       showDeptProfit: keepStats,
       flattenCategories: !isInvestGroup ? ['Payroll', 'Controllables'] : undefined,
       customSubgroups: isInvestGroup ? INVEST_CUSTOM_SUBGROUPS : undefined,
-      accountDeptMap: isInvestGroup ? accountDeptMap : undefined
     });
 
     // Department-specific KPIs (after department profit) — computed via F90 engine
@@ -742,13 +729,6 @@ class ProteaReportPackService {
       mv => mv.detailMergeTarget === dept.baseDepartment
     );
     const isInvestDetail = dept.baseDepartment === 'D0490' && incomingMovements.length > 0;
-    const detailAccountDeptMap = isInvestDetail ? new Map<string, string>() : undefined;
-
-    // Tag base data with the host department for Invest subgroup assignment
-    if (detailAccountDeptMap) {
-      for (const row of monthDetailData) detailAccountDeptMap.set(row.account, dept.baseDepartment);
-      for (const row of rangeDetailData) detailAccountDeptMap.set(row.account, dept.baseDepartment);
-    }
 
     if (incomingMovements.length > 0) {
       if (!movedAccountSources) movedAccountSources = new Map<string, string>();
@@ -757,14 +737,8 @@ class ProteaReportPackService {
         if (data) {
           monthDetailData = [...monthDetailData, ...data.month];
           rangeDetailData = [...rangeDetailData, ...data.range];
-          for (const row of data.month) {
-            movedAccountSources.set(row.account, mv.sourceDept);
-            detailAccountDeptMap?.set(row.account, mv.sourceDept);
-          }
-          for (const row of data.range) {
-            movedAccountSources.set(row.account, mv.sourceDept);
-            detailAccountDeptMap?.set(row.account, mv.sourceDept);
-          }
+          for (const row of data.month) movedAccountSources.set(row.account, mv.sourceDept);
+          for (const row of data.range) movedAccountSources.set(row.account, mv.sourceDept);
         }
       }
     }
@@ -834,7 +808,6 @@ class ProteaReportPackService {
     // Combined month + range data (side by side), with optional moved-account annotations
     this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols, movedAccountSources, {
       customSubgroups: isInvestDetail ? INVEST_CUSTOM_SUBGROUPS : undefined,
-      accountDeptMap: detailAccountDeptMap
     });
 
     // Freeze panes (2 title rows + 2 header rows)
@@ -1514,14 +1487,13 @@ class ProteaReportPackService {
       showDeptProfit?: boolean;
       flattenCategories?: string[];
       customSubgroups?: InvestSubgroupDef[];
-      accountDeptMap?: Map<string, string>;
     }
   ): void {
     // Delegate to custom subgroup renderer for Invest-type tabs
     if (options?.customSubgroups) {
       this.addCustomSubgroupDataSection(
         sheet, monthData, rangeData, totalCols,
-        options.customSubgroups, options.accountDeptMap, movedAccountSources
+        options.customSubgroups, movedAccountSources
       );
       return;
     }
@@ -1818,8 +1790,8 @@ class ProteaReportPackService {
 
   /**
    * Renders department data using custom subgroup definitions instead of level_12 grouping.
-   * Used for the Invest Factor Owner tab where accounts are assigned to subgroups by priority:
-   * explicit accounts → deptFilter → level_13 hierarchy → accPrefixes → catch-all.
+   * Used for the Invest Factor Owner tab where accounts are classified via level_20
+   * mapping table lookups (with level_13 for Management Fees) and a catch-all for unmapped.
    */
   private addCustomSubgroupDataSection(
     sheet: ExcelJS.Worksheet,
@@ -1827,7 +1799,6 @@ class ProteaReportPackService {
     rangeData: any[],
     totalCols: number,
     subgroups: InvestSubgroupDef[],
-    accountDeptMap?: Map<string, string>,
     movedAccountSources?: Map<string, string>
   ): void {
     const ABS_COLS = [2, 4, 5, 6, 9, 11, 12, 13];
@@ -1846,7 +1817,6 @@ class ProteaReportPackService {
     rangeData = rangeData.filter(r => r.category !== 'Stats');
 
     // --- Aggregate duplicate accounts from merged departments ---
-    // Same account can exist across D0480/D0490/D0690; sum their amounts into one row per account
     const aggregateByAccount = (rows: any[]): any[] => {
       const map = new Map<string, any>();
       for (const row of rows) {
@@ -1866,68 +1836,12 @@ class ProteaReportPackService {
     const aggMonthData = aggregateByAccount(monthData);
     const aggRangeData = aggregateByAccount(rangeData);
 
-    // --- Build account → subgroup assignment map ---
-    // Collect all unique accounts from both month and range data
+    // --- Classify accounts using level_20 mapping table ---
     const allRows = [...aggMonthData, ...aggRangeData];
-    const accountMeta = new Map<string, { level13Group: string | null }>();
-    for (const row of allRows) {
-      if (!accountMeta.has(row.account)) {
-        accountMeta.set(row.account, { level13Group: row.level13Group || null });
-      }
-    }
-
-    // Build explicit account → subgroup lookup (pre-compute for O(1) check)
-    const explicitMap = new Map<string, string>();
-    for (const sg of subgroups) {
-      for (const acct of sg.accounts) {
-        if (!explicitMap.has(acct)) explicitMap.set(acct, sg.name);
-      }
-    }
-
-    // Assign each account to a subgroup
-    const accountSubgroup = new Map<string, string>();
+    const classification = classifyAccountsByLevel20(allRows, subgroups);
     const catchAllName = subgroups.find(sg => sg.isCatchAll)?.name || 'Other';
 
-    for (const [acct, meta] of accountMeta) {
-      // Priority 1: Explicit accounts
-      if (explicitMap.has(acct)) {
-        accountSubgroup.set(acct, explicitMap.get(acct)!);
-        continue;
-      }
-
-      // Priority 2: deptFilter (all accounts from matching departments)
-      const dept = accountDeptMap?.get(acct);
-      const deptMatch = subgroups.find(sg => sg.deptFilter?.includes(dept || ''));
-      if (deptMatch) {
-        accountSubgroup.set(acct, deptMatch.name);
-        continue;
-      }
-
-      // Priority 3: level_13 hierarchy match (Management Fees)
-      const level13Match = subgroups.find(sg => sg.useLevel13 && meta.level13Group === sg.useLevel13);
-      if (level13Match) {
-        accountSubgroup.set(acct, level13Match.name);
-        continue;
-      }
-
-      // Priority 4: prefix match
-      let prefixMatched = false;
-      for (const sg of subgroups) {
-        if (!sg.accPrefixes) continue;
-        if (sg.excludeAccounts?.includes(acct)) continue;
-        if (sg.accPrefixes.some(prefix => acct.startsWith(prefix))) {
-          accountSubgroup.set(acct, sg.name);
-          prefixMatched = true;
-          break;
-        }
-      }
-      if (prefixMatched) continue;
-
-      // Priority 5: Catch-all
-      accountSubgroup.set(acct, catchAllName);
-    }
-
-    // --- Build per-subgroup data sets (using aggregated data) ---
+    // --- Build per-subgroup data sets ---
     const mBySubgroup = new Map<string, any[]>();
     const rBySubgroup = new Map<string, any[]>();
     for (const sg of subgroups) {
@@ -1935,11 +1849,11 @@ class ProteaReportPackService {
       rBySubgroup.set(sg.name, []);
     }
     for (const row of aggMonthData) {
-      const sg = accountSubgroup.get(row.account) || catchAllName;
+      const sg = classification.get(row.account)?.subgroup || catchAllName;
       mBySubgroup.get(sg)?.push(row);
     }
     for (const row of aggRangeData) {
-      const sg = accountSubgroup.get(row.account) || catchAllName;
+      const sg = classification.get(row.account)?.subgroup || catchAllName;
       rBySubgroup.get(sg)?.push(row);
     }
 
@@ -2040,6 +1954,13 @@ class ProteaReportPackService {
         }
 
         applyDataRowStyle(excelRow);
+
+        // Highlight unmapped accounts that fell to catch-all without a recognized level_20 value
+        const acctClassification = classification.get(acct);
+        if (acctClassification?.isUnmapped) {
+          excelRow.getCell(1).font = { ...DATA_FONT, italic: true, color: { argb: 'FFCC6600' } };
+        }
+
         this.styleDeptSeparator(excelRow);
         applyNumberFormats(excelRow);
       }
