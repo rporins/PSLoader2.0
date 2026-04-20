@@ -6930,6 +6930,86 @@ export async function getDepartmentVolumeForPeriod(
 }
 
 /**
+ * Room segment account configuration — shared between aggregated export
+ * (getRoomSegmentExportData) and per-month pivot (getRoomSegmentBudgetByMonth).
+ */
+export interface RoomSegmentConfig {
+  revenueAccount: string;
+  statAccount: string;
+  description: string;
+  category: string;
+  consolidatedName: string;
+  consolidatedCategory: string;
+}
+
+export const ROOM_SEGMENTS_CONFIG: RoomSegmentConfig[] = [
+  // Sun-Thur Transient
+  { revenueAccount: "A361010", statAccount: "A961010", description: "Premium Retail Sun-Thur", category: "Sun-Thur", consolidatedName: "Premium Retail", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361011", statAccount: "A961011", description: "Regular Sun-Thur", category: "Sun-Thur", consolidatedName: "Regular", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361012", statAccount: "A961012", description: "Standard Retail Sun-Thur", category: "Sun-Thur", consolidatedName: "Standard Retail", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361013", statAccount: "A961013", description: "Spec Corp Sun-Thur", category: "Sun-Thur", consolidatedName: "Spec Corp", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361014", statAccount: "A961014", description: "Stay For Breakfast Sun-Thurs", category: "Sun-Thur", consolidatedName: "Stay For Breakfast", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361015", statAccount: "A961015", description: "Oth Disc Sun-Thur", category: "Sun-Thur", consolidatedName: "Oth Disc", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361016", statAccount: "A961016", description: "Adv Purch Sun-Thu", category: "Sun-Thur", consolidatedName: "Adv Purch", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361017", statAccount: "A961017", description: "Wholesalr Sun-Thu", category: "Sun-Thur", consolidatedName: "Wholesaler", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361018", statAccount: "A961018", description: "Packages Sun-Thu", category: "Sun-Thur", consolidatedName: "Packages", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361019", statAccount: "A961019", description: "Leisure Sun-Thu", category: "Sun-Thur", consolidatedName: "Leisure", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361020", statAccount: "A961020", description: "Weekend Sun-Thu", category: "Sun-Thur", consolidatedName: "Weekend", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361021", statAccount: "A961021", description: "Aaa Sun-Thurs", category: "Sun-Thur", consolidatedName: "Aaa", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361026", statAccount: "A961026", description: "Govt / Military Sun-Thur", category: "Sun-Thur", consolidatedName: "Govt / Military", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361027", statAccount: "A961027", description: "Senior Discount Sun-Thurs", category: "Sun-Thur", consolidatedName: "Senior Discount", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361028", statAccount: "A961028", description: "Travel Industry Sun-Thu", category: "Sun-Thur", consolidatedName: "Travel Industry", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361029", statAccount: "A961029", description: "Associate Leisure Sun-Thur", category: "Sun-Thur", consolidatedName: "Associate Leisure", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361030", statAccount: "A961030", description: "Echannel Retail Sun-Thur", category: "Sun-Thur", consolidatedName: "Echannel Retail", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361031", statAccount: "A961031", description: "Reward Redem/Upgrades Sun-Thur", category: "Sun-Thur", consolidatedName: "Reward Redem/Upgrades", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361032", statAccount: "A961032", description: "Natl Rooms Rev Sun-Thur", category: "Sun-Thur", consolidatedName: "Natl Rooms Rev", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361033", statAccount: "A961033", description: "Volume Rms Rev Sun Thurs", category: "Sun-Thur", consolidatedName: "Volume Rms Rev", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361318", statAccount: "A961318", description: "Contract Sun-Thur", category: "Sun-Thur", consolidatedName: "Contract", consolidatedCategory: "Transient" },
+  // Sun-Thur Groups
+  { revenueAccount: "A361334", statAccount: "A961334", description: "Corp Grp Sun-Thur", category: "Groups", consolidatedName: "Corp Grp", consolidatedCategory: "Groups" },
+  { revenueAccount: "A361335", statAccount: "A961335", description: "Assoc Grp Sun-Thur", category: "Groups", consolidatedName: "Assoc Grp", consolidatedCategory: "Groups" },
+  { revenueAccount: "A361336", statAccount: "A961336", description: "Other Grp Sun-Thur", category: "Groups", consolidatedName: "Other Grp", consolidatedCategory: "Groups" },
+  { revenueAccount: "A361337", statAccount: "A961337", description: "Tour Wholesale Grp Sun Thur", category: "Groups", consolidatedName: "Tour Wholesale Grp", consolidatedCategory: "Groups" },
+  { revenueAccount: "A361338", statAccount: "A961338", description: "Government Grp Sun Thurs", category: "Groups", consolidatedName: "Government Grp", consolidatedCategory: "Groups" },
+  // Fri-Sat Transient
+  { revenueAccount: "A361510", statAccount: "A961510", description: "Premium Retail Fri-Sat", category: "Fri-Sat", consolidatedName: "Premium Retail", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361511", statAccount: "A961511", description: "Regular Fri-Sat", category: "Fri-Sat", consolidatedName: "Regular", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361512", statAccount: "A961512", description: "Standard Retail Fri-Sat", category: "Fri-Sat", consolidatedName: "Standard Retail", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361513", statAccount: "A961513", description: "Spec Corp Fri-Sat", category: "Fri-Sat", consolidatedName: "Spec Corp", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361514", statAccount: "A961514", description: "Stay For Breakfast Fri-Sat", category: "Fri-Sat", consolidatedName: "Stay For Breakfast", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361515", statAccount: "A961515", description: "Oth Disc Fri-Sat", category: "Fri-Sat", consolidatedName: "Oth Disc", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361516", statAccount: "A961516", description: "Adv Purch Fri-Sat", category: "Fri-Sat", consolidatedName: "Adv Purch", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361517", statAccount: "A961517", description: "Wholesaler Fri-Sat", category: "Fri-Sat", consolidatedName: "Wholesaler", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361518", statAccount: "A961518", description: "Packages Fri-Sat", category: "Fri-Sat", consolidatedName: "Packages", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361519", statAccount: "A961519", description: "Leisure Fri-Sat", category: "Fri-Sat", consolidatedName: "Leisure", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361520", statAccount: "A961520", description: "Weekend Fri-Sat", category: "Fri-Sat", consolidatedName: "Weekend", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361521", statAccount: "A961521", description: "Aaa Fri-Sat", category: "Fri-Sat", consolidatedName: "Aaa", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361526", statAccount: "A961526", description: "Govt / Military Fri-Sat", category: "Fri-Sat", consolidatedName: "Govt / Military", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361527", statAccount: "A961527", description: "Senior Discount Fri-Sat", category: "Fri-Sat", consolidatedName: "Senior Discount", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361528", statAccount: "A961528", description: "Travel Industry Fri-Sat", category: "Fri-Sat", consolidatedName: "Travel Industry", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361529", statAccount: "A961529", description: "Associate Leisure Fri-Sat", category: "Fri-Sat", consolidatedName: "Associate Leisure", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361530", statAccount: "A961530", description: "Echannel Retail Fri-Sat", category: "Fri-Sat", consolidatedName: "Echannel Retail", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361531", statAccount: "A961531", description: "Reward Redem/Upgrades Fri-Sat", category: "Fri-Sat", consolidatedName: "Reward Redem/Upgrades", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361533", statAccount: "A961533", description: "Volume Rms Rev Fri Sat", category: "Fri-Sat", consolidatedName: "Volume Rms Rev", consolidatedCategory: "Transient" },
+  // Complimentary
+  { revenueAccount: "A361601", statAccount: "A961601", description: "Assoc CMP Sun-Thu", category: "Complimentary", consolidatedName: "Assoc CMP", consolidatedCategory: "Complimentary" },
+  { revenueAccount: "A361602", statAccount: "A961602", description: "Assoc CMP Fri-Sat", category: "Complimentary", consolidatedName: "Assoc CMP", consolidatedCategory: "Complimentary" },
+  { revenueAccount: "A361603", statAccount: "A961603", description: "Corp CMP Sun-Thu", category: "Complimentary", consolidatedName: "Corp CMP", consolidatedCategory: "Complimentary" },
+  { revenueAccount: "A361604", statAccount: "A961604", description: "Corp CMP Fri-Sat", category: "Complimentary", consolidatedName: "Corp CMP", consolidatedCategory: "Complimentary" },
+  { revenueAccount: "A361607", statAccount: "A961607", description: "Other CMP Sun-Thu", category: "Complimentary", consolidatedName: "Other CMP", consolidatedCategory: "Complimentary" },
+  { revenueAccount: "A361608", statAccount: "A961608", description: "Other Cmp Fri-Sat", category: "Complimentary", consolidatedName: "Other CMP", consolidatedCategory: "Complimentary" },
+  // Fri-Sat Groups
+  { revenueAccount: "A361734", statAccount: "A961734", description: "Corp Grp Fri-Sat", category: "Groups", consolidatedName: "Corp Grp", consolidatedCategory: "Groups" },
+  { revenueAccount: "A361735", statAccount: "A961735", description: "Assoc Grp Fri-Sat", category: "Groups", consolidatedName: "Assoc Grp", consolidatedCategory: "Groups" },
+  { revenueAccount: "A361736", statAccount: "A961736", description: "Other Grp Fri-Sat", category: "Groups", consolidatedName: "Other Grp", consolidatedCategory: "Groups" },
+  { revenueAccount: "A361737", statAccount: "A961737", description: "Tour Wholesales Grp Fri Sat", category: "Groups", consolidatedName: "Tour Wholesale Grp", consolidatedCategory: "Groups" },
+  { revenueAccount: "A361738", statAccount: "A961738", description: "Government Grp Fri Sat", category: "Groups", consolidatedName: "Government Grp", consolidatedCategory: "Groups" },
+  // Fri-Sat extras
+  { revenueAccount: "A361818", statAccount: "A961818", description: "Contract Fri-Sat", category: "Fri-Sat", consolidatedName: "Contract", consolidatedCategory: "Transient" },
+  { revenueAccount: "A361532", statAccount: "A961532", description: "Natl Rooms Rev Fri-Sat", category: "Fri-Sat", consolidatedName: "Natl Rooms Rev", consolidatedCategory: "Transient" },
+];
+
+/**
  * Interface for room segment export row
  */
 export interface RoomSegmentExportRow {
@@ -6968,73 +7048,7 @@ export async function getRoomSegmentExportData(
     const lyPeriods = generateLYPeriods(periods);
     const latestStagingPeriod = periods[periods.length - 1];
 
-    // Room segment account configurations
-    const SEGMENTS_CONFIG = [
-      // Sun-Thur Transient
-      { revenueAccount: "A361010", statAccount: "A961010", description: "Premium Retail Sun-Thur", category: "Sun-Thur", consolidatedName: "Premium Retail", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361011", statAccount: "A961011", description: "Regular Sun-Thur", category: "Sun-Thur", consolidatedName: "Regular", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361012", statAccount: "A961012", description: "Standard Retail Sun-Thur", category: "Sun-Thur", consolidatedName: "Standard Retail", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361013", statAccount: "A961013", description: "Spec Corp Sun-Thur", category: "Sun-Thur", consolidatedName: "Spec Corp", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361014", statAccount: "A961014", description: "Stay For Breakfast Sun-Thurs", category: "Sun-Thur", consolidatedName: "Stay For Breakfast", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361015", statAccount: "A961015", description: "Oth Disc Sun-Thur", category: "Sun-Thur", consolidatedName: "Oth Disc", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361016", statAccount: "A961016", description: "Adv Purch Sun-Thu", category: "Sun-Thur", consolidatedName: "Adv Purch", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361017", statAccount: "A961017", description: "Wholesalr Sun-Thu", category: "Sun-Thur", consolidatedName: "Wholesaler", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361018", statAccount: "A961018", description: "Packages Sun-Thu", category: "Sun-Thur", consolidatedName: "Packages", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361019", statAccount: "A961019", description: "Leisure Sun-Thu", category: "Sun-Thur", consolidatedName: "Leisure", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361020", statAccount: "A961020", description: "Weekend Sun-Thu", category: "Sun-Thur", consolidatedName: "Weekend", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361021", statAccount: "A961021", description: "Aaa Sun-Thurs", category: "Sun-Thur", consolidatedName: "Aaa", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361026", statAccount: "A961026", description: "Govt / Military Sun-Thur", category: "Sun-Thur", consolidatedName: "Govt / Military", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361027", statAccount: "A961027", description: "Senior Discount Sun-Thurs", category: "Sun-Thur", consolidatedName: "Senior Discount", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361028", statAccount: "A961028", description: "Travel Industry Sun-Thu", category: "Sun-Thur", consolidatedName: "Travel Industry", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361029", statAccount: "A961029", description: "Associate Leisure Sun-Thur", category: "Sun-Thur", consolidatedName: "Associate Leisure", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361030", statAccount: "A961030", description: "Echannel Retail Sun-Thur", category: "Sun-Thur", consolidatedName: "Echannel Retail", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361031", statAccount: "A961031", description: "Reward Redem/Upgrades Sun-Thur", category: "Sun-Thur", consolidatedName: "Reward Redem/Upgrades", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361032", statAccount: "A961032", description: "Natl Rooms Rev Sun-Thur", category: "Sun-Thur", consolidatedName: "Natl Rooms Rev", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361033", statAccount: "A961033", description: "Volume Rms Rev Sun Thurs", category: "Sun-Thur", consolidatedName: "Volume Rms Rev", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361318", statAccount: "A961318", description: "Contract Sun-Thur", category: "Sun-Thur", consolidatedName: "Contract", consolidatedCategory: "Transient" },
-      // Sun-Thur Groups
-      { revenueAccount: "A361334", statAccount: "A961334", description: "Corp Grp Sun-Thur", category: "Groups", consolidatedName: "Corp Grp", consolidatedCategory: "Groups" },
-      { revenueAccount: "A361335", statAccount: "A961335", description: "Assoc Grp Sun-Thur", category: "Groups", consolidatedName: "Assoc Grp", consolidatedCategory: "Groups" },
-      { revenueAccount: "A361336", statAccount: "A961336", description: "Other Grp Sun-Thur", category: "Groups", consolidatedName: "Other Grp", consolidatedCategory: "Groups" },
-      { revenueAccount: "A361337", statAccount: "A961337", description: "Tour Wholesale Grp Sun Thur", category: "Groups", consolidatedName: "Tour Wholesale Grp", consolidatedCategory: "Groups" },
-      { revenueAccount: "A361338", statAccount: "A961338", description: "Government Grp Sun Thurs", category: "Groups", consolidatedName: "Government Grp", consolidatedCategory: "Groups" },
-      // Fri-Sat Transient
-      { revenueAccount: "A361510", statAccount: "A961510", description: "Premium Retail Fri-Sat", category: "Fri-Sat", consolidatedName: "Premium Retail", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361511", statAccount: "A961511", description: "Regular Fri-Sat", category: "Fri-Sat", consolidatedName: "Regular", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361512", statAccount: "A961512", description: "Standard Retail Fri-Sat", category: "Fri-Sat", consolidatedName: "Standard Retail", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361513", statAccount: "A961513", description: "Spec Corp Fri-Sat", category: "Fri-Sat", consolidatedName: "Spec Corp", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361514", statAccount: "A961514", description: "Stay For Breakfast Fri-Sat", category: "Fri-Sat", consolidatedName: "Stay For Breakfast", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361515", statAccount: "A961515", description: "Oth Disc Fri-Sat", category: "Fri-Sat", consolidatedName: "Oth Disc", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361516", statAccount: "A961516", description: "Adv Purch Fri-Sat", category: "Fri-Sat", consolidatedName: "Adv Purch", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361517", statAccount: "A961517", description: "Wholesaler Fri-Sat", category: "Fri-Sat", consolidatedName: "Wholesaler", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361518", statAccount: "A961518", description: "Packages Fri-Sat", category: "Fri-Sat", consolidatedName: "Packages", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361519", statAccount: "A961519", description: "Leisure Fri-Sat", category: "Fri-Sat", consolidatedName: "Leisure", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361520", statAccount: "A961520", description: "Weekend Fri-Sat", category: "Fri-Sat", consolidatedName: "Weekend", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361521", statAccount: "A961521", description: "Aaa Fri-Sat", category: "Fri-Sat", consolidatedName: "Aaa", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361526", statAccount: "A961526", description: "Govt / Military Fri-Sat", category: "Fri-Sat", consolidatedName: "Govt / Military", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361527", statAccount: "A961527", description: "Senior Discount Fri-Sat", category: "Fri-Sat", consolidatedName: "Senior Discount", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361528", statAccount: "A961528", description: "Travel Industry Fri-Sat", category: "Fri-Sat", consolidatedName: "Travel Industry", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361529", statAccount: "A961529", description: "Associate Leisure Fri-Sat", category: "Fri-Sat", consolidatedName: "Associate Leisure", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361530", statAccount: "A961530", description: "Echannel Retail Fri-Sat", category: "Fri-Sat", consolidatedName: "Echannel Retail", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361531", statAccount: "A961531", description: "Reward Redem/Upgrades Fri-Sat", category: "Fri-Sat", consolidatedName: "Reward Redem/Upgrades", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361533", statAccount: "A961533", description: "Volume Rms Rev Fri Sat", category: "Fri-Sat", consolidatedName: "Volume Rms Rev", consolidatedCategory: "Transient" },
-      // Complimentary
-      { revenueAccount: "A361601", statAccount: "A961601", description: "Assoc CMP Sun-Thu", category: "Complimentary", consolidatedName: "Assoc CMP", consolidatedCategory: "Complimentary" },
-      { revenueAccount: "A361602", statAccount: "A961602", description: "Assoc CMP Fri-Sat", category: "Complimentary", consolidatedName: "Assoc CMP", consolidatedCategory: "Complimentary" },
-      { revenueAccount: "A361603", statAccount: "A961603", description: "Corp CMP Sun-Thu", category: "Complimentary", consolidatedName: "Corp CMP", consolidatedCategory: "Complimentary" },
-      { revenueAccount: "A361604", statAccount: "A961604", description: "Corp CMP Fri-Sat", category: "Complimentary", consolidatedName: "Corp CMP", consolidatedCategory: "Complimentary" },
-      { revenueAccount: "A361607", statAccount: "A961607", description: "Other CMP Sun-Thu", category: "Complimentary", consolidatedName: "Other CMP", consolidatedCategory: "Complimentary" },
-      { revenueAccount: "A361608", statAccount: "A961608", description: "Other Cmp Fri-Sat", category: "Complimentary", consolidatedName: "Other CMP", consolidatedCategory: "Complimentary" },
-      // Fri-Sat Groups
-      { revenueAccount: "A361734", statAccount: "A961734", description: "Corp Grp Fri-Sat", category: "Groups", consolidatedName: "Corp Grp", consolidatedCategory: "Groups" },
-      { revenueAccount: "A361735", statAccount: "A961735", description: "Assoc Grp Fri-Sat", category: "Groups", consolidatedName: "Assoc Grp", consolidatedCategory: "Groups" },
-      { revenueAccount: "A361736", statAccount: "A961736", description: "Other Grp Fri-Sat", category: "Groups", consolidatedName: "Other Grp", consolidatedCategory: "Groups" },
-      { revenueAccount: "A361737", statAccount: "A961737", description: "Tour Wholesales Grp Fri Sat", category: "Groups", consolidatedName: "Tour Wholesale Grp", consolidatedCategory: "Groups" },
-      { revenueAccount: "A361738", statAccount: "A961738", description: "Government Grp Fri Sat", category: "Groups", consolidatedName: "Government Grp", consolidatedCategory: "Groups" },
-      // Fri-Sat extras
-      { revenueAccount: "A361818", statAccount: "A961818", description: "Contract Fri-Sat", category: "Fri-Sat", consolidatedName: "Contract", consolidatedCategory: "Transient" },
-      { revenueAccount: "A361532", statAccount: "A961532", description: "Natl Rooms Rev Fri-Sat", category: "Fri-Sat", consolidatedName: "Natl Rooms Rev", consolidatedCategory: "Transient" },
-    ];
+    const SEGMENTS_CONFIG = ROOM_SEGMENTS_CONFIG;
 
     const periodPlaceholders = periods.map(() => '?').join(', ');
     const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
@@ -7170,6 +7184,77 @@ export async function getRoomSegmentExportData(
     return results;
   } catch (error) {
     console.error(`Error getting room segment export data for OU ${ou}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Returns per-month budget values for all room-segment revenue and stat
+ * accounts in a single pivoted query. Keys: account code. Values: number[]
+ * aligned index-for-index with the supplied `periods` array.
+ *
+ * Revenue amounts retain their stored sign (negative for revenue) — callers
+ * negate as needed.
+ */
+export async function getRoomSegmentBudgetByMonth(
+  ou: string,
+  periods: string[],
+  version: string = 'MAIN'
+): Promise<Map<string, number[]>> {
+  const result = new Map<string, number[]>();
+  if (periods.length === 0) return result;
+
+  try {
+    const accounts: string[] = [];
+    for (const seg of ROOM_SEGMENTS_CONFIG) {
+      accounts.push(seg.revenueAccount);
+      if (seg.statAccount) accounts.push(seg.statAccount);
+    }
+
+    const periodColumns = periods.map((_, i) =>
+      `SUM(CASE WHEN fd.period_combo = ? THEN fd.amount ELSE 0 END) AS p${i}`
+    ).join(',\n        ');
+
+    const accountPlaceholders = accounts.map(() => '?').join(', ');
+    const periodPlaceholders = periods.map(() => '?').join(', ');
+
+    const query = `
+      SELECT fd.account,
+        ${periodColumns}
+      FROM financial_data fd
+      WHERE fd.scenario = 'BUD'
+        AND fd.ou = ?
+        AND fd.version = ?
+        AND fd.account IN (${accountPlaceholders})
+        AND fd.period_combo IN (${periodPlaceholders})
+      GROUP BY fd.account
+    `;
+
+    const params: any[] = [
+      ...periods,           // CASE WHEN bindings
+      ou, version,
+      ...accounts,
+      ...periods            // IN (...) bindings
+    ];
+
+    const rows = (await client.execute({ sql: query, args: params })).rows as any[];
+
+    // Seed every requested account with zeros so callers can index safely
+    for (const acct of accounts) {
+      result.set(acct, new Array(periods.length).fill(0));
+    }
+
+    for (const row of rows) {
+      const arr = result.get(row.account as string);
+      if (!arr) continue;
+      for (let i = 0; i < periods.length; i++) {
+        arr[i] = Number(row[`p${i}`]) || 0;
+      }
+    }
+
+    return result;
+  } catch (error) {
+    console.error(`Error getting room segment budget by month for OU ${ou}:`, error);
     throw error;
   }
 }

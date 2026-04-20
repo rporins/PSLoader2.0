@@ -410,6 +410,11 @@ class ProteaBudgetPackService {
       config.version
     );
 
+    // Per-month current-budget values per account (single pivoted query)
+    const monthlyBudgetMap = await db.getRoomSegmentBudgetByMonth(
+      config.ou, this.periods, config.version
+    );
+
     // Render sections: Revenue, Room Nights, ADR
     for (const metric of ['revenue', 'nights', 'adr'] as const) {
       const metricLabel = metric === 'revenue' ? 'Revenue' : metric === 'nights' ? 'Room Nights' : 'ADR';
@@ -418,14 +423,14 @@ class ProteaBudgetPackService {
       applySectionHeaderStyle(secHeader);
       sheet.mergeCells(secHeader.number, 1, secHeader.number, segTotalCols);
 
-      this.addBudgetRoomSegSection(sheet, currentSegData, lySegData, metric, 'consolidated', segTotalCols);
+      this.addBudgetRoomSegSection(sheet, currentSegData, lySegData, monthlyBudgetMap, metric, 'consolidated', segTotalCols);
 
       if (config.generateDetailTabs) {
         const detHeader = sheet.addRow(new Array(segTotalCols).fill(''));
         detHeader.getCell(1).value = 'Detail by Day Type';
         applySectionHeaderStyle(detHeader);
         sheet.mergeCells(detHeader.number, 1, detHeader.number, segTotalCols);
-        this.addBudgetRoomSegSection(sheet, currentSegData, lySegData, metric, 'detail', segTotalCols);
+        this.addBudgetRoomSegSection(sheet, currentSegData, lySegData, monthlyBudgetMap, metric, 'detail', segTotalCols);
       }
 
       // Blank separator between metrics
@@ -441,6 +446,7 @@ class ProteaBudgetPackService {
     sheet: ExcelJS.Worksheet,
     currentData: any[],
     lyData: any[],
+    monthlyBudgetMap: Map<string, number[]>,
     metric: 'revenue' | 'nights' | 'adr',
     mode: 'consolidated' | 'detail',
     segTotalCols: number
@@ -448,6 +454,25 @@ class ProteaBudgetPackService {
     const categories = mode === 'consolidated'
       ? ['Transient', 'Groups', 'Complimentary']
       : ['Sun-Thur', 'Fri-Sat', 'Groups', 'Complimentary'];
+
+    // Fold per-account monthly values into per-segment-row buckets, matching
+    // the same (category, name) grouping used by aggregateSegData below
+    const monthCount = this.periods.length;
+    const monthlyByKey = new Map<string, { revMonthly: number[]; nightsMonthly: number[] }>();
+    for (const cfg of db.ROOM_SEGMENTS_CONFIG) {
+      const name = mode === 'consolidated' ? cfg.consolidatedName : cfg.description;
+      const cat = mode === 'consolidated' ? cfg.consolidatedCategory : cfg.category;
+      const key = `${cat}::${name}`;
+      let entry = monthlyByKey.get(key);
+      if (!entry) {
+        entry = { revMonthly: new Array(monthCount).fill(0), nightsMonthly: new Array(monthCount).fill(0) };
+        monthlyByKey.set(key, entry);
+      }
+      const revArr = monthlyBudgetMap.get(cfg.revenueAccount);
+      const statArr = cfg.statAccount ? monthlyBudgetMap.get(cfg.statAccount) : undefined;
+      if (revArr) for (let i = 0; i < monthCount; i++) entry.revMonthly[i] += revArr[i];
+      if (statArr) for (let i = 0; i < monthCount; i++) entry.nightsMonthly[i] += statArr[i];
+    }
 
     const aggregateSegData = (data: any[]) => {
       const map = new Map<string, { name: string; category: string; revAct: number; revBud: number; nightsAct: number; nightsBud: number }>();
@@ -513,8 +538,19 @@ class ProteaBudgetPackService {
           curBud: formatNumber(curBud, decimals),
           comments: '',
         };
-        // Monthly columns not applicable for room segments (data is aggregated)
-        for (let i = 0; i < this.periods.length; i++) rowData[`budM${i}`] = '';
+        const monthly = monthlyByKey.get(`${category}::${segName}`);
+        for (let i = 0; i < this.periods.length; i++) {
+          if (!monthly) { rowData[`budM${i}`] = ''; continue; }
+          if (metric === 'revenue') {
+            rowData[`budM${i}`] = formatNumber(-monthly.revMonthly[i], 0);
+          } else if (metric === 'nights') {
+            rowData[`budM${i}`] = formatNumber(monthly.nightsMonthly[i], 0);
+          } else {
+            const n = monthly.nightsMonthly[i];
+            const r = monthly.revMonthly[i];
+            rowData[`budM${i}`] = formatNumber(n !== 0 ? -r / n : 0, 2);
+          }
+        }
 
         const excelRow = sheet.addRow(rowData);
         applyDataRowStyle(excelRow);
@@ -668,10 +704,13 @@ class ProteaBudgetPackService {
 
     // Render data — Invest Factor Owner uses custom subgroup layout
     const isInvestGroup = groupName === 'Invest Factor Owner';
+    const isRoomsGroup = groupName === 'Rooms and Reservation';
     if (isInvestGroup) {
       this.addBudgetCustomSubgroupDataSection(sheet, currentData, lyData, budgetByPeriod);
     } else {
-      this.addBudgetDepartmentDataSection(sheet, currentData, lyData, budgetByPeriod);
+      this.addBudgetDepartmentDataSection(sheet, currentData, lyData, budgetByPeriod, {
+        collapseRevenueDetail: !config.generateDetailTabs && isRoomsGroup,
+      });
     }
 
     sheet.views = [{ state: 'frozen', xSplit: 1, ySplit: 5 }];
@@ -770,7 +809,8 @@ class ProteaBudgetPackService {
     sheet: ExcelJS.Worksheet,
     currentData: any[],   // budget=CurBud, ly=LYAct
     lyData: any[],        // budget=LYBud
-    budgetByPeriod: Array<{ account: string; [p: string]: number }>
+    budgetByPeriod: Array<{ account: string; [p: string]: number }>,
+    options?: { collapseRevenueDetail?: boolean }
   ): void {
     const tc = this.totalCols;
     const budgetMap = new Map<string, { [p: string]: number }>();
@@ -841,6 +881,14 @@ class ProteaBudgetPackService {
       const isStats = category === 'Stats';
       const isRevenue = category === 'Revenue';
       const sign = isRevenue ? -1 : 1;
+
+      // When collapsing revenue detail (Rooms & Reservation without dept detail
+      // tabs), skip per-account lines — the breakdown lives on Room Segments.
+      if (isRevenue && options?.collapseRevenueDetail) {
+        addTotalRow(`Total ${category}`, curCategoryRows, lyCategoryRows, applyCategorySubtotalStyle, sign);
+        addBlank();
+        continue;
+      }
 
       if (isStats) {
         // Stats: flat render, no level_12 grouping
