@@ -2,15 +2,34 @@ import { PLRow } from '../../types/plReportTypes';
 
 // ============================================================================
 // PROTEA F90 P&L ROW CONFIGURATION
-// Defines the structure and ordering of the F90 P&L report for Protea packs
+// Defines the structure and ordering of the F90 P&L report for Protea packs.
 //
-// SIGN CONVENTION RULES:
-// - Credit-balance accounts (revenue, profit, EBITDA, GOP): sub-measures already
-//   have negate:true which converts the negative DB credit to a positive display
-//   value.  Do NOT add invertSign here — that would double-negate back to negative.
-// - Debit-balance accounts (operating expenses, management fees): stored as
-//   positive debits in the DB.  Sub-measures have negate:true which flips them
-//   negative, so invertSign:true IS needed here to restore a positive display value.
+// CRITICAL — BELOW-THE-LINE ROWS (Fixed Expenses through NET PROFIT/(LOSS))
+// DO NOT GET THEIR NUMBERS FROM THE MEASURES REFERENCED BELOW.
+//
+// At render time, addF90Sheet (proteaReportPackService.ts) and
+// createBudgetF90Worksheet (proteaBudgetPackService.ts) call:
+//   computeInvestFactorOwnerSubgroupTotals    // in proteaShared.ts
+//   applyInvestSubgroupOverridesToF90Rows     // in proteaShared.ts
+// which runs the EXACT SAME query + classifier the INVEST FACTOR OWNER
+// SUMMARY sheet uses, and OVERWRITES the below-the-line row values plus
+// the five subtotals. That override is the single guarantee that F90 ties
+// to INVEST; the measureIds below are effectively placeholders for those
+// rows. If the numbers are wrong, fix the shared helper in proteaShared.ts.
+//
+// SIGN CONVENTION (applies to rows NOT overridden — i.e. above-the-line):
+// - Credit-balance accounts (revenue, profit, EBITDA, GOP, net-interest income):
+//   the sub-measure atom applies negate:true which converts the negative DB
+//   credit to a positive display value. Do NOT add invertSign here — that
+//   would double-negate back to negative.
+// - Debit-balance accounts (operating expenses, management fees):
+//   stored as positive debits in the DB. The atom applies negate:true which
+//   flips them negative, so invertSign:true IS needed here to restore a positive
+//   display value.
+//
+// For OVERRIDDEN below-the-line rows, the values come from INVEST's raw-DB
+// totals (same convention INVEST displays with). invertSign is ignored at
+// override time.
 // ============================================================================
 
 export const PROTEA_F90_PL_ROW_CONFIG: PLRow[] = [
@@ -74,7 +93,7 @@ export const PROTEA_F90_PL_ROW_CONFIG: PLRow[] = [
   // Below-the-line items
   { type: 'measure', label: 'Depreciation', measureId: 'f90_depreciation', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'measure', label: 'Owners Expense', measureId: 'f90_protea_owner_expense', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Net Interest Income / (Expense)', measureId: 'f90_interest', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Net Interest (Income) / Expense', measureId: 'f90_interest', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Refurbishment Fund', measureId: 'f90_refurbishment_fund', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'measure', label: 'Abnormal Items', measureId: 'f90_abnormal_items', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'header', label: 'HOTEL PROFIT/(LOSS) BEFORE TAX', measureId: 'f90_profit_before_tax', formatting: 'number', indentLevel: 0 },
@@ -165,7 +184,7 @@ export const PROTEA_F90_PL_ROW_CONFIG_WITH_BANQUETING: PLRow[] = [
 
   { type: 'measure', label: 'Depreciation', measureId: 'f90_depreciation', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'measure', label: 'Owners Expense', measureId: 'f90_protea_owner_expense', formatting: 'number', indentLevel: 1, invertSign: true },
-  { type: 'measure', label: 'Net Interest Income / (Expense)', measureId: 'f90_interest', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Net Interest (Income) / Expense', measureId: 'f90_interest', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Refurbishment Fund', measureId: 'f90_refurbishment_fund', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'measure', label: 'Abnormal Items', measureId: 'f90_abnormal_items', formatting: 'number', indentLevel: 1, invertSign: true },
   { type: 'header', label: 'HOTEL PROFIT/(LOSS) BEFORE TAX', measureId: 'f90_profit_before_tax', formatting: 'number', indentLevel: 0 },

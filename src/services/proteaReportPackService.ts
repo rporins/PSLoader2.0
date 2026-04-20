@@ -64,6 +64,8 @@ import {
   MOVED_DEPT_BY_SOURCE,
   MOVEMENT_TARGET_GROUPS,
   classifyAccountsByLevel20,
+  computeInvestFactorOwnerSubgroupTotals,
+  applyInvestSubgroupOverridesToF90Rows,
 } from './reports/proteaShared';
 
 // ============================================================================
@@ -320,6 +322,27 @@ class ProteaReportPackService {
     );
     const ytdData: PLCalculationResult[] = JSON.parse(ytdDataJson);
 
+    // Route F90 below-the-line values through the EXACT SAME function INVEST
+    // FACTOR OWNER SUMMARY uses (getProteaGroupDepartmentDetailData +
+    // classifyAccountsByLevel20). The subtotals are then recomputed
+    // arithmetically from those values. This guarantees F90 === INVEST.
+    const [monthTotals, ytdTotals] = await Promise.all([
+      computeInvestFactorOwnerSubgroupTotals(
+        config.ou,
+        config.selectedMonth, config.selectedYear,
+        config.selectedMonth, config.selectedYear,
+        config.version
+      ),
+      computeInvestFactorOwnerSubgroupTotals(
+        config.ou,
+        config.ytdStartMonth, config.ytdStartYear,
+        config.ytdEndMonth, config.ytdEndYear,
+        config.version
+      ),
+    ]);
+    applyInvestSubgroupOverridesToF90Rows(monthData, monthTotals);
+    applyInvestSubgroupOverridesToF90Rows(ytdData, ytdTotals);
+
     // Add data rows with month and range side by side
     this.addF90DataRows(sheet, monthData, ytdData);
 
@@ -462,11 +485,11 @@ class ProteaReportPackService {
 
       if (isMultiDeptGroup) {
         // Create group summary sheet for multi-department groups
-        const summaryName = await this.createGroupSummaryWorksheet(
+        const summaryNames = await this.createGroupSummaryWorksheet(
           workbook, config, groupName, groupDepts, usedSheetNames, movedMonth, movedRange, movedDeptData
         );
-        if (summaryName) {
-          this.sheetRegistry.push({ type: 'sheet', sheetName: summaryName, indent: true });
+        for (const name of summaryNames) {
+          this.sheetRegistry.push({ type: 'sheet', sheetName: name, indent: true });
         }
 
         // Create individual department detail sheets (only when detail tabs enabled)
@@ -488,11 +511,11 @@ class ProteaReportPackService {
         const dept = groupDepts[0];
 
         // Group summary sheet (uses same data as the single dept)
-        const summaryName = await this.createGroupSummaryWorksheet(
+        const summaryNames = await this.createGroupSummaryWorksheet(
           workbook, config, groupName, groupDepts, usedSheetNames, movedMonth, movedRange, movedDeptData
         );
-        if (summaryName) {
-          this.sheetRegistry.push({ type: 'sheet', sheetName: summaryName, indent: true });
+        for (const name of summaryNames) {
+          this.sheetRegistry.push({ type: 'sheet', sheetName: name, indent: true });
         }
 
         // Individual department detail sheet (only when detail tabs enabled)
@@ -523,7 +546,7 @@ class ProteaReportPackService {
     movedMonth: any[] = [],
     movedRange: any[] = [],
     movedDeptData: Map<string, { month: any[]; range: any[] }> = new Map()
-  ): Promise<string | null> {
+  ): Promise<string[]> {
     const deptIds = groupDepts.map(d => d.baseDepartment);
 
     // --- Protea department movement: exclude ALL moved depts from base query ---
@@ -532,7 +555,7 @@ class ProteaReportPackService {
     let effectiveDeptIds = deptIds.filter(id => !MOVED_DEPT_SET.has(id));
     if (effectiveDeptIds.length === 0 && !MOVEMENT_TARGET_GROUPS.has(groupName)) {
       // All depts were moved out and this isn't a target group — suppress entirely
-      return null;
+      return [];
     }
 
     // Fetch aggregated data for the group (month + range in parallel)
@@ -590,7 +613,21 @@ class ProteaReportPackService {
     rangeDetailData = aggregateDuplicateAccounts(rangeDetailData);
 
     if (rangeDetailData.length === 0 && monthDetailData.length === 0) {
-      return null;
+      return [];
+    }
+
+    // Suppress accounts that are zero across actuals/budget/ly in BOTH month AND range.
+    // Only remove if zero in all datasets so no period column ever loses a row that another keeps.
+    { const accountsWithData = new Set<string>();
+      for (const row of [...monthDetailData, ...rangeDetailData]) {
+        if ((row.actuals !== null && row.actuals !== 0) ||
+            (row.budget !== null && row.budget !== 0) ||
+            (row.ly !== null && row.ly !== 0)) {
+          accountsWithData.add(row.account);
+        }
+      }
+      monthDetailData = monthDetailData.filter((r: any) => accountsWithData.has(r.account));
+      rangeDetailData = rangeDetailData.filter((r: any) => accountsWithData.has(r.account));
     }
 
     let sheetName = sanitizeSheetName(`${proteaRenameLabel(groupName)} Summary`.toUpperCase());
@@ -656,7 +693,7 @@ class ProteaReportPackService {
       suppressStats: !keepStats,
       showDeptProfit: keepStats,
       flattenCategories: !isInvestGroup ? ['Payroll', 'Controllables'] : undefined,
-      customSubgroups: isInvestGroup ? INVEST_CUSTOM_SUBGROUPS : undefined,
+      customSubgroups: isInvestGroup ? INVEST_CUSTOM_SUBGROUPS.filter(sg => sg.name !== 'Fixed Expenses') : undefined,
     });
 
     // Department-specific KPIs (after department profit) — computed via F90 engine
@@ -671,6 +708,80 @@ class ProteaReportPackService {
     // Freeze panes (2 title rows + 2 header rows)
     sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
 
+    if (isInvestGroup) {
+      const fixedExpName = this.createInvestFixedExpensesSheet(workbook, config, monthDetailData, rangeDetailData, usedSheetNames);
+      return fixedExpName ? [finalName, fixedExpName] : [finalName];
+    }
+
+    return [finalName];
+  }
+
+  private createInvestFixedExpensesSheet(
+    workbook: ExcelJS.Workbook,
+    config: ProteaReportPackConfig,
+    monthDetailData: any[],
+    rangeDetailData: any[],
+    usedSheetNames: Set<string>
+  ): string | null {
+    const fixedExpSubgroups = INVEST_CUSTOM_SUBGROUPS.filter(sg => sg.name === 'Fixed Expenses');
+    const totalCols = 15;
+
+    let sheetName = sanitizeSheetName('FIXED EXPENSES');
+    let finalName = sheetName;
+    let counter = 1;
+    while (usedSheetNames.has(finalName.toLowerCase())) {
+      const suffix = ` (${counter})`;
+      finalName = sheetName.substring(0, 31 - suffix.length) + suffix;
+      counter++;
+    }
+    usedSheetNames.add(finalName.toLowerCase());
+
+    const sheet = workbook.addWorksheet(finalName, { properties: { tabColor: TAB_COLOR_GROUP_SUMMARY } });
+
+    sheet.columns = [
+      { key: 'account', width: 45 },
+      { key: 'mLy', width: 14 },
+      { key: 'mVsLyPct', width: 12 },
+      { key: 'mAct', width: 14 },
+      { key: 'mBud', width: 14 },
+      { key: 'mVsBud', width: 14 },
+      { key: 'mVsBudPct', width: 12 },
+      { key: 'sep', width: 2 },
+      { key: 'rLy', width: 14 },
+      { key: 'rVsLyPct', width: 12 },
+      { key: 'rAct', width: 14 },
+      { key: 'rBud', width: 14 },
+      { key: 'rVsBud', width: 14 },
+      { key: 'rVsBudPct', width: 12 },
+      { key: 'comments', width: 35 },
+    ];
+
+    this.addSheetTitleHeader(sheet, config, totalCols, 'Fixed Expenses');
+
+    const groupRow = sheet.addRow(new Array(totalCols).fill(''));
+    groupRow.getCell(2).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
+    groupRow.getCell(9).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
+    sheet.mergeCells(groupRow.number, 2, groupRow.number, 7);
+    sheet.mergeCells(groupRow.number, 9, groupRow.number, 14);
+    applyHeaderStyle(groupRow);
+    this.styleDeptSeparator(groupRow);
+
+    const headerRow = sheet.addRow([
+      'Account',
+      'LY', 'vs LY %', 'Actuals', 'Budget', 'vs Bud', 'vs Bud %',
+      '',
+      'LY', 'vs LY %', 'Actuals', 'Budget', 'vs Bud', 'vs Bud %',
+      'Comments'
+    ]);
+    applyHeaderStyle(headerRow);
+    this.styleDeptSeparator(headerRow);
+
+    this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols, undefined, {
+      suppressStats: true,
+      customSubgroups: fixedExpSubgroups,
+    });
+
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
     return finalName;
   }
 
@@ -749,6 +860,19 @@ class ProteaReportPackService {
 
     if (rangeDetailData.length === 0 && monthDetailData.length === 0) {
       return null;
+    }
+
+    // Suppress accounts that are zero across actuals/budget/ly in BOTH month AND range.
+    { const accountsWithData = new Set<string>();
+      for (const row of [...monthDetailData, ...rangeDetailData]) {
+        if ((row.actuals !== null && row.actuals !== 0) ||
+            (row.budget !== null && row.budget !== 0) ||
+            (row.ly !== null && row.ly !== 0)) {
+          accountsWithData.add(row.account);
+        }
+      }
+      monthDetailData = monthDetailData.filter((r: any) => accountsWithData.has(r.account));
+      rangeDetailData = rangeDetailData.filter((r: any) => accountsWithData.has(r.account));
     }
 
     let sheetName = sanitizeSheetName(proteaRenameLabel(nameOverride || dept.departmentName || dept.baseDepartment));
@@ -1604,7 +1728,7 @@ class ProteaReportPackService {
         }
 
         for (const acct of allAccounts) {
-          const mRow = mMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: acct, account: acct };
+          const mRow = mMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: rMap.get(acct)?.accountName || acct, account: acct };
           const rRow = rMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0 };
 
           const excelRow = sheet.addRow({
@@ -1651,7 +1775,7 @@ class ProteaReportPackService {
         }
 
         for (const acct of allAccounts) {
-          const mRow = mAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: acct, account: acct };
+          const mRow = mAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: rAcctMap.get(acct)?.accountName || acct, account: acct };
           const rRow = rAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0 };
           const displayName = mRow.accountName || mRow.account;
 
@@ -1732,7 +1856,7 @@ class ProteaReportPackService {
           }
 
           for (const acct of allAccounts) {
-            const mRow = mAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: acct, account: acct };
+            const mRow = mAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: rAcctMap.get(acct)?.accountName || acct, account: acct };
             const rRow = rAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0 };
             const displayName = mRow.accountName || mRow.account;
 
@@ -1924,7 +2048,7 @@ class ProteaReportPackService {
       }
 
       for (const acct of allAccounts) {
-        const mRow = mAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: acct, account: acct };
+        const mRow = mAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: rAcctMap.get(acct)?.accountName || acct, account: acct };
         const rRow = rAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0 };
         const displayName = mRow.accountName || mRow.account;
 
@@ -2259,6 +2383,21 @@ class ProteaReportPackService {
 
       if (segmentNames.size === 0) continue;
 
+      const zeroSeg = { revAct: 0, revBud: 0, revLy: 0, nightsAct: 0, nightsBud: 0, nightsLy: 0 };
+      const isSegZero = (m: typeof zeroSeg, r: typeof zeroSeg) =>
+        m.revAct === 0 && m.revBud === 0 && m.revLy === 0 &&
+        m.nightsAct === 0 && m.nightsBud === 0 && m.nightsLy === 0 &&
+        r.revAct === 0 && r.revBud === 0 && r.revLy === 0 &&
+        r.nightsAct === 0 && r.nightsBud === 0 && r.nightsLy === 0;
+
+      // Skip entire category if all segments are zero in both periods
+      const categoryHasData = [...segmentNames].some(segName => {
+        const m = monthRows.find(r => r.name === segName) || zeroSeg;
+        const r = rangeRows.find(r => r.name === segName) || zeroSeg;
+        return !isSegZero(m, r);
+      });
+      if (!categoryHasData) continue;
+
       // Category header
       const catHeader = sheet.addRow(new Array(totalCols).fill(''));
       catHeader.getCell(1).value = category;
@@ -2269,8 +2408,10 @@ class ProteaReportPackService {
       const subRangeTotals = { revAct: 0, revBud: 0, revLy: 0, nightsAct: 0, nightsBud: 0, nightsLy: 0 };
 
       for (const segName of segmentNames) {
-        const mRow = monthRows.find(r => r.name === segName) || { revAct: 0, revBud: 0, revLy: 0, nightsAct: 0, nightsBud: 0, nightsLy: 0 };
-        const rRow = rangeRows.find(r => r.name === segName) || { revAct: 0, revBud: 0, revLy: 0, nightsAct: 0, nightsBud: 0, nightsLy: 0 };
+        const mRow = monthRows.find(r => r.name === segName) || zeroSeg;
+        const rRow = rangeRows.find(r => r.name === segName) || zeroSeg;
+
+        if (isSegZero(mRow, rRow)) continue;
 
         const monthVals = this.extractMetricValues(mRow, metric);
         const rangeVals = this.extractMetricValues(rRow, metric);

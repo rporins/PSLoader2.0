@@ -1,6 +1,6 @@
 // Type definitions for Custom P&L Report System
 
-export type FilterType = 'dept_level' | 'dept_base' | 'acc_level' | 'acc_base' | 'acc_prefix';
+export type FilterType = 'dept_level' | 'dept_base' | 'acc_level' | 'acc_level_not_in' | 'acc_base' | 'acc_prefix';
 export type ScenarioType = 'ACT' | 'BUD' | 'PY1';
 export type FormattingType = 'currency' | 'percentage' | 'number' | 'ratio';
 export type FormulaType = 'SUM' | 'COUNT' | 'CALCULATE';

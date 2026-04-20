@@ -1,5 +1,32 @@
 import { SubMeasure, Measure, MeasureContext } from '../../types/plReportTypes';
-// investSubgroupConfig accessors removed — F90 measures now use level_20 filters directly
+import { KNOWN_LEVEL_20_VALUES, OWNER_DEPARTMENTS } from './investSubgroupConfig';
+
+// ============================================================================
+// CRITICAL — F90 BELOW-THE-LINE VALUES ARE OVERWRITTEN AT RENDER TIME.
+//
+// The F90 rows for Fixed Expenses, TOTAL MANAGEMENT FEES, Depreciation,
+// Owners Expense, Net Interest, Refurbishment Fund, Abnormal Items, Tax,
+// Deferred Tax, Dividends — and the five subtotals (HOTEL PROFIT BEFORE MGT
+// FEES, ... BEFORE DEPR INT OWNER EXP, ... BEFORE TAX, ... BEFORE DIVIDENDS,
+// NET PROFIT/(LOSS)) — do NOT come from the measure engine in production.
+//
+// In addF90Sheet / createBudgetF90Worksheet, we call:
+//   computeInvestFactorOwnerSubgroupTotals(...)          // from proteaShared.ts
+//   applyInvestSubgroupOverridesToF90Rows(rows, totals)  // from proteaShared.ts
+// which runs the EXACT SAME data query and classifier INVEST FACTOR OWNER
+// SUMMARY uses, and overwrites the row values. That is what guarantees
+// F90 === INVEST — the alternative (re-implementing the classifier with
+// atom/SQL filters in this file) has repeatedly drifted and is no longer
+// trusted.
+//
+// The calculated measures below for f90_abnormal_items, f90_income_before_nonop,
+// f90_profit_before_tax, f90_net_profit, f90_profit_after_dividends etc. are
+// kept only so the measure engine has something to evaluate during its initial
+// pass; their numeric output is replaced before rendering. If you are chasing
+// an F90-vs-INVEST mismatch, look in proteaShared.ts
+// (computeInvestFactorOwnerSubgroupTotals / applyInvestSubgroupOverridesToF90Rows),
+// NOT in the measure definitions below.
+// ============================================================================
 
 // ============================================================================
 // SUB-MEASURE DEFINITIONS
@@ -2266,14 +2293,19 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     ]
   },
 
-  // Abnormal Items (explicit level_20 match — catch-all residual is computed in the calculated measure)
+  // Abnormal Items atom — MUST match INVEST FACTOR OWNER SUMMARY's catch-all
+  // behaviour in proteaShared.ts::classifyAccountsByLevel20. Catches both
+  // level_20='Abnormal Items' AND any owner-dept account with an unmapped /
+  // unrecognised level_20 value (including NULL). KNOWN_LEVEL_20_VALUES is
+  // imported from investSubgroupConfig.ts so this filter stays in lock-step
+  // with the INVEST classifier — editing either requires editing both files.
   f90_abnormal_items_l20_act: {
     id: 'f90_abnormal_items_l20_act',
     formula: 'CALCULATE',
     negate: true,
     filters: [
-      { type: 'dept_base', value: ['D0480', 'D0490', 'D0690', 'D0691'] },
-      { type: 'acc_level', level: 20, value: 'Abnormal Items' }
+      { type: 'dept_base', value: OWNER_DEPARTMENTS },
+      { type: 'acc_level_not_in', level: 20, value: KNOWN_LEVEL_20_VALUES }
     ]
   },
 
@@ -3346,20 +3378,23 @@ export const MEASURES: Record<string, Measure> = {
     }
   },
 
+  // F90 SUBTOTAL — HOTEL PROFIT/(LOSS) BEFORE DEPR, INT AND OWNER EXP.
+  // Composition of atoms (see file header for the architecture rule):
+  //   MCP − Fixed Expenses − Total Mgmt Fees
+  // `total_profit_act` (MCP) is negate:true (positive). Fee atoms are negate:true
+  // and arrive negative, so adding them subtracts. `f90_fixed_expenses_l20_act`
+  // has no negate (raw positive debit) so it must be subtracted.
   f90_income_before_nonop: {
     id: 'f90_income_before_nonop',
     type: 'calculated',
     subMeasures: ['total_profit_act', 'f90_fixed_expenses_l20_act',
       'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act', 'f90_incentive_fee_act'],
-    evaluator: (ctx: MeasureContext) => {
-      const gop = ctx.subMeasures.total_profit_act || 0;
-      const fixed = ctx.subMeasures.f90_fixed_expenses_l20_act || 0;
-      // Management fees (negate:true so values are negative, addition subtracts)
-      const fees = (ctx.subMeasures.f90_base_mgmt_fee_act || 0)
-        + (ctx.subMeasures.f90_base_royalty_fee_act || 0)
-        + (ctx.subMeasures.f90_incentive_fee_act || 0);
-      return gop - fixed + fees;
-    }
+    evaluator: (ctx: MeasureContext) =>
+      (ctx.subMeasures.total_profit_act || 0)
+      - (ctx.subMeasures.f90_fixed_expenses_l20_act || 0)
+      + (ctx.subMeasures.f90_base_mgmt_fee_act || 0)
+      + (ctx.subMeasures.f90_base_royalty_fee_act || 0)
+      + (ctx.subMeasures.f90_incentive_fee_act || 0),
   },
 
   f90_nonop_inc_exp: {
@@ -3539,66 +3574,36 @@ export const MEASURES: Record<string, Measure> = {
     subMeasures: ['f90_refurbishment_fund_l20_act']
   },
 
-  // F90 P&L - Abnormal Items (residual — department totals minus all classified line items)
-  // Any account not classified via level_20 automatically falls into this line.
+  // F90 DISPLAY — Abnormal Items. Thin wrapper over the level_20 catch-all atom,
+  // so it matches INVEST FACTOR OWNER SUMMARY's Abnormal Items subgroup exactly.
   f90_abnormal_items: {
     id: 'f90_abnormal_items',
-    type: 'calculated',
-    subMeasures: [
-      'total_profit_act', 'f90_d0480_all_act', 'f90_d0490_all_act',
-      'f90_d0690_all_act', 'f90_d0691_all_act',
-      'f90_fixed_expenses_l20_act',
-      'f90_base_mgmt_fee_act', 'f90_base_royalty_fee_act', 'f90_incentive_fee_act',
-      'f90_depreciation_l20_act', 'f90_owner_expense_l20_act',
-      'f90_interest_l20_act', 'f90_refurbishment_fund_l20_act',
-      'f90_tax_l20_act', 'f90_deferred_tax_l20_act', 'f90_dividends_l20_act'
-    ],
-    evaluator: (ctx: MeasureContext) => {
-      // Total across all 4 owner departments (authoritative)
-      const deptTotal = (ctx.subMeasures.total_profit_act || 0)
-        + (ctx.subMeasures.f90_d0480_all_act || 0)
-        + (ctx.subMeasures.f90_d0490_all_act || 0)
-        + (ctx.subMeasures.f90_d0690_all_act || 0)
-        + (ctx.subMeasures.f90_d0691_all_act || 0);
-
-      // Sum of all classified line items (each negate:true → negative values, except fixed expenses)
-      const fixed = ctx.subMeasures.f90_fixed_expenses_l20_act || 0;  // positive (no negate)
-      const fees = (ctx.subMeasures.f90_base_mgmt_fee_act || 0)
-        + (ctx.subMeasures.f90_base_royalty_fee_act || 0)
-        + (ctx.subMeasures.f90_incentive_fee_act || 0);               // negative (negate:true)
-      const depreciation = ctx.subMeasures.f90_depreciation_l20_act || 0;
-      const ownerExp = ctx.subMeasures.f90_owner_expense_l20_act || 0;
-      const interest = ctx.subMeasures.f90_interest_l20_act || 0;
-      const refurbFund = ctx.subMeasures.f90_refurbishment_fund_l20_act || 0;
-      const tax = ctx.subMeasures.f90_tax_l20_act || 0;
-      const deferredTax = ctx.subMeasures.f90_deferred_tax_l20_act || 0;
-      const dividends = ctx.subMeasures.f90_dividends_l20_act || 0;
-
-      // Residual: department total minus all classified amounts = abnormal items
-      return deptTotal + fixed + fees + depreciation + ownerExp + interest + refurbFund + tax + deferredTax + dividends;
-    }
+    type: 'simple',
+    subMeasures: ['f90_abnormal_items_l20_act']
   },
 
-  // F90 P&L - Profit Before Tax (department totals minus Tax and Deferred Tax)
+  // F90 SUBTOTAL — HOTEL PROFIT/(LOSS) BEFORE TAX.
+  // Composition: HOTEL PROFIT BEFORE DEPR INT OWNER EXP − Depreciation − Owner Exp
+  //              + Net Interest − Refurbishment Fund − Abnormal Items.
+  // All level_20 expense atoms below are negate:true so they arrive negative;
+  // adding them subtracts. f90_interest_l20_act is net interest income/expense
+  // displayed without invertSign, so add it as-is.
   f90_profit_before_tax: {
     id: 'f90_profit_before_tax',
     type: 'calculated',
     subMeasures: [
-      'total_profit_act', 'f90_d0480_all_act', 'f90_d0490_all_act',
-      'f90_d0690_all_act', 'f90_d0691_all_act',
-      'f90_tax_l20_act', 'f90_deferred_tax_l20_act'
+      'f90_income_before_nonop',
+      'f90_depreciation_l20_act', 'f90_owner_expense_l20_act',
+      'f90_interest_l20_act', 'f90_refurbishment_fund_l20_act',
+      'f90_abnormal_items_l20_act'
     ],
-    evaluator: (ctx: MeasureContext) => {
-      const deptTotal = (ctx.subMeasures.total_profit_act || 0)
-        + (ctx.subMeasures.f90_d0480_all_act || 0)
-        + (ctx.subMeasures.f90_d0490_all_act || 0)
-        + (ctx.subMeasures.f90_d0690_all_act || 0)
-        + (ctx.subMeasures.f90_d0691_all_act || 0);
-      // Tax and Deferred Tax are negate:true (negative), so subtracting them adds them back
-      const tax = (ctx.subMeasures.f90_tax_l20_act || 0)
-        + (ctx.subMeasures.f90_deferred_tax_l20_act || 0);
-      return deptTotal - tax;
-    }
+    evaluator: (ctx: MeasureContext) =>
+      (ctx.subMeasures.f90_income_before_nonop || 0)
+      + (ctx.subMeasures.f90_depreciation_l20_act || 0)
+      + (ctx.subMeasures.f90_owner_expense_l20_act || 0)
+      + (ctx.subMeasures.f90_interest_l20_act || 0)
+      + (ctx.subMeasures.f90_refurbishment_fund_l20_act || 0)
+      + (ctx.subMeasures.f90_abnormal_items_l20_act || 0),
   },
 
   // F90 P&L - Tax (level_20 = 'Tax')
@@ -3615,43 +3620,37 @@ export const MEASURES: Record<string, Measure> = {
     subMeasures: ['f90_deferred_tax_l20_act']
   },
 
-  // F90 P&L - Net Profit (all department totals — includes everything)
+  // F90 SUBTOTAL — HOTEL PROFIT/(LOSS) BEFORE DIVIDENDS (measure id kept as
+  // f90_net_profit for backward compat; the row label in proteaF90PLRowConfig
+  // is the display source of truth). Composition: PROFIT BEFORE TAX − Tax −
+  // Deferred Tax. Tax atoms are negate:true → arrive negative → add subtracts.
   f90_net_profit: {
     id: 'f90_net_profit',
     type: 'calculated',
-    subMeasures: ['total_profit_act', 'f90_d0480_all_act', 'f90_d0490_all_act',
-      'f90_d0690_all_act', 'f90_d0691_all_act'],
-    evaluator: (ctx: MeasureContext) => {
-      return (ctx.subMeasures.total_profit_act || 0)
-        + (ctx.subMeasures.f90_d0480_all_act || 0)
-        + (ctx.subMeasures.f90_d0490_all_act || 0)
-        + (ctx.subMeasures.f90_d0690_all_act || 0)
-        + (ctx.subMeasures.f90_d0691_all_act || 0);
-    }
+    subMeasures: ['f90_profit_before_tax', 'f90_tax_l20_act', 'f90_deferred_tax_l20_act'],
+    evaluator: (ctx: MeasureContext) =>
+      (ctx.subMeasures.f90_profit_before_tax || 0)
+      + (ctx.subMeasures.f90_tax_l20_act || 0)
+      + (ctx.subMeasures.f90_deferred_tax_l20_act || 0),
   },
 
-  // F90 P&L - Dividends (level_20 = 'Dividends')
+  // F90 DISPLAY — Dividends.
   f90_dividends: {
     id: 'f90_dividends',
     type: 'simple',
     subMeasures: ['f90_dividends_l20_act']
   },
 
-  // F90 P&L - Profit After Dividends (net profit + dividends)
+  // F90 SUBTOTAL — NET PROFIT/(LOSS) (measure id kept as f90_profit_after_dividends
+  // for backward compat). Composition: HOTEL PROFIT BEFORE DIVIDENDS − Dividends.
+  // f90_dividends_l20_act is negate:true → arrives negative → add subtracts.
   f90_profit_after_dividends: {
     id: 'f90_profit_after_dividends',
     type: 'calculated',
-    subMeasures: ['total_profit_act', 'f90_d0480_all_act', 'f90_d0490_all_act',
-      'f90_d0690_all_act', 'f90_d0691_all_act', 'f90_dividends_l20_act'],
-    evaluator: (ctx: MeasureContext) => {
-      const netProfit = (ctx.subMeasures.total_profit_act || 0)
-        + (ctx.subMeasures.f90_d0480_all_act || 0)
-        + (ctx.subMeasures.f90_d0490_all_act || 0)
-        + (ctx.subMeasures.f90_d0690_all_act || 0)
-        + (ctx.subMeasures.f90_d0691_all_act || 0);
-      // Dividends is negate:true (negative), so addition subtracts
-      return netProfit + (ctx.subMeasures.f90_dividends_l20_act || 0);
-    }
+    subMeasures: ['f90_net_profit', 'f90_dividends_l20_act'],
+    evaluator: (ctx: MeasureContext) =>
+      (ctx.subMeasures.f90_net_profit || 0)
+      + (ctx.subMeasures.f90_dividends_l20_act || 0),
   },
 
   // Protea Report: Original GOP % (pre-movement, before insurance/audit accounts shift to Admin & General)

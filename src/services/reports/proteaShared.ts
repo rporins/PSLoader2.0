@@ -379,7 +379,7 @@ export const MOVEMENT_TARGET_GROUPS = new Set(PROTEA_DEPARTMENT_MOVEMENTS.map(m 
 // Shared by both report and budget pack for consistent subgroup assignment.
 // ============================================================================
 
-import { InvestSubgroupDef } from './investSubgroupConfig';
+import { InvestSubgroupDef, INVEST_CUSTOM_SUBGROUPS } from './investSubgroupConfig';
 
 export interface AccountClassification {
   subgroup: string;
@@ -397,9 +397,6 @@ export function classifyAccountsByLevel20(
 ): Map<string, AccountClassification> {
   const result = new Map<string, AccountClassification>();
   const catchAllName = subgroups.find(sg => sg.isCatchAll)?.name || 'Other';
-  const knownLevel20Values = new Set(
-    subgroups.filter(sg => sg.level20Value).map(sg => sg.level20Value)
-  );
 
   for (const row of rows) {
     if (result.has(row.account)) continue;
@@ -423,4 +420,186 @@ export function classifyAccountsByLevel20(
   }
 
   return result;
+}
+
+// ============================================================================
+// INVEST FACTOR OWNER — SUBGROUP TOTALS (shared with F90 rendering)
+//
+// This is the SINGLE FUNCTION both INVEST FACTOR OWNER SUMMARY and F90 P&L
+// use to derive below-the-line amounts. It calls the exact same data source
+// (getProteaGroupDepartmentDetailData) and the exact same classifier
+// (classifyAccountsByLevel20) that the INVEST sheet uses, so any account
+// the INVEST sheet buckets as Abnormal Items will appear in F90 as exactly
+// the same number — divergence is structurally impossible.
+//
+// F90 rendering calls applyInvestSubgroupOverridesToF90Rows() below AFTER the
+// measure engine runs, overwriting the below-the-line rows with these totals
+// and recomputing the subtotals arithmetically. The measure-engine formulas
+// for those rows become dead code but are kept to avoid engine errors.
+// ============================================================================
+
+export interface InvestSubgroupTotals {
+  actuals: number;
+  budget: number;
+  ly: number;
+}
+
+/** Owner-factor department scope for Invest Factor Owner.
+ *  Covers native D0490 + the three movement-source depts (D0480/D0690/D0691)
+ *  which are merged into this group per PROTEA_DEPARTMENT_MOVEMENTS. */
+const INVEST_FACTOR_OWNER_DEPTS = ['D0480', 'D0490', 'D0690', 'D0691'];
+
+export async function computeInvestFactorOwnerSubgroupTotals(
+  ou: string,
+  startMonth: number, startYear: number,
+  endMonth: number, endYear: number,
+  version: string
+): Promise<Map<string, InvestSubgroupTotals>> {
+  // Dynamic import avoids a circular dependency with local_db.ts.
+  const { getProteaGroupDepartmentDetailData } = await import('../../local_db');
+
+  const rawRows = await getProteaGroupDepartmentDetailData(
+    ou, INVEST_FACTOR_OWNER_DEPTS, startMonth, startYear, endMonth, endYear, version
+  );
+
+  // Mirror INVEST FACTOR OWNER SUMMARY exactly:
+  //   1. Remove A730/A745 accounts (moved to Admin & General — same filter INVEST applies).
+  //   2. Aggregate duplicate account codes that can appear across multiple owner depts.
+  const rows = aggregateDuplicateAccounts(
+    (rawRows as any[]).filter(r => !isMovedAccount(r.account))
+  );
+
+  const classification = classifyAccountsByLevel20(rows, INVEST_CUSTOM_SUBGROUPS);
+  const catchAllName = INVEST_CUSTOM_SUBGROUPS.find(sg => sg.isCatchAll)?.name || 'Other';
+
+  const totals = new Map<string, InvestSubgroupTotals>();
+  for (const sg of INVEST_CUSTOM_SUBGROUPS) {
+    totals.set(sg.name, { actuals: 0, budget: 0, ly: 0 });
+  }
+
+  for (const row of rows as any[]) {
+    const sgName = classification.get(row.account)?.subgroup || catchAllName;
+    const t = totals.get(sgName);
+    if (!t) continue;
+    t.actuals += Number(row.actuals) || 0;
+    t.budget += Number(row.budget) || 0;
+    t.ly += Number(row.ly) || 0;
+  }
+
+  return totals;
+}
+
+/** Maps the F90 P&L row label (as rendered by calculateF90PLRows) to the
+ *  INVEST subgroup name whose raw DB sum should populate that row. Raw DB
+ *  sums are shown as-is (matching INVEST): DR expenses are positive, CR
+ *  gains are negative, net interest is signed by DB convention. */
+const F90_BELOW_LINE_LABEL_TO_SUBGROUP: Record<string, string> = {
+  'Fixed Expenses': 'Fixed Expenses',
+  'TOTAL MANAGEMENT FEES': 'Management Fees',
+  'Depreciation': 'Depreciation',
+  'Owners Expense': 'Owners Expense',
+  'Net Interest (Income) / Expense': 'Net Interest (Income) / Expense',
+  'Refurbishment Fund': 'Refurbishment Fund',
+  'Abnormal Items': 'Abnormal Items',
+  'Tax': 'Tax',
+  'Deferred Tax': 'Deferred Tax',
+  'Dividends': 'Dividends',
+};
+
+/** Recalculates an F90 row's variance fields after an actuals/budget/ly override. */
+function recomputeVariances(row: any): void {
+  row.vs_bud = (Number(row.actuals) || 0) - (Number(row.budget) || 0);
+  row.vs_bud_pct = Number(row.budget) !== 0
+    ? ((Number(row.actuals) - Number(row.budget)) / Math.abs(Number(row.budget))) * 100
+    : null;
+  row.vs_ly = (Number(row.actuals) || 0) - (Number(row.ly) || 0);
+  row.vs_ly_pct = Number(row.ly) !== 0
+    ? ((Number(row.actuals) - Number(row.ly)) / Math.abs(Number(row.ly))) * 100
+    : null;
+}
+
+/**
+ * Overwrites below-the-line F90 rows with INVEST FACTOR OWNER SUMMARY values
+ * and recomputes the five subtotal rows arithmetically. This is what
+ * guarantees F90 === INVEST (same data, same classifier, same totals).
+ *
+ * Subtotal math uses raw DB-sign convention (matching what INVEST displays):
+ *   HOTEL PROFIT BEFORE MGT FEES             = MCP        − Fixed Expenses
+ *   HOTEL PROFIT/(LOSS) BEFORE DEPR,INT,OWN  = prev       − Management Fees
+ *   HOTEL PROFIT/(LOSS) BEFORE TAX           = prev       − Depreciation − Owners Expense
+ *                                                         − Net Interest − Refurbishment Fund
+ *                                                         − Abnormal Items
+ *   HOTEL PROFIT/(LOSS) BEFORE DIVIDENDS     = prev       − Tax − Deferred Tax
+ *   NET PROFIT/(LOSS)                        = prev       − Dividends
+ *
+ * Subtracting a negative raw value (e.g. Abnormal Items = -149,309, a net CR
+ * gain) correctly adds the gain back into profit. Do NOT reshape these formulas
+ * to "residuals" or "sums of display rows" — the current form mirrors INVEST's
+ * interpretation of the GL directly.
+ */
+export function applyInvestSubgroupOverridesToF90Rows(
+  rows: any[],
+  totals: Map<string, InvestSubgroupTotals>
+): void {
+  const rowByLabel = new Map<string, any>();
+  for (const r of rows) {
+    // calculateF90PLRows stores the label WITHOUT any indent prefix.
+    if (r && typeof r.label === 'string') rowByLabel.set(r.label, r);
+  }
+
+  // 1. Overwrite below-the-line raw rows with INVEST subgroup sums.
+  for (const [label, subgroupName] of Object.entries(F90_BELOW_LINE_LABEL_TO_SUBGROUP)) {
+    const row = rowByLabel.get(label);
+    const t = totals.get(subgroupName);
+    if (!row || !t) continue;
+    row.actuals = t.actuals;
+    row.budget = t.budget;
+    row.ly = t.ly;
+    recomputeVariances(row);
+  }
+
+  // 2. Recompute the five subtotal rows. MCP (Management Controllable Profit)
+  // is produced by the measure engine and stays untouched.
+  const mcp = rowByLabel.get('MANAGEMENT CONTROLLABLE PROFIT');
+  if (!mcp) return;
+
+  const z: InvestSubgroupTotals = { actuals: 0, budget: 0, ly: 0 };
+  const fixed    = totals.get('Fixed Expenses')                   ?? z;
+  const mgmtFees = totals.get('Management Fees')                  ?? z;
+  const depr     = totals.get('Depreciation')                     ?? z;
+  const ownerExp = totals.get('Owners Expense')                   ?? z;
+  const interest = totals.get('Net Interest (Income) / Expense')  ?? z;
+  const refurb   = totals.get('Refurbishment Fund')               ?? z;
+  const abnormal = totals.get('Abnormal Items')                   ?? z;
+  const tax      = totals.get('Tax')                              ?? z;
+  const defTax   = totals.get('Deferred Tax')                     ?? z;
+  const divs     = totals.get('Dividends')                        ?? z;
+
+  const computeSubtotals = (mcpVal: number, k: keyof InvestSubgroupTotals) => {
+    const beforeMgtFees = mcpVal - fixed[k];
+    const beforeNonOp   = beforeMgtFees - mgmtFees[k];
+    const beforeTax     = beforeNonOp - depr[k] - ownerExp[k] - interest[k] - refurb[k] - abnormal[k];
+    const beforeDiv     = beforeTax - tax[k] - defTax[k];
+    const netProfit     = beforeDiv - divs[k];
+    return { beforeMgtFees, beforeNonOp, beforeTax, beforeDiv, netProfit };
+  };
+
+  const actSub = computeSubtotals(Number(mcp.actuals) || 0, 'actuals');
+  const budSub = computeSubtotals(Number(mcp.budget)  || 0, 'budget');
+  const lySub  = computeSubtotals(Number(mcp.ly)      || 0, 'ly');
+
+  const applySub = (label: string, actV: number, budV: number, lyV: number) => {
+    const row = rowByLabel.get(label);
+    if (!row) return;
+    row.actuals = actV;
+    row.budget = budV;
+    row.ly = lyV;
+    recomputeVariances(row);
+  };
+
+  applySub('HOTEL PROFIT BEFORE MGT FEES',                      actSub.beforeMgtFees, budSub.beforeMgtFees, lySub.beforeMgtFees);
+  applySub('HOTEL PROFIT/(LOSS) BEFORE DEPR, INT AND OWNER EXP', actSub.beforeNonOp,   budSub.beforeNonOp,   lySub.beforeNonOp);
+  applySub('HOTEL PROFIT/(LOSS) BEFORE TAX',                    actSub.beforeTax,     budSub.beforeTax,     lySub.beforeTax);
+  applySub('HOTEL PROFIT/(LOSS) BEFORE DIVIDENDS',              actSub.beforeDiv,     budSub.beforeDiv,     lySub.beforeDiv);
+  applySub('NET PROFIT/(LOSS)',                                 actSub.netProfit,     budSub.netProfit,     lySub.netProfit);
 }

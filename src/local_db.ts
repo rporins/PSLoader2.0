@@ -5913,6 +5913,7 @@ function mapDetailRows(rows: any[]): DepartmentDetailRow[] {
 // ============================================================================
 const PROTEA_CATEGORY_REPOINTS: Array<{ account: string; targetCategory: string }> = [
   { account: 'A610112', targetCategory: 'Payroll' },
+  { account: 'A652101', targetCategory: 'Payroll' },
 ];
 
 const PROTEA_CATEGORY_SORT_ORDER: Record<string, number> = {

@@ -551,7 +551,7 @@ class ExcelExportService {
   ): Promise<void> {
     // Fetch hotel-wide totals across all Lodging Operations departments (excluding non-reportable depts)
     const excludedDepts = [...EXCEL_EXCLUDED_DEPARTMENTS];
-    const [monthDetailData, rangeDetailData] = await Promise.all([
+    let [monthDetailData, rangeDetailData] = await Promise.all([
       db.getAllDepartmentDetailData(
         config.ou,
         config.selectedMonth, config.selectedYear,
@@ -569,6 +569,19 @@ class ExcelExportService {
     ]);
 
     if (rangeDetailData.length === 0 && monthDetailData.length === 0) return;
+
+    // Suppress accounts that are zero across actuals/budget/ly in BOTH month AND range
+    { const accountsWithData = new Set<string>();
+      for (const row of [...monthDetailData, ...rangeDetailData]) {
+        if ((row.actuals !== null && row.actuals !== 0) ||
+            (row.budget !== null && row.budget !== 0) ||
+            (row.ly !== null && row.ly !== 0)) {
+          accountsWithData.add(row.account);
+        }
+      }
+      monthDetailData = monthDetailData.filter((r: any) => accountsWithData.has(r.account));
+      rangeDetailData = rangeDetailData.filter((r: any) => accountsWithData.has(r.account));
+    }
 
     const sheet = workbook.addWorksheet('HOTEL TOTAL', { properties: { tabColor: TAB_COLOR_HOTEL_TOTAL } });
     const totalCols = 13;
@@ -707,7 +720,7 @@ class ExcelExportService {
     const deptIds = groupDepts.map(d => d.baseDepartment);
 
     // Fetch aggregated data for the group (month + range in parallel)
-    const [monthDetailData, rangeDetailData] = await Promise.all([
+    let [monthDetailData, rangeDetailData] = await Promise.all([
       db.getGroupDepartmentDetailData(
         config.ou,
         deptIds,
@@ -730,6 +743,19 @@ class ExcelExportService {
 
     if (rangeDetailData.length === 0 && monthDetailData.length === 0) {
       return null;
+    }
+
+    // Suppress accounts that are zero across actuals/budget/ly in BOTH month AND range
+    { const accountsWithData = new Set<string>();
+      for (const row of [...monthDetailData, ...rangeDetailData]) {
+        if ((row.actuals !== null && row.actuals !== 0) ||
+            (row.budget !== null && row.budget !== 0) ||
+            (row.ly !== null && row.ly !== 0)) {
+          accountsWithData.add(row.account);
+        }
+      }
+      monthDetailData = monthDetailData.filter((r: any) => accountsWithData.has(r.account));
+      rangeDetailData = rangeDetailData.filter((r: any) => accountsWithData.has(r.account));
     }
 
     let sheetName = sanitizeSheetName(`${groupName} Summary`.toUpperCase());
@@ -805,7 +831,7 @@ class ExcelExportService {
     usedSheetNames: Set<string>,
     nameOverride?: string
   ): Promise<string | null> {
-    const [monthDetailData, rangeDetailData] = await Promise.all([
+    let [monthDetailData, rangeDetailData] = await Promise.all([
       db.getDepartmentDetailData(
         config.ou,
         dept.baseDepartment,
@@ -828,6 +854,19 @@ class ExcelExportService {
 
     if (rangeDetailData.length === 0 && monthDetailData.length === 0) {
       return null;
+    }
+
+    // Suppress accounts that are zero across actuals/budget/ly in BOTH month AND range
+    { const accountsWithData = new Set<string>();
+      for (const row of [...monthDetailData, ...rangeDetailData]) {
+        if ((row.actuals !== null && row.actuals !== 0) ||
+            (row.budget !== null && row.budget !== 0) ||
+            (row.ly !== null && row.ly !== 0)) {
+          accountsWithData.add(row.account);
+        }
+      }
+      monthDetailData = monthDetailData.filter((r: any) => accountsWithData.has(r.account));
+      rangeDetailData = rangeDetailData.filter((r: any) => accountsWithData.has(r.account));
     }
 
     let sheetName = sanitizeSheetName(nameOverride || dept.departmentName || dept.baseDepartment);
@@ -1117,7 +1156,7 @@ class ExcelExportService {
         }
 
         for (const acct of allAccounts) {
-          const mRow = mMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: acct, account: acct };
+          const mRow = mMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: rMap.get(acct)?.accountName || acct, account: acct };
           const rRow = rMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0 };
 
           const excelRow = sheet.addRow({
@@ -1190,7 +1229,7 @@ class ExcelExportService {
           }
 
           for (const acct of allAccounts) {
-            const mRow = mAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: acct, account: acct };
+            const mRow = mAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: rAcctMap.get(acct)?.accountName || acct, account: acct };
             const rRow = rAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0 };
             const displayName = mRow.accountName || mRow.account;
 
@@ -1450,7 +1489,7 @@ class ExcelExportService {
     applySectionHeaderStyle(revConsolHeader);
     sheet.mergeCells(revConsolHeader.number, 1, revConsolHeader.number, TOTAL_COLS);
 
-    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'revenue', 'consolidated', TOTAL_COLS, { hideZeroRows: !config.generateDetailTabs });
+    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'revenue', 'consolidated', TOTAL_COLS, { hideZeroRows: true });
 
     if (config.generateDetailTabs) {
       this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
@@ -1460,7 +1499,7 @@ class ExcelExportService {
       applySectionHeaderStyle(revDetailHeader);
       sheet.mergeCells(revDetailHeader.number, 1, revDetailHeader.number, TOTAL_COLS);
 
-      this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'revenue', 'detail', TOTAL_COLS);
+      this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'revenue', 'detail', TOTAL_COLS, { hideZeroRows: true });
     }
 
     this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
@@ -1476,7 +1515,7 @@ class ExcelExportService {
     applySectionHeaderStyle(nightsConsolHeader);
     sheet.mergeCells(nightsConsolHeader.number, 1, nightsConsolHeader.number, TOTAL_COLS);
 
-    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'nights', 'consolidated', TOTAL_COLS, { hideZeroRows: !config.generateDetailTabs });
+    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'nights', 'consolidated', TOTAL_COLS, { hideZeroRows: true });
 
     if (config.generateDetailTabs) {
       this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
@@ -1486,7 +1525,7 @@ class ExcelExportService {
       applySectionHeaderStyle(nightsDetailHeader);
       sheet.mergeCells(nightsDetailHeader.number, 1, nightsDetailHeader.number, TOTAL_COLS);
 
-      this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'nights', 'detail', TOTAL_COLS);
+      this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'nights', 'detail', TOTAL_COLS, { hideZeroRows: true });
     }
 
     this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
@@ -1502,7 +1541,7 @@ class ExcelExportService {
     applySectionHeaderStyle(adrConsolHeader);
     sheet.mergeCells(adrConsolHeader.number, 1, adrConsolHeader.number, TOTAL_COLS);
 
-    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'adr', 'consolidated', TOTAL_COLS, { hideZeroRows: !config.generateDetailTabs });
+    this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'adr', 'consolidated', TOTAL_COLS, { hideZeroRows: true });
 
     if (config.generateDetailTabs) {
       this.addBlankSeparatorRow(sheet, TOTAL_COLS, 'roomSeg');
@@ -1512,7 +1551,7 @@ class ExcelExportService {
       applySectionHeaderStyle(adrDetailHeader);
       sheet.mergeCells(adrDetailHeader.number, 1, adrDetailHeader.number, TOTAL_COLS);
 
-      this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'adr', 'detail', TOTAL_COLS);
+      this.addRoomSegMetricSection(sheet, monthSegmentData, rangeSegmentData, 'adr', 'detail', TOTAL_COLS, { hideZeroRows: true });
     }
 
     // Freeze panes (2 title rows + 2 header rows)

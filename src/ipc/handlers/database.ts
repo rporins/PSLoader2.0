@@ -532,6 +532,30 @@ export class DatabaseHandlers {
     };
   };
 
+  getProteaF90PLDataHandler: IpcHandler = async (event, request) => {
+    const version = request.version || 'MAIN';
+    const { PROTEA_F90_PL_ROW_CONFIG } = await import('../../services/reports/proteaF90PLRowConfig');
+    const { computeInvestFactorOwnerSubgroupTotals, applyInvestSubgroupOverridesToF90Rows } = await import('../../services/reports/proteaShared');
+
+    const jsonStr = await db.getProteaF90PLData(
+      request.startMonth, request.startYear,
+      request.endMonth, request.endYear,
+      request.ou, version,
+      PROTEA_F90_PL_ROW_CONFIG
+    );
+    const rows = JSON.parse(jsonStr);
+
+    const totals = await computeInvestFactorOwnerSubgroupTotals(
+      request.ou,
+      request.startMonth, request.startYear,
+      request.endMonth, request.endYear,
+      version
+    );
+    applyInvestSubgroupOverridesToF90Rows(rows, totals);
+
+    return { success: true, data: JSON.stringify(rows), timestamp: Date.now() };
+  };
+
   getStagingVsBudgetDataHandler: IpcHandler = async (event, request) => {
     const version = request.version || 'MAIN';
     const result = await db.getStagingVsBudgetData(request.ou, version);
@@ -876,6 +900,7 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_FINANCIAL_REPORT_DATA]: handlers.getFinancialReportDataHandler,
     [IPC_CHANNELS.DB_GET_SUMMARY_PL_DATA]: handlers.getSummaryPLDataHandler,
     [IPC_CHANNELS.DB_GET_F90_PL_DATA]: handlers.getF90PLDataHandler,
+    [IPC_CHANNELS.DB_GET_PROTEA_F90_PL_DATA]: handlers.getProteaF90PLDataHandler,
     [IPC_CHANNELS.DB_GET_STAGING_VS_BUDGET_DATA]: handlers.getStagingVsBudgetDataHandler,
     [IPC_CHANNELS.DB_UPDATE_CACHE_METADATA]: handlers.updateCacheMetadataHandler,
     [IPC_CHANNELS.DB_GET_CACHE_METADATA]: handlers.getCacheMetadataHandler,

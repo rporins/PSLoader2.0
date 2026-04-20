@@ -35,6 +35,7 @@ import RoomSegmentReview from "./routes/nestedPages/roomSegmentReview";
 import ExcelExport from "./routes/nestedPages/excelExport";
 import ProteaReportPack from "./routes/nestedPages/proteaReportPack";
 import ProteaBudgetPack from "./routes/nestedPages/proteaBudgetPack";
+import ProteaF90PL from "./routes/nestedPages/proteaF90PL";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 // define the route
@@ -130,6 +131,11 @@ const router = createHashRouter([
         path: "excel-export",
         element: <ExcelExport />,
         handle: { title: "Marriott Excel Report Pack" },
+      },
+      {
+        path: "protea-f90-pl",
+        element: <ProteaF90PL />,
+        handle: { title: "Protea F90 P&L" },
       },
       {
         path: "protea-report-pack",

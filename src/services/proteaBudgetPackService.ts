@@ -16,6 +16,7 @@ import ExcelJS from 'exceljs';
 import * as db from '../local_db';
 import { PLCalculationResult } from '../types/plReportTypes';
 import { PROTEA_F90_PL_ROW_CONFIG, PROTEA_F90_PL_ROW_CONFIG_WITH_BANQUETING } from './reports/proteaF90PLRowConfig';
+import { filterZeroRowsAcrossDatasets } from './reports/plCalculationEngine';
 import { INVEST_CUSTOM_SUBGROUPS, InvestSubgroupDef } from './reports/investSubgroupConfig';
 import {
   ROOMS_KPI_CONFIG,
@@ -66,6 +67,9 @@ import {
   MOVED_DEPT_BY_SOURCE,
   MOVEMENT_TARGET_GROUPS,
   classifyAccountsByLevel20,
+  computeInvestFactorOwnerSubgroupTotals,
+  applyInvestSubgroupOverridesToF90Rows,
+  InvestSubgroupTotals,
 } from './reports/proteaShared';
 
 // ============================================================================
@@ -288,7 +292,56 @@ class ProteaBudgetPackService {
       monthlyData.set(period, JSON.parse(json as string));
     }
 
-    this.addBudgetF90DataRows(sheet, totalData, monthlyData);
+    // Route F90 below-the-line values through the EXACT SAME function INVEST
+    // FACTOR OWNER SUMMARY uses (getProteaGroupDepartmentDetailData +
+    // classifyAccountsByLevel20). Budget pack slot remap: F90 row.actuals
+    // holds CurBud, row.budget holds LYBud, row.ly holds LYAct — so we pull
+    // those from two classifier calls (CY period + LY period) and remap.
+    const [cyMap, lyMap, ...monthlyMaps] = await Promise.all([
+      computeInvestFactorOwnerSubgroupTotals(
+        config.ou, config.startMonth, config.startYear,
+        config.endMonth, config.endYear, config.version
+      ),
+      computeInvestFactorOwnerSubgroupTotals(
+        config.ou, config.startMonth, config.startYear - 1,
+        config.endMonth, config.endYear - 1, config.version
+      ),
+      ...this.periods.map(p => {
+        const [y, m] = p.split('-').map(Number);
+        return computeInvestFactorOwnerSubgroupTotals(config.ou, m, y, m, y, config.version);
+      }),
+    ]);
+
+    // Total row remap: slot "actuals"=CurBud (CY.budget), "budget"=LYBud (LY.budget), "ly"=LYAct (CY.ly).
+    const budgetTotalOverrides = new Map<string, InvestSubgroupTotals>();
+    for (const [name, cy] of cyMap) {
+      const ly = lyMap.get(name) ?? { actuals: 0, budget: 0, ly: 0 };
+      budgetTotalOverrides.set(name, { actuals: cy.budget, budget: ly.budget, ly: cy.ly });
+    }
+    applyInvestSubgroupOverridesToF90Rows(totalData, budgetTotalOverrides);
+
+    // Per-month override: only the "actuals" slot (= that month's CurBud) is populated.
+    this.periods.forEach((period, i) => {
+      const monthRows = monthlyData.get(period);
+      if (!monthRows) return;
+      const monthOverrides = new Map<string, InvestSubgroupTotals>();
+      for (const [name, m] of monthlyMaps[i]) {
+        monthOverrides.set(name, { actuals: m.budget, budget: 0, ly: 0 });
+      }
+      applyInvestSubgroupOverridesToF90Rows(monthRows, monthOverrides);
+    });
+
+    // Suppress rows that are zero across the total AND every monthly column.
+    // All datasets use skipFilter=true so rowIds are original and aligned.
+    // filterZeroRowsAcrossDatasets removes the same rows from all datasets and
+    // applies a single shared renumber map, keeping rowId alignment intact.
+    const allDatasets = [totalData, ...this.periods.map(p => monthlyData.get(p)!)];
+    const filteredDatasets = filterZeroRowsAcrossDatasets(allDatasets);
+    const filteredTotal = filteredDatasets[0];
+    const filteredMonthly = new Map<string, PLCalculationResult[]>();
+    this.periods.forEach((p, i) => filteredMonthly.set(p, filteredDatasets[i + 1]));
+
+    this.addBudgetF90DataRows(sheet, filteredTotal, filteredMonthly);
 
     // Freeze panes (3 title rows + 2 header rows)
     sheet.views = [{ state: 'frozen', xSplit: 1, ySplit: 5 }];

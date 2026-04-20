@@ -161,6 +161,7 @@ export const IPC_CHANNELS = {
   DB_GET_FINANCIAL_REPORT_DATA: 'db:get-financial-report-data',
   DB_GET_SUMMARY_PL_DATA: 'db:get-summary-pl-data',
   DB_GET_F90_PL_DATA: 'db:get-f90-pl-data',
+  DB_GET_PROTEA_F90_PL_DATA: 'db:get-protea-f90-pl-data',
   DB_GET_STAGING_VS_BUDGET_DATA: 'db:get-staging-vs-budget-data',
 
   // Cache metadata channels

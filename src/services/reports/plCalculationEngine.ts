@@ -87,6 +87,16 @@ function buildFilterCondition(filter: MeasureFilter): string {
     return `${column} = ?`;
   }
 
+  // Catch-all: account level NOT IN the known set, OR unmapped (NULL).
+  // Added for F90 Abnormal Items atom so it mirrors INVEST FACTOR OWNER SUMMARY's
+  // catch-all behaviour (classifyAccountsByLevel20 in proteaShared.ts).
+  if (type === 'acc_level_not_in') {
+    const column = `am.level_${level}`;
+    const values = Array.isArray(value) ? value : [value];
+    const placeholders = values.map(() => '?').join(', ');
+    return `(${column} NOT IN (${placeholders}) OR ${column} IS NULL)`;
+  }
+
   if (type === 'acc_base') {
     if (Array.isArray(value)) {
       return `am.base_account IN (${value.map(() => '?').join(', ')})`;
@@ -558,4 +568,81 @@ function filterZeroRows(rows: PLCalculationResult[]): PLCalculationResult[] {
   filtered.forEach((row, i) => { row.rowId = i + 1; });
 
   return filtered;
+}
+
+// ============================================================================
+// CROSS-DATASET ZERO FILTER
+// Filters multiple datasets simultaneously so all period columns (month, range,
+// monthly breakdowns) suppress the same rows. A row is removed only when it is
+// zero across every scenario in every dataset. rowIds are renumbered using a
+// single shared map so alignment by rowId is preserved across all datasets.
+// ============================================================================
+
+export function filterZeroRowsAcrossDatasets(
+  datasets: PLCalculationResult[][]
+): PLCalculationResult[][] {
+  if (datasets.length === 0 || datasets.every(d => d.length === 0)) return datasets;
+
+  // Use the longest dataset as the structural reference
+  const reference = datasets.reduce((a, b) => a.length >= b.length ? a : b);
+
+  // Mark a rowId as having data if ANY dataset has non-zero actuals/budget/ly for it
+  const rowIdHasData = new Map<number, boolean>();
+  for (const row of reference) rowIdHasData.set(row.rowId, false);
+
+  for (const dataset of datasets) {
+    for (const row of dataset) {
+      if (row.type === 'measure') {
+        const hasData = (row.actuals !== null && row.actuals !== 0) ||
+                        (row.budget !== null && row.budget !== 0) ||
+                        (row.ly !== null && row.ly !== 0);
+        if (hasData) rowIdHasData.set(row.rowId, true);
+      }
+    }
+  }
+
+  // Apply the identical keep/remove decision to every dataset
+  const filteredDatasets = datasets.map(dataset => {
+    const keep = dataset.map(row => {
+      if (row.type === 'measure') return rowIdHasData.get(row.rowId) ?? true;
+      if (row.type === 'header' && row.actuals !== null) return true;
+      if (row.type === 'header' && !row.label) return true;
+      if (row.type === 'header' && row.label && row.actuals === null) {
+        const refIdx = reference.findIndex(r => r.rowId === row.rowId);
+        if (refIdx === -1) return true;
+        for (let j = refIdx + 1; j < reference.length; j++) {
+          const refRow = reference[j];
+          if (refRow.type === 'header' && refRow.label &&
+              refRow.actuals === null && refRow.indentLevel <= row.indentLevel) break;
+          if (rowIdHasData.get(refRow.rowId)) return true;
+        }
+        return false;
+      }
+      return true;
+    });
+
+    let filtered = dataset.filter((_, i) => keep[i]);
+
+    filtered = filtered.filter((row, i, arr) => {
+      if (row.type !== 'header' || row.label !== '') return true;
+      if (i === 0 || i === arr.length - 1) return false;
+      if (arr[i - 1].type === 'header' && arr[i - 1].label === '') return false;
+      return true;
+    });
+
+    return filtered;
+  });
+
+  // Build a single renumber map from the first filtered dataset and apply to all
+  const renumberMap = new Map<number, number>();
+  filteredDatasets[0].forEach((row, i) => renumberMap.set(row.rowId, i + 1));
+
+  for (const dataset of filteredDatasets) {
+    for (const row of dataset) {
+      const newId = renumberMap.get(row.rowId);
+      if (newId !== undefined) row.rowId = newId;
+    }
+  }
+
+  return filteredDatasets;
 }

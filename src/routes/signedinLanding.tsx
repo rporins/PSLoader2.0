@@ -850,21 +850,48 @@ const handleSignOut = useCallback(async () => {
             </ListItemButton>
           </ListItem>
 
-          <ListItem key="protea-report-pack" disablePadding sx={{ display: "block" }}>
-            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/protea-report-pack")}>
+          {/* Protea sub-section */}
+          {open && (
+            <ListItem disablePadding sx={{ display: "block" }}>
+              <ListItemText
+                primary="PROTEA"
+                sx={{
+                  px: 2.5,
+                  pt: 1,
+                  pb: 0,
+                  color: 'text.disabled',
+                  fontSize: '0.65rem',
+                  fontWeight: 600,
+                  letterSpacing: '0.08em',
+                }}
+              />
+            </ListItem>
+          )}
+
+          <ListItem key="protea-f90-pl" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={{ ...listItemButtonStyle, pl: open ? 4 : listItemButtonStyle.pl }} onClick={() => navigate("/signed-in-landing/protea-f90-pl")}>
               <ListItemIcon sx={listItemIconStyle}>
-                <DescriptionIcon />
+                <DescriptionIcon sx={{ fontSize: '1.1rem', opacity: 0.7 }} />
               </ListItemIcon>
-              <ListItemText primary="Protea Report Pack" sx={listItemTextStyle} />
+              <ListItemText primary="F90 P&L" primaryTypographyProps={{ fontSize: '0.8rem', color: 'text.secondary' }} sx={listItemTextStyle} />
+            </ListItemButton>
+          </ListItem>
+
+          <ListItem key="protea-report-pack" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={{ ...listItemButtonStyle, pl: open ? 4 : listItemButtonStyle.pl }} onClick={() => navigate("/signed-in-landing/protea-report-pack")}>
+              <ListItemIcon sx={listItemIconStyle}>
+                <DescriptionIcon sx={{ fontSize: '1.1rem', opacity: 0.7 }} />
+              </ListItemIcon>
+              <ListItemText primary="Report Pack" primaryTypographyProps={{ fontSize: '0.8rem', color: 'text.secondary' }} sx={listItemTextStyle} />
             </ListItemButton>
           </ListItem>
 
           <ListItem key="protea-budget-pack" disablePadding sx={{ display: "block" }}>
-            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/protea-budget-pack")}>
+            <ListItemButton sx={{ ...listItemButtonStyle, pl: open ? 4 : listItemButtonStyle.pl }} onClick={() => navigate("/signed-in-landing/protea-budget-pack")}>
               <ListItemIcon sx={listItemIconStyle}>
-                <DescriptionIcon />
+                <DescriptionIcon sx={{ fontSize: '1.1rem', opacity: 0.7 }} />
               </ListItemIcon>
-              <ListItemText primary="Protea Budget Pack" sx={listItemTextStyle} />
+              <ListItemText primary="Budget Pack" primaryTypographyProps={{ fontSize: '0.8rem', color: 'text.secondary' }} sx={listItemTextStyle} />
             </ListItemButton>
           </ListItem>
 
