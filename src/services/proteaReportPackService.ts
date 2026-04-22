@@ -693,7 +693,8 @@ class ProteaReportPackService {
       suppressStats: !keepStats,
       showDeptProfit: keepStats,
       flattenCategories: !isInvestGroup ? ['Payroll', 'Controllables'] : undefined,
-      customSubgroups: isInvestGroup ? INVEST_CUSTOM_SUBGROUPS.filter(sg => sg.name !== 'Fixed Expenses') : undefined,
+      customSubgroups: isInvestGroup ? INVEST_CUSTOM_SUBGROUPS : undefined,
+      hideSubgroupNames: isInvestGroup ? ['Fixed Expenses'] : undefined,
     });
 
     // Department-specific KPIs (after department profit) — computed via F90 engine
@@ -1611,13 +1612,14 @@ class ProteaReportPackService {
       showDeptProfit?: boolean;
       flattenCategories?: string[];
       customSubgroups?: InvestSubgroupDef[];
+      hideSubgroupNames?: string[];
     }
   ): void {
     // Delegate to custom subgroup renderer for Invest-type tabs
     if (options?.customSubgroups) {
       this.addCustomSubgroupDataSection(
         sheet, monthData, rangeData, totalCols,
-        options.customSubgroups, movedAccountSources
+        options.customSubgroups, movedAccountSources, options.hideSubgroupNames
       );
       return;
     }
@@ -1923,8 +1925,10 @@ class ProteaReportPackService {
     rangeData: any[],
     totalCols: number,
     subgroups: InvestSubgroupDef[],
-    movedAccountSources?: Map<string, string>
+    movedAccountSources?: Map<string, string>,
+    hideSubgroupNames?: string[]
   ): void {
+    const hideSet = new Set(hideSubgroupNames ?? []);
     const ABS_COLS = [2, 4, 5, 6, 9, 11, 12, 13];
     const applyNumberFormats = (row: ExcelJS.Row) => {
       ABS_COLS.forEach(col => {
@@ -2024,6 +2028,7 @@ class ProteaReportPackService {
 
     // --- Render each subgroup in config order ---
     for (const sg of subgroups) {
+      if (hideSet.has(sg.name)) continue;
       const mRows = mBySubgroup.get(sg.name) || [];
       const rRows = rBySubgroup.get(sg.name) || [];
       if (mRows.length === 0 && rRows.length === 0) continue;

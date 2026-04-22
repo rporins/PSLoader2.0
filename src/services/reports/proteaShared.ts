@@ -356,7 +356,7 @@ export const PROTEA_DEPARTMENT_MOVEMENTS: DepartmentMovement[] = [
 ];
 
 // Banqueting departments — split out of F&B when banqueting toggle is on
-export const BANQUETING_DEPARTMENTS = new Set(['D0230', 'D0231', 'D0232']);
+export const BANQUETING_DEPARTMENTS = new Set(['D0230', 'D0231', 'D0232', 'D0233']);
 
 /** Preferred display order for department groups in the Protea report pack.
  *  Groups not listed here appear after these in their natural (alphabetical) order.
@@ -444,10 +444,14 @@ export interface InvestSubgroupTotals {
   ly: number;
 }
 
-/** Owner-factor department scope for Invest Factor Owner.
- *  Covers native D0490 + the three movement-source depts (D0480/D0690/D0691)
- *  which are merged into this group per PROTEA_DEPARTMENT_MOVEMENTS. */
-const INVEST_FACTOR_OWNER_DEPTS = ['D0480', 'D0490', 'D0690', 'D0691'];
+/** Native owner department for Invest Factor Owner (fetched as a group). */
+const INVEST_NATIVE_DEPT = 'D0490';
+
+/** Source departments merged INTO Invest Factor Owner via PROTEA_DEPARTMENT_MOVEMENTS.
+ *  Each is fetched as its own single-dept slice, mirroring the summary tab's path. */
+const INVEST_MOVED_SOURCE_DEPTS = PROTEA_DEPARTMENT_MOVEMENTS
+  .filter(m => m.targetGroup === 'Invest Factor Owner')
+  .map(m => m.sourceDept);
 
 export async function computeInvestFactorOwnerSubgroupTotals(
   ou: string,
@@ -456,18 +460,41 @@ export async function computeInvestFactorOwnerSubgroupTotals(
   version: string
 ): Promise<Map<string, InvestSubgroupTotals>> {
   // Dynamic import avoids a circular dependency with local_db.ts.
-  const { getProteaGroupDepartmentDetailData } = await import('../../local_db');
+  const { getProteaGroupDepartmentDetailData, getProteaDepartmentDetailData } = await import('../../local_db');
 
-  const rawRows = await getProteaGroupDepartmentDetailData(
-    ou, INVEST_FACTOR_OWNER_DEPTS, startMonth, startYear, endMonth, endYear, version
-  );
+  // Mirror the INVEST FACTOR OWNER SUMMARY tab's data-fetch flow EXACTLY
+  // (proteaReportPackService.ts::createDepartmentGroupSheet for the 'Invest
+  // Factor Owner' group). Any deviation here causes F90 vs INVEST drift.
+  //
+  //   1. Native dept D0490 via the group-fetch (single-element list).
+  //   2. Moved-source depts D0480/D0690/D0691 each via the single-dept fetch
+  //      and filtered for !isMovedAccount (A730/A745 stay in Admin & General).
+  //   3. groupContainsSourceDept is true (D0490 is a movement source dept), so
+  //      the summary also strips !isMovedAccount from the native slice.
+  //   4. Concatenate, then aggregateDuplicateAccounts.
+  const [nativeRows, ...movedSlices] = await Promise.all([
+    getProteaGroupDepartmentDetailData(
+      ou, [INVEST_NATIVE_DEPT], startMonth, startYear, endMonth, endYear, version
+    ),
+    ...INVEST_MOVED_SOURCE_DEPTS.map(d => getProteaDepartmentDetailData(
+      ou, d, startMonth, startYear, endMonth, endYear, version
+    )),
+  ]);
 
-  // Mirror INVEST FACTOR OWNER SUMMARY exactly:
-  //   1. Remove A730/A745 accounts (moved to Admin & General — same filter INVEST applies).
-  //   2. Aggregate duplicate account codes that can appear across multiple owner depts.
-  const rows = aggregateDuplicateAccounts(
-    (rawRows as any[]).filter(r => !isMovedAccount(r.account))
-  );
+  // Match the summary tab's pre-classification filtering exactly:
+  //   • !isMovedAccount strips A730/A745 (those go to Admin & General).
+  //   • category !== 'Stats' strips offset/control accounts like A960099 that
+  //     have a null level_20 and would otherwise dominate the catch-all bucket.
+  // The summary applies the Stats filter inside addCustomSubgroupDataSection
+  // (proteaReportPackService.ts) and addCustomSubgroupBudgetSection
+  // (proteaBudgetPackService.ts). Keep the three filters in lock-step.
+  const cleanSlice = (slice: any[]) =>
+    slice.filter(r => !isMovedAccount(r.account) && r.category !== 'Stats');
+
+  const nativeFiltered = cleanSlice(nativeRows as any[]);
+  const movedFiltered = movedSlices.flatMap(slice => cleanSlice(slice as any[]));
+
+  const rows = aggregateDuplicateAccounts([...nativeFiltered, ...movedFiltered]);
 
   const classification = classifyAccountsByLevel20(rows, INVEST_CUSTOM_SUBGROUPS);
   const catchAllName = INVEST_CUSTOM_SUBGROUPS.find(sg => sg.isCatchAll)?.name || 'Other';
