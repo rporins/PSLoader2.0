@@ -70,6 +70,8 @@ import {
   computeInvestFactorOwnerSubgroupTotals,
   applyInvestSubgroupOverridesToF90Rows,
   InvestSubgroupTotals,
+  LEVIES_SUBGROUP,
+  isLeviesAccount,
 } from './reports/proteaShared';
 
 // ============================================================================
@@ -972,15 +974,20 @@ class ProteaBudgetPackService {
         }
       } else {
         // Group by level_12
+        // A759* accounts are carved out into a "Levies" sub-group.
         const curLevel12Map = new Map<string, any[]>();
         for (const row of curCategoryRows) {
-          const groupKey = row.level12Group || `Other ${category}`;
+          const groupKey = isLeviesAccount(row.account)
+            ? LEVIES_SUBGROUP
+            : (row.level12Group || `Other ${category}`);
           if (!curLevel12Map.has(groupKey)) curLevel12Map.set(groupKey, []);
           curLevel12Map.get(groupKey)!.push(row);
         }
         const lyLevel12Map = new Map<string, any[]>();
         for (const row of lyCategoryRows) {
-          const groupKey = row.level12Group || `Other ${category}`;
+          const groupKey = isLeviesAccount(row.account)
+            ? LEVIES_SUBGROUP
+            : (row.level12Group || `Other ${category}`);
           if (!lyLevel12Map.has(groupKey)) lyLevel12Map.set(groupKey, []);
           lyLevel12Map.get(groupKey)!.push(row);
         }
@@ -1095,10 +1102,33 @@ class ProteaBudgetPackService {
     const classification = classifyAccountsByLevel20(allRows, INVEST_CUSTOM_SUBGROUPS);
     const catchAllName = INVEST_CUSTOM_SUBGROUPS.find(sg => sg.isCatchAll)?.name || 'Other';
 
+    // Renderer-local "Levies" carve-out for A759* accounts — does not mutate the
+    // shared INVEST_CUSTOM_SUBGROUPS config or the F90 measure scope.
+    for (const [acct, c] of classification) {
+      if (isLeviesAccount(acct)) {
+        c.subgroup = LEVIES_SUBGROUP;
+        c.isUnmapped = false;
+      }
+    }
+    const effectiveSubgroups: InvestSubgroupDef[] = [];
+    let leviesInserted = false;
+    for (const sg of INVEST_CUSTOM_SUBGROUPS) {
+      effectiveSubgroups.push(sg);
+      if (!leviesInserted && sg.name === 'Owners Expense') {
+        effectiveSubgroups.push({ name: LEVIES_SUBGROUP });
+        leviesInserted = true;
+      }
+    }
+    if (!leviesInserted) {
+      const catchAllIdx = effectiveSubgroups.findIndex(sg => sg.isCatchAll);
+      if (catchAllIdx >= 0) effectiveSubgroups.splice(catchAllIdx, 0, { name: LEVIES_SUBGROUP });
+      else effectiveSubgroups.push({ name: LEVIES_SUBGROUP });
+    }
+
     // Build per-subgroup data sets
     const curBySubgroup = new Map<string, any[]>();
     const lyBySubgroup = new Map<string, any[]>();
-    for (const sg of INVEST_CUSTOM_SUBGROUPS) {
+    for (const sg of effectiveSubgroups) {
       curBySubgroup.set(sg.name, []);
       lyBySubgroup.set(sg.name, []);
     }
@@ -1149,7 +1179,7 @@ class ProteaBudgetPackService {
     };
 
     // Render each subgroup in config order
-    for (const sg of INVEST_CUSTOM_SUBGROUPS) {
+    for (const sg of effectiveSubgroups) {
       const curRows = curBySubgroup.get(sg.name) || [];
       const lyRows = lyBySubgroup.get(sg.name) || [];
       if (curRows.length === 0 && lyRows.length === 0) continue;

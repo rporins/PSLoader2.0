@@ -37,6 +37,14 @@ export const FB_KPI_CONFIG: PLRow[] = [
 
 export const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+// Accounts whose code starts with A759 are carved out into their own "Levies"
+// sub-group on Protea Pack summary sheets (both Report and Budget). The rule is
+// renderer-scoped — it does NOT alter classifyAccountsByLevel20() or the F90
+// measure engine, so F90 totals stay unchanged.
+export const LEVIES_SUBGROUP = 'Levies';
+export const isLeviesAccount = (acct: string | undefined | null): boolean =>
+  !!acct && acct.toUpperCase().startsWith('A759');
+
 // ============================================================================
 // STYLING CONSTANTS
 // ============================================================================

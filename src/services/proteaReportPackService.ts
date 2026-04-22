@@ -66,6 +66,8 @@ import {
   classifyAccountsByLevel20,
   computeInvestFactorOwnerSubgroupTotals,
   applyInvestSubgroupOverridesToF90Rows,
+  LEVIES_SUBGROUP,
+  isLeviesAccount,
 } from './reports/proteaShared';
 
 // ============================================================================
@@ -1763,7 +1765,9 @@ class ProteaReportPackService {
         }
 
       } else if (options?.flattenCategories?.includes(category)) {
-        // Flattened: render all accounts without level_12 sub-group headers/subtotals
+        // Flattened: render all accounts without level_12 sub-group headers/subtotals.
+        // Exception: A759* accounts are collected into a "Levies" sub-group rendered
+        // (with header + subtotal) at the bottom of the flat list.
         const allAccounts: string[] = [];
         const mAcctMap = new Map<string, any>();
         const rAcctMap = new Map<string, any>();
@@ -1776,7 +1780,10 @@ class ProteaReportPackService {
           if (!allAccounts.includes(row.account)) allAccounts.push(row.account);
         }
 
-        for (const acct of allAccounts) {
+        const leviesAccounts = allAccounts.filter(a => isLeviesAccount(a));
+        const nonLeviesAccounts = allAccounts.filter(a => !isLeviesAccount(a));
+
+        const renderAcct = (acct: string) => {
           const mRow = mAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: rAcctMap.get(acct)?.accountName || acct, account: acct };
           const rRow = rAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0 };
           const displayName = mRow.accountName || mRow.account;
@@ -1808,19 +1815,43 @@ class ProteaReportPackService {
           applyDataRowStyle(excelRow);
           this.styleDeptSeparator(excelRow);
           applyNumberFormats(excelRow);
+        };
+
+        for (const acct of nonLeviesAccounts) renderAcct(acct);
+
+        if (leviesAccounts.length > 0) {
+          // Sub-group header
+          const sgHeaderRow = sheet.addRow(new Array(totalCols).fill(''));
+          sgHeaderRow.getCell(1).value = LEVIES_SUBGROUP;
+          applyGroupHeaderStyle(sgHeaderRow);
+          this.styleDeptSeparator(sgHeaderRow);
+
+          // Account detail rows
+          for (const acct of leviesAccounts) renderAcct(acct);
+
+          // Levies subtotal
+          const mLeviesRows = leviesAccounts.map(a => mAcctMap.get(a)).filter(Boolean);
+          const rLeviesRows = leviesAccounts.map(a => rAcctMap.get(a)).filter(Boolean);
+          addHeaderWithTotals(`  Total ${LEVIES_SUBGROUP}`, mLeviesRows, rLeviesRows, applyGroupSubtotalStyle, false, sign);
+          this.addBlankSeparatorRow(sheet, totalCols);
         }
 
       } else {
         // Non-stats: group accounts by level_12
+        // A759* accounts are carved out into a "Levies" sub-group.
         const mLevel12Map = new Map<string, any[]>();
         for (const row of mCategoryRows) {
-          const groupKey = row.level12Group || `Other ${category}`;
+          const groupKey = isLeviesAccount(row.account)
+            ? LEVIES_SUBGROUP
+            : (row.level12Group || `Other ${category}`);
           if (!mLevel12Map.has(groupKey)) mLevel12Map.set(groupKey, []);
           mLevel12Map.get(groupKey)!.push(row);
         }
         const rLevel12Map = new Map<string, any[]>();
         for (const row of rCategoryRows) {
-          const groupKey = row.level12Group || `Other ${category}`;
+          const groupKey = isLeviesAccount(row.account)
+            ? LEVIES_SUBGROUP
+            : (row.level12Group || `Other ${category}`);
           if (!rLevel12Map.has(groupKey)) rLevel12Map.set(groupKey, []);
           rLevel12Map.get(groupKey)!.push(row);
         }
@@ -1968,6 +1999,33 @@ class ProteaReportPackService {
     const allRows = [...aggMonthData, ...aggRangeData];
     const classification = classifyAccountsByLevel20(allRows, subgroups);
     const catchAllName = subgroups.find(sg => sg.isCatchAll)?.name || 'Other';
+
+    // --- Renderer-local "Levies" carve-out for A759* accounts ---
+    // Override the shared classifier's output here only — the classifier itself
+    // (and F90, which reuses it) stays untouched.
+    for (const [acct, c] of classification) {
+      if (isLeviesAccount(acct)) {
+        c.subgroup = LEVIES_SUBGROUP;
+        c.isUnmapped = false;
+      }
+    }
+    // Insert a synthetic Levies subgroup just after Owners Expense for rendering.
+    const effectiveSubgroups: InvestSubgroupDef[] = [];
+    let leviesInserted = false;
+    for (const sg of subgroups) {
+      effectiveSubgroups.push(sg);
+      if (!leviesInserted && sg.name === 'Owners Expense') {
+        effectiveSubgroups.push({ name: LEVIES_SUBGROUP });
+        leviesInserted = true;
+      }
+    }
+    if (!leviesInserted) {
+      // Fallback: place before the catch-all if Owners Expense isn't in config
+      const catchAllIdx = effectiveSubgroups.findIndex(sg => sg.isCatchAll);
+      if (catchAllIdx >= 0) effectiveSubgroups.splice(catchAllIdx, 0, { name: LEVIES_SUBGROUP });
+      else effectiveSubgroups.push({ name: LEVIES_SUBGROUP });
+    }
+    subgroups = effectiveSubgroups;
 
     // --- Build per-subgroup data sets ---
     const mBySubgroup = new Map<string, any[]>();
