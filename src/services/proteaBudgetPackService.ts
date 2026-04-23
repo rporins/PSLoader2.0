@@ -113,8 +113,8 @@ function offsetPeriodMinusYear(period: string): string {
 }
 
 /** Compute variance percentage: (a - b) / |b| * 100 */
-function pct(a: number, b: number): number | null {
-  return b !== 0 ? ((a - b) / Math.abs(b)) * 100 : null;
+function pct(a: number, b: number): number {
+  return b !== 0 ? ((a - b) / Math.abs(b)) * 100 : 0;
 }
 
 // ============================================================================
@@ -122,7 +122,6 @@ function pct(a: number, b: number): number | null {
 // ============================================================================
 
 class ProteaBudgetPackService {
-  private accpacDescriptions: Map<string, string[]> = new Map();
   private generatedAt: string = '';
   private periods: string[] = [];
   private lyPeriods: string[] = [];
@@ -232,20 +231,13 @@ class ProteaBudgetPackService {
 
   private buildAccountLabel(displayName: string, accountCode: string, movedFrom?: string): string | ExcelJS.CellRichTextValue {
     displayName = proteaRenameLabel(displayName);
-    const descriptions = this.accpacDescriptions.get(accountCode);
-    const hasDescriptions = descriptions && descriptions.length > 0;
-
-    if (hasDescriptions || movedFrom) {
-      const parts: ExcelJS.RichText[] = [
-        { font: { size: 10 }, text: displayName },
-      ];
-      if (hasDescriptions) {
-        parts.push({ font: { size: 10, color: { argb: 'FF999999' } }, text: ` [${descriptions!.join(', ')}]` });
-      }
-      if (movedFrom) {
-        parts.push({ font: { size: 9, italic: true, color: { argb: 'FFB0B0B0' } }, text: ` [moved from ${movedFrom}]` });
-      }
-      return { richText: parts };
+    if (movedFrom) {
+      return {
+        richText: [
+          { font: { size: 10 }, text: displayName },
+          { font: { size: 9, italic: true, color: { argb: 'FFB0B0B0' } }, text: ` [moved from ${movedFrom}]` },
+        ],
+      };
     }
     return displayName;
   }
@@ -1091,7 +1083,7 @@ class ProteaBudgetPackService {
       rows.reduce((sum: number, r: any) => sum + (Number(r[field]) || 0), 0);
 
     const pct = (num: number, base: number) =>
-      base !== 0 ? ((num - base) / Math.abs(base)) * 100 : null;
+      base !== 0 ? ((num - base) / Math.abs(base)) * 100 : 0;
 
     // Filter out stats
     currentData = currentData.filter(r => r.category !== 'Stats');
@@ -1314,20 +1306,6 @@ class ProteaBudgetPackService {
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
     });
-
-    // Build AccPac description lookup
-    this.accpacDescriptions.clear();
-    const mappings = await db.getMappings(10);
-    for (const m of mappings) {
-      if (m.target_account && m.source_department && m.is_active) {
-        const existing = this.accpacDescriptions.get(m.target_account);
-        if (!existing) {
-          this.accpacDescriptions.set(m.target_account, [m.source_department]);
-        } else if (!existing.includes(m.source_department)) {
-          existing.push(m.source_department);
-        }
-      }
-    }
 
     // 1. F90 Report
     await this.createBudgetF90Worksheet(workbook, config);

@@ -272,7 +272,6 @@ function getRangeLabel(
 const EXCEL_EXCLUDED_DEPARTMENTS = db.NON_OPERATING_EXCLUDED_DEPARTMENTS;
 
 class ExcelExportService {
-  private accpacDescriptions: Map<string, string[]> = new Map();
   private generatedAt: string = '';
 
   /** Registry of sheets and group headers for the cover page TOC */
@@ -306,20 +305,6 @@ class ExcelExportService {
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
     });
-
-    // Build AccPac description lookup once (used by Hotel Total and all department sheets)
-    this.accpacDescriptions.clear();
-    const mappings = await db.getMappings(10);
-    for (const m of mappings) {
-      if (m.target_account && m.source_department && m.is_active) {
-        const existing = this.accpacDescriptions.get(m.target_account);
-        if (!existing) {
-          this.accpacDescriptions.set(m.target_account, [m.source_department]);
-        } else if (!existing.includes(m.source_department)) {
-          existing.push(m.source_department);
-        }
-      }
-    }
 
     // 1. Create F90 Report worksheet
     await this.createF90Worksheet(workbook, config);
@@ -1009,23 +994,6 @@ class ExcelExportService {
   }
 
   /**
-   * Returns a rich text value with the AccPac description in light grey brackets,
-   * or a plain string if no AccPac description exists.
-   */
-  private buildAccountLabel(displayName: string, accountCode: string): string | ExcelJS.CellRichTextValue {
-    const descriptions = this.accpacDescriptions.get(accountCode);
-    if (descriptions && descriptions.length > 0) {
-      return {
-        richText: [
-          { font: { size: 10 }, text: displayName },
-          { font: { size: 10, color: { argb: 'FF999999' } }, text: ` [${descriptions.join(', ')}]` },
-        ]
-      };
-    }
-    return displayName;
-  }
-
-  /**
    * Adds a blank separator row with consistent formatting (borders, font, separator column).
    * Ensures the grid looks continuous even on empty rows.
    */
@@ -1175,11 +1143,6 @@ class ExcelExportService {
             comments: ''
           });
 
-          const accountLabel = this.buildAccountLabel(mRow.accountName || mRow.account, mRow.account);
-          if (typeof accountLabel !== 'string') {
-            excelRow.getCell(1).value = { richText: [{ font: { size: 10 }, text: '    ' }, ...accountLabel.richText] };
-          }
-
           applyDataRowStyle(excelRow);
           this.styleDeptSeparator(excelRow);
           applyNumberFormats(excelRow);
@@ -1248,12 +1211,6 @@ class ExcelExportService {
               rVsLy: formatNumber(rRow.vsLy * sign),
               comments: ''
             });
-
-            // Override account cell with rich text if AccPac description exists
-            const accountLabel = this.buildAccountLabel(displayName, mRow.account);
-            if (typeof accountLabel !== 'string') {
-              excelRow.getCell(1).value = { richText: [{ font: { size: 10 }, text: '    ' }, ...accountLabel.richText] };
-            }
 
             applyDataRowStyle(excelRow);
             this.styleDeptSeparator(excelRow);
@@ -1574,9 +1531,9 @@ class ExcelExportService {
     } else {
       // ADR = revenue / nights; negate revenue so ADR displays as positive
       return {
-        actuals: row.nightsAct !== 0 ? -row.revAct / row.nightsAct : null,
-        budget: row.nightsBud !== 0 ? -row.revBud / row.nightsBud : null,
-        ly: row.nightsLy !== 0 ? -row.revLy / row.nightsLy : null,
+        actuals: row.nightsAct !== 0 ? -row.revAct / row.nightsAct : 0,
+        budget: row.nightsBud !== 0 ? -row.revBud / row.nightsBud : 0,
+        ly: row.nightsLy !== 0 ? -row.revLy / row.nightsLy : 0,
       };
     }
   }
@@ -1603,10 +1560,10 @@ class ExcelExportService {
   } {
     const vsBud = vals.actuals !== null && vals.budget !== null ? vals.actuals - vals.budget : null;
     const vsBudPct = vsBud !== null && vals.budget !== null && vals.budget !== 0
-      ? (vsBud / Math.abs(vals.budget)) * 100 : null;
+      ? (vsBud / Math.abs(vals.budget)) * 100 : 0;
     const vsLy = vals.actuals !== null && vals.ly !== null ? vals.actuals - vals.ly : null;
     const vsLyPct = vsLy !== null && vals.ly !== null && vals.ly !== 0
-      ? (vsLy / Math.abs(vals.ly)) * 100 : null;
+      ? (vsLy / Math.abs(vals.ly)) * 100 : 0;
     return { vsBud, vsBudPct, vsLy, vsLyPct };
   }
 

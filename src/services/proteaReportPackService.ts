@@ -95,7 +95,6 @@ export interface ProteaReportPackConfig {
 // ============================================================================
 
 class ProteaReportPackService {
-  private accpacDescriptions: Map<string, string[]> = new Map();
   private generatedAt: string = '';
 
   /** Registry of sheets and group headers for the cover page TOC */
@@ -129,20 +128,6 @@ class ProteaReportPackService {
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
     });
-
-    // Build AccPac description lookup once (used by Hotel Total and all department sheets)
-    this.accpacDescriptions.clear();
-    const mappings = await db.getMappings(10);
-    for (const m of mappings) {
-      if (m.target_account && m.source_department && m.is_active) {
-        const existing = this.accpacDescriptions.get(m.target_account);
-        if (!existing) {
-          this.accpacDescriptions.set(m.target_account, [m.source_department]);
-        } else if (!existing.includes(m.source_department)) {
-          existing.push(m.source_department);
-        }
-      }
-    }
 
     // 1. Create F90 Report worksheet (uses Protea account movement mutation)
     await this.createF90Worksheet(workbook, config);
@@ -1023,26 +1008,15 @@ class ProteaReportPackService {
 
   // proteaRenameLabel is now imported from proteaShared.ts
 
-  /**
-   * Returns a rich text value with the AccPac description in light grey brackets,
-   * or a plain string if no AccPac description exists.
-   */
   private buildAccountLabel(displayName: string, accountCode: string, movedFrom?: string): string | ExcelJS.CellRichTextValue {
     displayName = proteaRenameLabel(displayName);
-    const descriptions = this.accpacDescriptions.get(accountCode);
-    const hasDescriptions = descriptions && descriptions.length > 0;
-
-    if (hasDescriptions || movedFrom) {
-      const parts: ExcelJS.RichText[] = [
-        { font: { size: 10 }, text: displayName },
-      ];
-      if (hasDescriptions) {
-        parts.push({ font: { size: 10, color: { argb: 'FF999999' } }, text: ` [${descriptions!.join(', ')}]` });
-      }
-      if (movedFrom) {
-        parts.push({ font: { size: 9, italic: true, color: { argb: 'FFB0B0B0' } }, text: ` [moved from ${movedFrom}]` });
-      }
-      return { richText: parts };
+    if (movedFrom) {
+      return {
+        richText: [
+          { font: { size: 10 }, text: displayName },
+          { font: { size: 9, italic: true, color: { argb: 'FFB0B0B0' } }, text: ` [moved from ${movedFrom}]` },
+        ],
+      };
     }
     return displayName;
   }
@@ -1076,7 +1050,7 @@ class ProteaReportPackService {
       this.styleDeptSeparator(row);
     };
 
-    const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : null;
+    const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : 0;
 
     if (mRevenueRows.length > 0 || rRevenueRows.length > 0) {
       const mRevAct = sumField(mRevenueRows, 'actuals');
@@ -1232,7 +1206,7 @@ class ProteaReportPackService {
     monthKpi: Map<string, PLCalculationResult> = new Map(),
     rangeKpi: Map<string, PLCalculationResult> = new Map()
   ): void {
-    const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : null;
+    const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : 0;
 
     // Helper: get engine KPI value (returns actuals/budget/ly from the calculation engine)
     const kv = (kpi: Map<string, PLCalculationResult>, label: string) => kpi.get(label);
@@ -1407,7 +1381,7 @@ class ProteaReportPackService {
     monthKpi: Map<string, PLCalculationResult> = new Map(),
     rangeKpi: Map<string, PLCalculationResult> = new Map()
   ): void {
-    const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : null;
+    const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : 0;
     const div = (num: number, denom: number) => denom !== 0 ? num / denom : 0;
 
     // Helper: get a single account's value from raw data
@@ -1641,7 +1615,7 @@ class ProteaReportPackService {
       rows.reduce((sum: number, r: any) => sum + (Number(r[field]) || 0), 0);
 
     // Helper: compute percentage variance
-    const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : null;
+    const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : 0;
 
     // Helper: create a header row that carries aggregated totals from both month and range
     // Revenue is stored as negative (credit-balance) in the DB.
@@ -1911,7 +1885,6 @@ class ProteaReportPackService {
               comments: ''
             });
 
-            // Override account cell with rich text if AccPac description or moved annotation exists
             const movedFrom = movedAccountSources?.get(mRow.account);
             const accountLabel = this.buildAccountLabel(displayName, mRow.account, movedFrom);
             if (typeof accountLabel !== 'string') {
@@ -1969,7 +1942,7 @@ class ProteaReportPackService {
     };
     const sumField = (rows: any[], field: string) =>
       rows.reduce((sum: number, r: any) => sum + (Number(r[field]) || 0), 0);
-    const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : null;
+    const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : 0;
 
     // --- Filter out stats accounts — not relevant for Invest tab ---
     monthData = monthData.filter(r => r.category !== 'Stats');
@@ -2133,7 +2106,6 @@ class ProteaReportPackService {
           comments: ''
         });
 
-        // Override account cell with rich text if AccPac description or moved annotation exists
         const movedFrom = movedAccountSources?.get(mRow.account);
         const accountLabel = this.buildAccountLabel(displayName, mRow.account, movedFrom);
         if (typeof accountLabel !== 'string') {
@@ -2330,9 +2302,9 @@ class ProteaReportPackService {
     } else {
       // ADR = revenue / nights; negate revenue so ADR displays as positive
       return {
-        actuals: row.nightsAct !== 0 ? -row.revAct / row.nightsAct : null,
-        budget: row.nightsBud !== 0 ? -row.revBud / row.nightsBud : null,
-        ly: row.nightsLy !== 0 ? -row.revLy / row.nightsLy : null,
+        actuals: row.nightsAct !== 0 ? -row.revAct / row.nightsAct : 0,
+        budget: row.nightsBud !== 0 ? -row.revBud / row.nightsBud : 0,
+        ly: row.nightsLy !== 0 ? -row.revLy / row.nightsLy : 0,
       };
     }
   }
@@ -2345,10 +2317,10 @@ class ProteaReportPackService {
   } {
     const vsBud = vals.actuals !== null && vals.budget !== null ? vals.actuals - vals.budget : null;
     const vsBudPct = vsBud !== null && vals.budget !== null && vals.budget !== 0
-      ? (vsBud / Math.abs(vals.budget)) * 100 : null;
+      ? (vsBud / Math.abs(vals.budget)) * 100 : 0;
     const vsLy = vals.actuals !== null && vals.ly !== null ? vals.actuals - vals.ly : null;
     const vsLyPct = vsLy !== null && vals.ly !== null && vals.ly !== 0
-      ? (vsLy / Math.abs(vals.ly)) * 100 : null;
+      ? (vsLy / Math.abs(vals.ly)) * 100 : 0;
     return { vsBud, vsBudPct, vsLy, vsLyPct };
   }
 

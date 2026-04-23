@@ -546,11 +546,11 @@ function recomputeVariances(row: any): void {
   row.vs_bud = (Number(row.actuals) || 0) - (Number(row.budget) || 0);
   row.vs_bud_pct = Number(row.budget) !== 0
     ? ((Number(row.actuals) - Number(row.budget)) / Math.abs(Number(row.budget))) * 100
-    : null;
+    : 0;
   row.vs_ly = (Number(row.actuals) || 0) - (Number(row.ly) || 0);
   row.vs_ly_pct = Number(row.ly) !== 0
     ? ((Number(row.actuals) - Number(row.ly)) / Math.abs(Number(row.ly))) * 100
-    : null;
+    : 0;
 }
 
 /**
