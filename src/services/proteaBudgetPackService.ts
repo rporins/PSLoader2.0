@@ -358,9 +358,17 @@ class ProteaBudgetPackService {
       const rowData: any = {
         label: indent + row.label,
         lyBud: isPct ? formatPercentage(row.budget) : formatNumber(row.budget),
-        lyBudVar: formatPercentage(row.vs_bud_pct),
+        lyBudVar: isPct
+          ? (row.actuals === null || row.budget === null
+              ? ''
+              : `${((row.actuals ?? 0) - (row.budget ?? 0)).toFixed(1)} pts`)
+          : formatPercentage(row.vs_bud_pct),
         lyAct: isPct ? formatPercentage(row.ly) : formatNumber(row.ly),
-        lyActVar: formatPercentage(row.vs_ly_pct),
+        lyActVar: isPct
+          ? (row.actuals === null || row.ly === null
+              ? ''
+              : `${((row.actuals ?? 0) - (row.ly ?? 0)).toFixed(1)} pts`)
+          : formatPercentage(row.vs_ly_pct),
         curBud: isPct ? formatPercentage(row.actuals) : formatNumber(row.actuals),
       };
 

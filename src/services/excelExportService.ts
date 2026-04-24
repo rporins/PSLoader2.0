@@ -476,19 +476,27 @@ class ExcelExportService {
         label: indent + primary.label,
         mAct: mRow ? (isPercentage ? formatPercentage(mRow.actuals) : formatNumber(mRow.actuals)) : '',
         mBud: mRow ? (isPercentage ? formatPercentage(mRow.budget) : formatNumber(mRow.budget)) : '',
-        mVsBud: mRow ? (isPercentage ? formatPercentage(mRow.vs_bud) : formatNumber(mRow.vs_bud)) : '',
-        mVsBudPct: mRow ? formatPercentage(mRow.vs_bud_pct) : '',
+        mVsBud: mRow ? (isPercentage
+          ? `${((mRow.actuals ?? 0) - (mRow.budget ?? 0)).toFixed(1)} pts`
+          : formatNumber(mRow.vs_bud)) : '',
+        mVsBudPct: mRow ? (isPercentage ? '' : formatPercentage(mRow.vs_bud_pct)) : '',
         mLy: mRow ? (isPercentage ? formatPercentage(mRow.ly) : formatNumber(mRow.ly)) : '',
-        mVsLy: mRow ? (isPercentage ? formatPercentage(mRow.vs_ly) : formatNumber(mRow.vs_ly)) : '',
-        mVsLyPct: mRow ? formatPercentage(mRow.vs_ly_pct) : '',
+        mVsLy: mRow ? (isPercentage
+          ? `${((mRow.actuals ?? 0) - (mRow.ly ?? 0)).toFixed(1)} pts`
+          : formatNumber(mRow.vs_ly)) : '',
+        mVsLyPct: mRow ? (isPercentage ? '' : formatPercentage(mRow.vs_ly_pct)) : '',
         sep: '',
         rAct: rRow ? (isPercentage ? formatPercentage(rRow.actuals) : formatNumber(rRow.actuals)) : '',
         rBud: rRow ? (isPercentage ? formatPercentage(rRow.budget) : formatNumber(rRow.budget)) : '',
-        rVsBud: rRow ? (isPercentage ? formatPercentage(rRow.vs_bud) : formatNumber(rRow.vs_bud)) : '',
-        rVsBudPct: rRow ? formatPercentage(rRow.vs_bud_pct) : '',
+        rVsBud: rRow ? (isPercentage
+          ? `${((rRow.actuals ?? 0) - (rRow.budget ?? 0)).toFixed(1)} pts`
+          : formatNumber(rRow.vs_bud)) : '',
+        rVsBudPct: rRow ? (isPercentage ? '' : formatPercentage(rRow.vs_bud_pct)) : '',
         rLy: rRow ? (isPercentage ? formatPercentage(rRow.ly) : formatNumber(rRow.ly)) : '',
-        rVsLy: rRow ? (isPercentage ? formatPercentage(rRow.vs_ly) : formatNumber(rRow.vs_ly)) : '',
-        rVsLyPct: rRow ? formatPercentage(rRow.vs_ly_pct) : '',
+        rVsLy: rRow ? (isPercentage
+          ? `${((rRow.actuals ?? 0) - (rRow.ly ?? 0)).toFixed(1)} pts`
+          : formatNumber(rRow.vs_ly)) : '',
+        rVsLyPct: rRow ? (isPercentage ? '' : formatPercentage(rRow.vs_ly_pct)) : '',
         comments: ''
       });
 

@@ -371,18 +371,26 @@ class ProteaReportPackService {
       const excelRow = sheet.addRow({
         label: indent + primary.label,
         mLy: mRow ? (isPercentage ? formatPercentage(mRow.ly) : formatNumber(mRow.ly)) : '',
-        mVsLyPct: mRow ? formatPercentage(mRow.vs_ly_pct) : '',
+        mVsLyPct: mRow ? (isPercentage
+          ? `${((mRow.actuals ?? 0) - (mRow.ly ?? 0)).toFixed(1)} pts`
+          : formatPercentage(mRow.vs_ly_pct)) : '',
         mAct: mRow ? (isPercentage ? formatPercentage(mRow.actuals) : formatNumber(mRow.actuals)) : '',
         mBud: mRow ? (isPercentage ? formatPercentage(mRow.budget) : formatNumber(mRow.budget)) : '',
-        mVsBud: mRow ? (isPercentage ? formatPercentage(mRow.vs_bud) : formatNumber(mRow.vs_bud)) : '',
-        mVsBudPct: mRow ? formatPercentage(mRow.vs_bud_pct) : '',
+        mVsBud: mRow ? (isPercentage
+          ? `${((mRow.actuals ?? 0) - (mRow.budget ?? 0)).toFixed(1)} pts`
+          : formatNumber(mRow.vs_bud)) : '',
+        mVsBudPct: mRow ? (isPercentage ? '' : formatPercentage(mRow.vs_bud_pct)) : '',
         sep: '',
         rLy: rRow ? (isPercentage ? formatPercentage(rRow.ly) : formatNumber(rRow.ly)) : '',
-        rVsLyPct: rRow ? formatPercentage(rRow.vs_ly_pct) : '',
+        rVsLyPct: rRow ? (isPercentage
+          ? `${((rRow.actuals ?? 0) - (rRow.ly ?? 0)).toFixed(1)} pts`
+          : formatPercentage(rRow.vs_ly_pct)) : '',
         rAct: rRow ? (isPercentage ? formatPercentage(rRow.actuals) : formatNumber(rRow.actuals)) : '',
         rBud: rRow ? (isPercentage ? formatPercentage(rRow.budget) : formatNumber(rRow.budget)) : '',
-        rVsBud: rRow ? (isPercentage ? formatPercentage(rRow.vs_bud) : formatNumber(rRow.vs_bud)) : '',
-        rVsBudPct: rRow ? formatPercentage(rRow.vs_bud_pct) : '',
+        rVsBud: rRow ? (isPercentage
+          ? `${((rRow.actuals ?? 0) - (rRow.budget ?? 0)).toFixed(1)} pts`
+          : formatNumber(rRow.vs_bud)) : '',
+        rVsBudPct: rRow ? (isPercentage ? '' : formatPercentage(rRow.vs_bud_pct)) : '',
         comments: ''
       });
 
