@@ -5791,12 +5791,13 @@ export async function setFinancialDataSyncCheck(
 //--- EXCEL EXPORT QUERIES ----------------------------------------------------------------------------------------
 
 /**
- * Get list of departments that have financial data for a specific OU
- * Captures departments across all scenarios (ACT, BUD) for the selected version
- * Also checks financial_data_staging for current period actuals
- * Only includes departments where level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
- * Uses department_description_detail_level_max for the display name
- * Departments with no data rows are automatically excluded (JOIN behavior)
+ * Get list of departments that have financial data for a specific OU.
+ * ACT is always sourced from version='MAIN' (mirrors the actuals path in
+ * getProteaGroupDepartmentDetailData). BUD uses the caller's version.
+ * Also checks financial_data_staging for current period actuals.
+ * Only includes departments where level_2 IN ('Lodging Operations', 'Lodging Non-Operating').
+ * Uses department_description_detail_level_max for the display name.
+ * Departments with no data rows are automatically excluded (JOIN behavior).
  */
 export async function getDepartmentsWithDataForOU(
   ou: string,
@@ -5811,8 +5812,10 @@ export async function getDepartmentsWithDataForOU(
       FROM financial_data fd
       JOIN department_maps dm ON fd.department = dm.base_department
       WHERE fd.ou = ?
-        AND fd.version = ?
-        AND fd.scenario IN ('ACT', 'BUD')
+        AND (
+          (fd.scenario = 'ACT' AND fd.version = 'MAIN')
+          OR (fd.scenario = 'BUD' AND fd.version = ?)
+        )
         AND dm.level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
       UNION
       SELECT DISTINCT
