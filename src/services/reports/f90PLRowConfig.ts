@@ -1,4 +1,5 @@
 import { PLRow } from '../../types/plReportTypes';
+import { ROOMS_KPI_ROW_CONFIG } from './roomsKpiRowConfig';
 
 // ============================================================================
 // F90 P&L ROW CONFIGURATION (MARRIOTT)
@@ -122,5 +123,13 @@ export const F90_PL_ROW_CONFIG: PLRow[] = [
 
   // Cost of Sales Percentages — ratios, no sign inversion needed
   { type: 'measure', label: '% Food COS', measureId: 'food_cost_pct_sales', formatting: 'percentage', indentLevel: 1 },
-  { type: 'measure', label: '% Beverage COS', measureId: 'bev_cost_pct_sales', formatting: 'percentage', indentLevel: 1 }
+  { type: 'measure', label: '% Beverage COS', measureId: 'bev_cost_pct_sales', formatting: 'percentage', indentLevel: 1 },
+
+  // Spacing
+  { type: 'header', label: '', indentLevel: 0 },
+
+  // Rooms & Reservation Summary KPI block (shared mapping table — also used by
+  // Summary P&L and Marriott Excel Export). Engine-driven: edits flow from
+  // roomsKpiRowConfig.ts to all three reports automatically.
+  ...ROOMS_KPI_ROW_CONFIG,
 ];

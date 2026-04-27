@@ -1,4 +1,5 @@
 import { PLRow } from '../../types/plReportTypes';
+import { ROOMS_KPI_ROW_CONFIG } from './roomsKpiRowConfig';
 
 // ============================================================================
 // SUMMARY P&L ROW CONFIGURATION
@@ -77,4 +78,12 @@ export const SUMMARY_PL_ROW_CONFIG: PLRow[] = [
   { type: 'header', label: 'Room CPOR', measureId: 'cpsr_act', formatting: 'number', indentLevel: 0, invertSign: true },
   // Net Operating Income — credit-balance (higher = good), no invertSign
   { type: 'header', label: 'Net Operating Income', measureId: 'noi_act_sy', formatting: 'number', indentLevel: 0 },
+
+  // SPACING
+  { type: 'header', label: '', indentLevel: 0 },
+
+  // Rooms & Reservation Summary KPI block (shared mapping table — also used by
+  // F90 P&L and Marriott Excel Export). All measures are engine-driven so
+  // adding/removing a KPI is a one-line edit in roomsKpiRowConfig.ts.
+  ...ROOMS_KPI_ROW_CONFIG,
 ];

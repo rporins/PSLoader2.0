@@ -68,6 +68,7 @@ import {
   applyInvestSubgroupOverridesToF90Rows,
   LEVIES_SUBGROUP,
   isLeviesAccount,
+  PCT_OF_REVENUE_KPI_GROUPS,
 } from './reports/proteaShared';
 
 // ============================================================================
@@ -699,6 +700,14 @@ class ProteaReportPackService {
     } else if (groupName === 'Total Food & Beverage') {
       const [monthKpi, rangeKpi] = await this.fetchKpiEngineData(config, FB_KPI_CONFIG);
       this.addFbKpiRows(sheet, monthDetailData, rangeDetailData, totalCols, monthKpi, rangeKpi);
+    } else {
+      // % of Hotel Revenue block — fires for A&G, POM, S&M (any group
+      // registered in PCT_OF_REVENUE_KPI_GROUPS).
+      const pctRevConfig = PCT_OF_REVENUE_KPI_GROUPS.get(groupName);
+      if (pctRevConfig) {
+        const [monthKpi, rangeKpi] = await this.fetchKpiEngineData(config, pctRevConfig);
+        this.addPctOfRevenueKpiRows(sheet, totalCols, monthKpi, rangeKpi);
+      }
     }
 
     // Freeze panes (2 title rows + 2 header rows)
@@ -1175,7 +1184,7 @@ class ProteaReportPackService {
 
   /**
    * Renders Rooms & Reservation KPIs after Department Profit on the group summary sheet.
-   * KPIs: Occupancy%, ADR, RevPAR, RevPAR after TAC, then Cents per Room Night Sold metrics.
+   * KPIs: Occupancy%, ADR, RevPAR, RevPAR after TAC, then Per Room Night Sold metrics.
    */
   /**
    * Fetches KPI values via the F90 calculation engine for both month and range periods.
@@ -1219,23 +1228,14 @@ class ProteaReportPackService {
     // Helper: get engine KPI value (returns actuals/budget/ly from the calculation engine)
     const kv = (kpi: Map<string, PLCalculationResult>, label: string) => kpi.get(label);
 
-    // Helper: get a single account's value from the raw dataset (for per-room expense metrics)
+    // Helper: get a single account's value from the raw dataset.
+    // Retained for the inline RevPAR-after-TAC TAC lookup (A608201) below;
+    // the cents-per-room-night and equipment-usage values now flow through the
+    // engine measures defined in plMeasureDefinitions.ts.
     const acctVal = (data: any[], account: string, field: string): number => {
       const row = data.find((r: any) => r.account === account);
       return row ? (Number(row[field]) || 0) : 0;
     };
-
-    // Gather expense account values from raw data (for cents-per-room-night)
-    const gatherExpenses = (data: any[]) => ({
-      opSupplies:    { act: acctVal(data, 'A610108', 'actuals'), bud: acctVal(data, 'A610108', 'budget'), ly: acctVal(data, 'A610108', 'ly') },
-      cleanSupplies: { act: acctVal(data, 'A610106', 'actuals'), bud: acctVal(data, 'A610106', 'budget'), ly: acctVal(data, 'A610106', 'ly') },
-      guestSupplies: { act: acctVal(data, 'A610201', 'actuals'), bud: acctVal(data, 'A610201', 'budget'), ly: acctVal(data, 'A610201', 'ly') },
-      printStat:     { act: acctVal(data, 'A606101', 'actuals'), bud: acctVal(data, 'A606101', 'budget'), ly: acctVal(data, 'A606101', 'ly') },
-      laundry:       { act: acctVal(data, 'A602406', 'actuals'), bud: acctVal(data, 'A602406', 'budget'), ly: acctVal(data, 'A602406', 'ly') },
-    });
-
-    const mExp = gatherExpenses(monthData);
-    const rExp = gatherExpenses(rangeData);
 
     // Get engine-computed values for key KPIs
     const mOcc = kv(monthKpi, 'Occupancy %');
@@ -1244,8 +1244,6 @@ class ProteaReportPackService {
     const rAdr = kv(rangeKpi, 'ADR');
     const mRevpar = kv(monthKpi, 'RevPAR');
     const rRevpar = kv(rangeKpi, 'RevPAR');
-    const mSold = kv(monthKpi, 'Sold Rooms');
-    const rSold = kv(rangeKpi, 'Sold Rooms');
     const mTotal = kv(monthKpi, 'Rooms Available');
     const rTotal = kv(rangeKpi, 'Rooms Available');
     const mRev = kv(monthKpi, 'Rooms Revenue');
@@ -1310,8 +1308,10 @@ class ProteaReportPackService {
       applyKpiDataStyle(row);
     };
 
-    // Helper: render a KPI from engine-computed PLCalculationResult
-    const addEngineKpiRow = (label: string, mResult: PLCalculationResult | undefined, rResult: PLCalculationResult | undefined, isPct: boolean) => {
+    // Helper: render a KPI from engine-computed PLCalculationResult.
+    // `decimals` only applies when isPct=false (pct rows always render as
+    // formatted percentages with 1-decimal pts variances).
+    const addEngineKpiRow = (label: string, mResult: PLCalculationResult | undefined, rResult: PLCalculationResult | undefined, isPct: boolean, decimals: number = 0) => {
       if (isPct) {
         addPctKpiRow(label,
           mResult?.actuals || 0, mResult?.budget || 0, mResult?.ly || 0,
@@ -1319,7 +1319,7 @@ class ProteaReportPackService {
       } else {
         addNumKpiRow(label,
           mResult?.actuals || 0, mResult?.budget || 0, mResult?.ly || 0,
-          rResult?.actuals || 0, rResult?.budget || 0, rResult?.ly || 0);
+          rResult?.actuals || 0, rResult?.budget || 0, rResult?.ly || 0, decimals);
       }
     };
 
@@ -1352,29 +1352,123 @@ class ProteaReportPackService {
         div((rRev.actuals || 0) - rTac, rTotal.actuals || 0), div((rRev.budget || 0) - rTacBud, rTotal.budget || 0), div((rRev.ly || 0) - rTacLy, rTotal.ly || 0));
     }
 
-    // --- Blank separator + Cents per Room Night Sold header ---
+    // --- Bed-night & guest-rate KPIs (engine-computed) ---
+    addEngineKpiRow('Bed Nights Sold',         kv(monthKpi, 'Bed Nights Sold'),         kv(rangeKpi, 'Bed Nights Sold'),         false);
+    addEngineKpiRow('Bed Nights Available',    kv(monthKpi, 'Bed Nights Available'),    kv(rangeKpi, 'Bed Nights Available'),    false);
+    addEngineKpiRow('Average Bed Occupancy %', kv(monthKpi, 'Average Bed Occupancy %'), kv(rangeKpi, 'Average Bed Occupancy %'), true);
+    addEngineKpiRow('Average Guest Rate',      kv(monthKpi, 'Average Guest Rate'),      kv(rangeKpi, 'Average Guest Rate'),      false);
+    addEngineKpiRow('Double Occupancy %',      kv(monthKpi, 'Double Occupancy %'),      kv(rangeKpi, 'Double Occupancy %'),      true);
+
+    // --- Per-day availability (engine-computed; periodDays is plumbed in by
+    //     getProteaF90PLData per its month/range call) ---
+    addEngineKpiRow('Rooms Available per Day',
+      kv(monthKpi, 'Rooms Available per Day'),
+      kv(rangeKpi, 'Rooms Available per Day'), false);
+    addEngineKpiRow('Bed Available per Day',
+      kv(monthKpi, 'Bed Available per Day'),
+      kv(rangeKpi, 'Bed Available per Day'), false);
+
+    // --- Per Room Night Sold (engine-driven dollars-per-sold-room — see
+    //     prns_* measures in plMeasureDefinitions.ts). 2-decimal display. ---
     this.addBlankSeparatorRow(sheet, totalCols);
-    const centsHeader = sheet.addRow(new Array(totalCols).fill(''));
-    centsHeader.getCell(1).value = 'Cents per Room Night Sold';
-    applyKpiHeaderStyle(centsHeader);
+    const prnsHeader = sheet.addRow(new Array(totalCols).fill(''));
+    prnsHeader.getCell(1).value = 'Per Room Night Sold';
+    applyKpiHeaderStyle(prnsHeader);
+    addEngineKpiRow('Operating Supplies',    kv(monthKpi, 'Operating Supplies'),    kv(rangeKpi, 'Operating Supplies'),    false, 2);
+    addEngineKpiRow('Cleaning Supplies',     kv(monthKpi, 'Cleaning Supplies'),     kv(rangeKpi, 'Cleaning Supplies'),     false, 2);
+    addEngineKpiRow('Guest Supplies',        kv(monthKpi, 'Guest Supplies'),        kv(rangeKpi, 'Guest Supplies'),        false, 2);
+    addEngineKpiRow('Paper Supplies',        kv(monthKpi, 'Paper Supplies'),        kv(rangeKpi, 'Paper Supplies'),        false, 2);
+    addEngineKpiRow('Printing & Stationery', kv(monthKpi, 'Printing & Stationery'), kv(rangeKpi, 'Printing & Stationery'), false, 2);
+    addEngineKpiRow('Laundry',               kv(monthKpi, 'Laundry'),               kv(rangeKpi, 'Laundry'),               false, 2);
 
-    // Use engine-computed sold rooms for cents-per-room-night denominators
-    const mSoldAct = mSold?.actuals || 0, mSoldBud = mSold?.budget || 0, mSoldLy = mSold?.ly || 0;
-    const rSoldAct = rSold?.actuals || 0, rSoldBud = rSold?.budget || 0, rSoldLy = rSold?.ly || 0;
+    // --- Operating Equipment Usage per Room Night Sold (per-item breakdown
+    //     of the Operating Supplies roll-up above). 2-decimal display. ---
+    this.addBlankSeparatorRow(sheet, totalCols);
+    const opEquipHeader = sheet.addRow(new Array(totalCols).fill(''));
+    opEquipHeader.getCell(1).value = 'Operating Equipment Usage per Room Night Sold';
+    applyKpiHeaderStyle(opEquipHeader);
+    addEngineKpiRow('Flatware (Cutlery)', kv(monthKpi, 'Flatware (Cutlery)'), kv(rangeKpi, 'Flatware (Cutlery)'), false, 2);
+    addEngineKpiRow('Linen',              kv(monthKpi, 'Linen'),              kv(rangeKpi, 'Linen'),              false, 2);
+    addEngineKpiRow('Glassware',          kv(monthKpi, 'Glassware'),          kv(rangeKpi, 'Glassware'),          false, 2);
+    addEngineKpiRow('Room Smalls',        kv(monthKpi, 'Room Smalls'),        kv(rangeKpi, 'Room Smalls'),        false, 2);
 
-    // Helper for cents-per-room-night rows (expense / sold rooms)
-    const addCentsRow = (label: string, mExpense: { act: number; bud: number; ly: number },
-      rExpense: { act: number; bud: number; ly: number }) => {
-      addNumKpiRow(label,
-        div(mExpense.act, mSoldAct), div(mExpense.bud, mSoldBud), div(mExpense.ly, mSoldLy),
-        div(rExpense.act, rSoldAct), div(rExpense.bud, rSoldBud), div(rExpense.ly, rSoldLy), 2);
+    // --- Percentage of Room Sales section (Protea-aware: uses _protea variants
+    //     so totals match the displayed Payroll/Controllables in this report) ---
+    this.addBlankSeparatorRow(sheet, totalCols);
+    const pctOfSalesHeader = sheet.addRow(new Array(totalCols).fill(''));
+    pctOfSalesHeader.getCell(1).value = 'Percentage of Room Sales';
+    applyKpiHeaderStyle(pctOfSalesHeader);
+    addEngineKpiRow('Payroll as a % of Room Sales',
+      kv(monthKpi, 'Payroll as a % of Room Sales'),
+      kv(rangeKpi, 'Payroll as a % of Room Sales'), true);
+    addEngineKpiRow('Other Expenses as a % of Room Sales',
+      kv(monthKpi, 'Other Expenses as a % of Room Sales'),
+      kv(rangeKpi, 'Other Expenses as a % of Room Sales'), true);
+  }
+
+  /**
+   * Renders the "Percentage of Revenue" KPI block (Payroll % + Other Expenses %)
+   * after Department Profit on undistributed-OPEX group summary sheets — currently
+   * Administrative & General, Property Operation & Maintenance, and Sales &
+   * Marketing & Convention Service. Driven by PCT_OF_REVENUE_KPI_GROUPS, so
+   * adding a new group only needs a Map entry + a registerPctOfRevenueQuartet
+   * call in plMeasureDefinitions.ts.
+   *
+   * Numerator (Payroll / Controllables) is group-scoped via the registered
+   * dept filter; denominator is hotel-wide Total Revenue. The active config
+   * references the _protea variants so values match what the Protea report
+   * displays for Total Payroll / Controllables (PROTEA_CATEGORY_REPOINTS
+   * accounts moved out of Controllables into Payroll).
+   */
+  private addPctOfRevenueKpiRows(
+    sheet: ExcelJS.Worksheet,
+    totalCols: number,
+    monthKpi: Map<string, PLCalculationResult>,
+    rangeKpi: Map<string, PLCalculationResult>
+  ): void {
+    const applyKpiHeaderStyle = (row: ExcelJS.Row) => {
+      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        cell.fill = SUBTOTAL_FILL;
+        cell.font = { ...DATA_FONT, bold: true };
+        cell.border = BORDER_STYLE;
+        cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
+      });
+      this.styleDeptSeparator(row);
+    };
+    const applyKpiDataStyle = (row: ExcelJS.Row) => {
+      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        cell.font = DATA_FONT;
+        cell.border = BORDER_STYLE;
+        cell.alignment = { vertical: 'middle', horizontal: colNumber > 1 ? 'right' : undefined };
+      });
+      this.styleDeptSeparator(row);
     };
 
-    addCentsRow('Operating Supplies', mExp.opSupplies, rExp.opSupplies);
-    addCentsRow('Cleaning Supplies', mExp.cleanSupplies, rExp.cleanSupplies);
-    addCentsRow('Guest Supplies', mExp.guestSupplies, rExp.guestSupplies);
-    addCentsRow('Printing & Stationery', mExp.printStat, rExp.printStat);
-    addCentsRow('Laundry', mExp.laundry, rExp.laundry);
+    const addPctRow = (label: string) => {
+      const m = monthKpi.get(label);
+      const r = rangeKpi.get(label);
+      const mAct = m?.actuals || 0, mBud = m?.budget || 0, mLy = m?.ly || 0;
+      const rAct = r?.actuals || 0, rBud = r?.budget || 0, rLy = r?.ly || 0;
+      const row = sheet.addRow({
+        account: `  ${label}`,
+        mLy: formatPercentage(mLy), mVsLyPct: `${(mAct - mLy).toFixed(1)} pts`,
+        mAct: formatPercentage(mAct), mBud: formatPercentage(mBud),
+        mVsBud: `${(mAct - mBud).toFixed(1)} pts`, mVsBudPct: '',
+        sep: '',
+        rLy: formatPercentage(rLy), rVsLyPct: `${(rAct - rLy).toFixed(1)} pts`,
+        rAct: formatPercentage(rAct), rBud: formatPercentage(rBud),
+        rVsBud: `${(rAct - rBud).toFixed(1)} pts`, rVsBudPct: '',
+        comments: ''
+      });
+      applyKpiDataStyle(row);
+    };
+
+    this.addBlankSeparatorRow(sheet, totalCols);
+    const header = sheet.addRow(new Array(totalCols).fill(''));
+    header.getCell(1).value = 'Percentage of Revenue';
+    applyKpiHeaderStyle(header);
+    addPctRow('Payroll as a % of Revenue');
+    addPctRow('Other Expenses as a % of Revenue');
   }
 
   /**
@@ -1391,47 +1485,6 @@ class ProteaReportPackService {
   ): void {
     const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : 0;
     const div = (num: number, denom: number) => denom !== 0 ? num / denom : 0;
-
-    // Helper: get a single account's value from raw data
-    const acctVal = (data: any[], account: string, field: string): number => {
-      const row = data.find((r: any) => r.account === account);
-      return row ? (Number(row[field]) || 0) : 0;
-    };
-
-    // Helper: sum rows matching a filter
-    const sumWhere = (data: any[], filterFn: (r: any) => boolean, field: string): number =>
-      data.filter(filterFn).reduce((sum: number, r: any) => sum + (Number(r[field]) || 0), 0);
-
-    // Gather values from raw data (only for per-cover metrics that need account-level detail)
-    const gather = (data: any[]) => {
-      // Total COS (still from raw data for cost-per-cover)
-      const totalCos    = sumWhere(data, r => r.category === 'Cost of Sales', 'actuals');
-      const totalCosBud = sumWhere(data, r => r.category === 'Cost of Sales', 'budget');
-      const totalCosLy  = sumWhere(data, r => r.category === 'Cost of Sales', 'ly');
-
-      // Total covers (accounts starting with A91401)
-      const covers    = sumWhere(data, r => (r.account || '').startsWith('A91401'), 'actuals');
-      const coversBud = sumWhere(data, r => (r.account || '').startsWith('A91401'), 'budget');
-      const coversLy  = sumWhere(data, r => (r.account || '').startsWith('A91401'), 'ly');
-
-      return {
-        totalCos, totalCosBud, totalCosLy, covers, coversBud, coversLy,
-        // Expense accounts for per-cover metrics
-        opSupplies:    { act: acctVal(data, 'A610108', 'actuals'), bud: acctVal(data, 'A610108', 'budget'), ly: acctVal(data, 'A610108', 'ly') },
-        cleanSupplies: { act: acctVal(data, 'A610106', 'actuals'), bud: acctVal(data, 'A610106', 'budget'), ly: acctVal(data, 'A610106', 'ly') },
-        compServices:  { act: acctVal(data, 'A601101', 'actuals'), bud: acctVal(data, 'A601101', 'budget'), ly: acctVal(data, 'A601101', 'ly') },
-        laundry:       { act: acctVal(data, 'A602406', 'actuals'), bud: acctVal(data, 'A602406', 'budget'), ly: acctVal(data, 'A602406', 'ly') },
-        paperSupplies: { act: acctVal(data, 'A610104', 'actuals'), bud: acctVal(data, 'A610104', 'budget'), ly: acctVal(data, 'A610104', 'ly') },
-        printStat:     { act: acctVal(data, 'A606101', 'actuals'), bud: acctVal(data, 'A606101', 'budget'), ly: acctVal(data, 'A606101', 'ly') },
-        flatware:      { act: acctVal(data, 'A610102', 'actuals'), bud: acctVal(data, 'A610102', 'budget'), ly: acctVal(data, 'A610102', 'ly') },
-        china:         { act: acctVal(data, 'A610100', 'actuals'), bud: acctVal(data, 'A610100', 'budget'), ly: acctVal(data, 'A610100', 'ly') },
-        glassware:     { act: acctVal(data, 'A610402', 'actuals'), bud: acctVal(data, 'A610402', 'budget'), ly: acctVal(data, 'A610402', 'ly') },
-        linen:         { act: acctVal(data, 'A610105', 'actuals'), bud: acctVal(data, 'A610105', 'budget'), ly: acctVal(data, 'A610105', 'ly') },
-      };
-    };
-
-    const m = gather(monthData);
-    const r = gather(rangeData);
 
     // Engine-computed KPIs
     const mFoodCos = monthKpi.get('% Food COS');
@@ -1504,51 +1557,111 @@ class ProteaReportPackService {
         rResult?.actuals || 0, rResult?.budget || 0, rResult?.ly || 0);
     };
 
-    // Helper for per-cover rows
-    const addPerCoverRow = (label: string, mExp: { act: number; bud: number; ly: number },
-      rExp: { act: number; bud: number; ly: number }) => {
-      addNumKpiRow(label,
-        div(mExp.act, m.covers), div(mExp.bud, m.coversBud), div(mExp.ly, m.coversLy),
-        div(rExp.act, r.covers), div(rExp.bud, r.coversBud), div(rExp.ly, r.coversLy), 2);
-    };
-
     // --- Blank separator ---
     this.addBlankSeparatorRow(sheet, totalCols);
 
+    // --- Covers section ---
+    const coversHeader = sheet.addRow(new Array(totalCols).fill(''));
+    coversHeader.getCell(1).value = 'Covers';
+    applyKpiHeaderStyle(coversHeader);
+    const addNumEngineRow = (label: string) => {
+      const mr = monthKpi.get(label);
+      const rr = rangeKpi.get(label);
+      addNumKpiRow(label,
+        mr?.actuals || 0, mr?.budget || 0, mr?.ly || 0,
+        rr?.actuals || 0, rr?.budget || 0, rr?.ly || 0, 0);
+    };
+    addNumEngineRow('Breakfast Customers');
+    addNumEngineRow('Lunch Customers');
+    addNumEngineRow('Dinner Customers');
+    addNumEngineRow('Late Snack Customers');
+    addNumEngineRow('Banqueting Customer');
+
+    // --- Average Food Spend section ---
+    this.addBlankSeparatorRow(sheet, totalCols);
+    const spendHeader = sheet.addRow(new Array(totalCols).fill(''));
+    spendHeader.getCell(1).value = 'Average Food Spend';
+    applyKpiHeaderStyle(spendHeader);
+    const addSpendRow = (label: string) => {
+      const mr = monthKpi.get(label);
+      const rr = rangeKpi.get(label);
+      addNumKpiRow(label,
+        mr?.actuals || 0, mr?.budget || 0, mr?.ly || 0,
+        rr?.actuals || 0, rr?.budget || 0, rr?.ly || 0, 2);
+    };
+    addSpendRow('Avg Breakfast Spend');
+    addSpendRow('Avg Lunch Spend');
+    addSpendRow('Avg Dinner Spend');
+    addSpendRow('Avg Late Snack Spend');
+    addSpendRow('Avg Banqueting Spend');
+
+    // --- Covers as % of Bed Nights Sold ---
+    this.addBlankSeparatorRow(sheet, totalCols);
+    const coversBedHeader = sheet.addRow(new Array(totalCols).fill(''));
+    coversBedHeader.getCell(1).value = 'Covers as % of Bed Nights Sold';
+    applyKpiHeaderStyle(coversBedHeader);
+    const addPctEngineRow = (label: string) => {
+      const mr = monthKpi.get(label);
+      const rr = rangeKpi.get(label);
+      addPctKpiRow(label,
+        mr?.actuals || 0, mr?.budget || 0, mr?.ly || 0,
+        rr?.actuals || 0, rr?.budget || 0, rr?.ly || 0);
+    };
+    addPctEngineRow('Breakfast Customers as % of Bed Nights');
+    addPctEngineRow('Lunch Customers as % of Bed Nights');
+    addPctEngineRow('Dinner Customers as % of Bed Nights');
+    addPctEngineRow('Late Snack Customers as % of Bed Nights');
+    addPctEngineRow('Banqueting Customer as % of Bed Nights');
+
     // --- Cost of Sales section header ---
+    this.addBlankSeparatorRow(sheet, totalCols);
     const cosHeader = sheet.addRow(new Array(totalCols).fill(''));
     cosHeader.getCell(1).value = 'Cost of Sales';
     applyKpiHeaderStyle(cosHeader);
-
-    // Food Cost of Sales % (from engine)
     addEngineKpiRow('Food Cost of Sales %', mFoodCos, rFoodCos);
-
-    // Beverage Cost of Sales % (from engine)
     addEngineKpiRow('Beverage Cost of Sales %', mBevCos, rBevCos);
 
-    // --- Cost per Cover section header ---
+    // --- Cost Per Cover (engine-driven; numerator atoms divided by
+    //     fb_total_covers_act per spec — all A914xxx in F&B incl banq) ---
+    this.addBlankSeparatorRow(sheet, totalCols);
     const cpcHeader = sheet.addRow(new Array(totalCols).fill(''));
-    cpcHeader.getCell(1).value = 'Cost per Cover';
+    cpcHeader.getCell(1).value = 'Cost Per Cover';
     applyKpiHeaderStyle(cpcHeader);
+    const addCpcRow = (label: string) => {
+      const mr = monthKpi.get(label);
+      const rr = rangeKpi.get(label);
+      addNumKpiRow(label,
+        mr?.actuals || 0, mr?.budget || 0, mr?.ly || 0,
+        rr?.actuals || 0, rr?.budget || 0, rr?.ly || 0, 2);
+    };
+    addCpcRow('Operating Supplies');
+    addCpcRow('Cleaning Supplies');
+    addCpcRow('Guest Supplies');
+    addCpcRow('Paper Supplies');
+    addCpcRow('Printing & Stationery');
+    addCpcRow('Laundry');
 
-    // --- Per-cover expense metrics ---
-    addPerCoverRow('Operating Supplies', m.opSupplies, r.opSupplies);
-    addPerCoverRow('Cleaning Supplies', m.cleanSupplies, r.cleanSupplies);
-    addPerCoverRow('Comp Services', m.compServices, r.compServices);
-    addPerCoverRow('Laundry', m.laundry, r.laundry);
-    addPerCoverRow('Paper Supplies', m.paperSupplies, r.paperSupplies);
-    addPerCoverRow('Printing & Stationery', m.printStat, r.printStat);
-
-    // Operating Equipment Usage section
+    // --- Operating Equipment Usage per Cover (per-item breakdown of the
+    //     Cost Per Cover Operating Supplies roll-up). 2-decimal display. ---
     this.addBlankSeparatorRow(sheet, totalCols);
     const equipHeader = sheet.addRow(new Array(totalCols).fill(''));
-    equipHeader.getCell(1).value = 'Operating Equipment Usage';
+    equipHeader.getCell(1).value = 'Operating Equipment Usage per Cover';
     applyKpiHeaderStyle(equipHeader);
+    addCpcRow('Flatware (Cutlery)');
+    addCpcRow('China (Crockery)');
+    addCpcRow('Kitchen Utensils');
+    addCpcRow('Linen');
+    addCpcRow('Glassware');
+    addCpcRow('Restaurant/Bar Smalls');
 
-    addPerCoverRow('Flatware', m.flatware, r.flatware);
-    addPerCoverRow('China', m.china, r.china);
-    addPerCoverRow('Glassware', m.glassware, r.glassware);
-    addPerCoverRow('Linen', m.linen, r.linen);
+    // --- Percentage of F&B Sales (Protea-aware: uses _protea variants so
+    //     totals match the displayed Payroll/Controllables in this report) ---
+    this.addBlankSeparatorRow(sheet, totalCols);
+    const pctSalesHeader = sheet.addRow(new Array(totalCols).fill(''));
+    pctSalesHeader.getCell(1).value = 'Percentage of F&B Sales';
+    applyKpiHeaderStyle(pctSalesHeader);
+    addPctEngineRow('Payroll as a % of F&B Sales');
+    addPctEngineRow('Other Expenses as a % of F&B Sales');
   }
 
   /**

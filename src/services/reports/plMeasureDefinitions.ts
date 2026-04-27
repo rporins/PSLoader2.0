@@ -1,5 +1,10 @@
-import { SubMeasure, Measure, MeasureContext } from '../../types/plReportTypes';
+import { SubMeasure, Measure, MeasureContext, MeasureFilter } from '../../types/plReportTypes';
 import { KNOWN_LEVEL_20_VALUES, OWNER_DEPARTMENTS } from './investSubgroupConfig';
+import { PROTEA_PAYROLL_REPOINT_ACCOUNTS } from './proteaMovements';
+import { BANQUETING_DEPARTMENT_CODES } from './departmentScopes';
+
+// Mutable copy for measure filters (engine expects string[] not readonly[]).
+const BANQ_DEPTS = [...BANQUETING_DEPARTMENT_CODES];
 
 // ============================================================================
 // CRITICAL — F90 BELOW-THE-LINE VALUES ARE OVERWRITTEN AT RENDER TIME.
@@ -2352,6 +2357,236 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
       { type: 'dept_base', value: 'D0691' },
       { type: 'acc_prefix', value: ['A730', 'A745'] }
     ]
+  },
+
+  // ==========================================================================
+  // ROOMS & RESERVATION SUMMARY KPIs — sub-measures
+  //
+  // Conventions:
+  //  - Stats accounts (A960xxx) and the canonical Rooms Revenue measure
+  //    (rooms_reservations_revenue_act, defined earlier) are NOT touched by
+  //    any Protea movement, so values match in Protea and non-Protea reports.
+  //  - "_protea" variants only exist for sub-totals that diverge between
+  //    report families (Payroll / Controllables) due to category repoints in
+  //    PROTEA_CATEGORY_REPOINTS (proteaMovements.ts).
+  // ==========================================================================
+
+  // Bed Nights Sold (A960005) — Rooms scope
+  bed_nights_sold_act: {
+    id: 'bed_nights_sold_act',
+    formula: 'CALCULATE',
+    filters: [
+      { type: 'dept_level', level: 10, value: 'Rooms' },
+      { type: 'acc_base', value: 'A960005' }
+    ]
+  },
+
+  // Bed Nights Available (A960004) — Rooms scope
+  bed_nights_avail_act: {
+    id: 'bed_nights_avail_act',
+    formula: 'CALCULATE',
+    filters: [
+      { type: 'dept_level', level: 10, value: 'Rooms' },
+      { type: 'acc_base', value: 'A960004' }
+    ]
+  },
+
+  // Travel Agent Commission (A608201) — Rooms scope, isolated for RevPAR after TAC
+  rooms_tac_act: {
+    id: 'rooms_tac_act',
+    formula: 'CALCULATE',
+    filters: [
+      { type: 'dept_level', level: 10, value: 'Rooms' },
+      { type: 'acc_base', value: 'A608201' }
+    ]
+  },
+
+  // Rooms-scope Total Payroll (canonical hierarchy — does NOT include the
+  // Protea-repointed accounts; see PROTEA_PAYROLL_REPOINT_ACCOUNTS below).
+  total_rooms_payroll_act: {
+    id: 'total_rooms_payroll_act',
+    formula: 'CALCULATE',
+    filters: [
+      { type: 'dept_level', level: 7, value: 'Rooms and Reservation' },
+      { type: 'acc_level', level: 9, value: 'Total Payroll' }
+    ]
+  },
+
+  // Rooms-scope Controllables (canonical hierarchy). Mirrors the
+  // STANDARD_CATEGORY_CASE in local_db.ts: any expense (level_4 = 'Profit
+  // Amount', level_6 != 'Revenue') that is NOT Payroll and NOT Cost of Sales.
+  total_rooms_controllables_act: {
+    id: 'total_rooms_controllables_act',
+    formula: 'CALCULATE',
+    filters: [
+      { type: 'dept_level', level: 7, value: 'Rooms and Reservation' },
+      { type: 'acc_level', level: 4, value: 'Profit Amount' },
+      { type: 'acc_level_not_in', level: 6, value: ['Revenue'] },
+      { type: 'acc_level_not_in', level: 9, value: ['Total Payroll', 'Cost Of Sales'] }
+    ]
+  },
+
+  // Protea movement bucket — ONLY the accounts Protea repoints into Payroll.
+  // Account list is sourced from PROTEA_CATEGORY_REPOINTS (proteaMovements.ts);
+  // adding entries there cascades automatically into the _protea totals below.
+  rooms_payroll_movement_act: {
+    id: 'rooms_payroll_movement_act',
+    formula: 'CALCULATE',
+    filters: [
+      { type: 'dept_level', level: 7, value: 'Rooms and Reservation' },
+      { type: 'acc_base', value: PROTEA_PAYROLL_REPOINT_ACCOUNTS }
+    ]
+  },
+
+  // ==========================================================================
+  // ROOMS — Per-account expense buckets used by the "Per Room Night
+  // Sold" and "Operating Equipment Usage" KPI groups.
+  //
+  // Scoping note:
+  //   - Numerators (these expense accounts) are scoped to dept_level 7 =
+  //     'Rooms and Reservation' so they reflect the report's Rooms group.
+  //   - The denominator for cents-per-room is sold_rooms_act (above), which
+  //     uses dept_level 10 = 'Rooms' — this is the hotel-Rooms sold-rooms
+  //     statistic, intentionally NOT pinned to a specific department, so the
+  //     ratio is meaningful regardless of which Rooms-group rendering scope
+  //     the report is in.
+  // ==========================================================================
+  rooms_flatware_act:            { id: 'rooms_flatware_act',            formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Rooms and Reservation' }, { type: 'acc_base', value: 'A610102' }] },
+  rooms_linen_act:               { id: 'rooms_linen_act',               formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Rooms and Reservation' }, { type: 'acc_base', value: 'A610105' }] },
+  rooms_glassware_act:           { id: 'rooms_glassware_act',           formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Rooms and Reservation' }, { type: 'acc_base', value: 'A610402' }] },
+  rooms_smalls_act:              { id: 'rooms_smalls_act',              formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Rooms and Reservation' }, { type: 'acc_base', value: 'A610125' }] },
+  rooms_cleaning_supplies_act:   { id: 'rooms_cleaning_supplies_act',   formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Rooms and Reservation' }, { type: 'acc_base', value: 'A610106' }] },
+  rooms_guest_supplies_act:      { id: 'rooms_guest_supplies_act',      formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Rooms and Reservation' }, { type: 'acc_base', value: 'A610201' }] },
+  rooms_paper_supplies_act:      { id: 'rooms_paper_supplies_act',      formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Rooms and Reservation' }, { type: 'acc_base', value: 'A610104' }] },
+  rooms_printing_stationery_act: { id: 'rooms_printing_stationery_act', formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Rooms and Reservation' }, { type: 'acc_base', value: 'A606101' }] },
+  rooms_laundry_act:             { id: 'rooms_laundry_act',             formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Rooms and Reservation' }, { type: 'acc_base', value: 'A602406' }] },
+
+  // ==========================================================================
+  // F&B — Covers & Average Food Spend (per-meal customer counts and revenue)
+  //
+  // Scoping rules (per spec):
+  //   - Per-meal Customers/Revenue (Breakfast/Lunch/Dinner) cover ALL F&B
+  //     departments EXCLUDING the banqueting depts. Implemented via
+  //     dept_level 7 = 'Total Food & Beverage' AND dept_base_not_in
+  //     [BANQ_DEPTS]. Banqueting depts come from departmentScopes.ts.
+  //   - Banqueting Customer / Banqueting Revenue cover ONLY the banqueting
+  //     depts. Implemented via dept_base = [BANQ_DEPTS]. Account scope is
+  //     "all 914 / all 314" via acc_prefix.
+  //   - Revenue accounts (3xxxxx) carry credit balances → negate:true so
+  //     the engine returns positive display values, matching existing
+  //     total_fb_revenue_act et al.
+  // ==========================================================================
+  fb_nonbanq_breakfast_customers_act: { id: 'fb_nonbanq_breakfast_customers_act', formula: 'CALCULATE',
+    filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'dept_base_not_in', value: BANQ_DEPTS }, { type: 'acc_base', value: 'A914011' }] },
+  fb_nonbanq_lunch_customers_act:     { id: 'fb_nonbanq_lunch_customers_act',     formula: 'CALCULATE',
+    filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'dept_base_not_in', value: BANQ_DEPTS }, { type: 'acc_base', value: 'A914012' }] },
+  fb_nonbanq_dinner_customers_act:    { id: 'fb_nonbanq_dinner_customers_act',    formula: 'CALCULATE',
+    filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'dept_base_not_in', value: BANQ_DEPTS }, { type: 'acc_base', value: 'A914013' }] },
+  fb_nonbanq_late_snack_customers_act: { id: 'fb_nonbanq_late_snack_customers_act', formula: 'CALCULATE',
+    filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'dept_base_not_in', value: BANQ_DEPTS }, { type: 'acc_base', value: 'A914014' }] },
+
+  fb_nonbanq_breakfast_revenue_act: { id: 'fb_nonbanq_breakfast_revenue_act', formula: 'CALCULATE', negate: true,
+    filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'dept_base_not_in', value: BANQ_DEPTS }, { type: 'acc_base', value: 'A314011' }] },
+  fb_nonbanq_lunch_revenue_act:     { id: 'fb_nonbanq_lunch_revenue_act',     formula: 'CALCULATE', negate: true,
+    filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'dept_base_not_in', value: BANQ_DEPTS }, { type: 'acc_base', value: 'A314012' }] },
+  fb_nonbanq_dinner_revenue_act:    { id: 'fb_nonbanq_dinner_revenue_act',    formula: 'CALCULATE', negate: true,
+    filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'dept_base_not_in', value: BANQ_DEPTS }, { type: 'acc_base', value: 'A314013' }] },
+  // Late Snack revenue numerator is a SUM of A314014 (Late Snack) + A314017
+  // (Coffee Break) — combined per business request since Coffee Break has
+  // no dedicated customer-count account and is grouped with Late Snack
+  // operationally. Customer denominator stays A914014 alone (see
+  // fb_nonbanq_late_snack_customers_act).
+  //
+  // Scope follows the same non-banqueting filter as the other meal revenue
+  // sub-measures above. If Avg Late Snack Spend renders as 0 when customers
+  // > 0, that's a data-alignment signal: revenue is being posted into a
+  // banqueting dept (commonly D0231 / D0233) while customer counts post in
+  // non-banqueting depts. Fix the postings, not this filter.
+  fb_nonbanq_late_snack_revenue_act: { id: 'fb_nonbanq_late_snack_revenue_act', formula: 'CALCULATE', negate: true,
+    filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'dept_base_not_in', value: BANQ_DEPTS }, { type: 'acc_base', value: ['A314014', 'A314017'] }] },
+
+  banq_customers_act: { id: 'banq_customers_act', formula: 'CALCULATE',
+    filters: [{ type: 'dept_base', value: BANQ_DEPTS }, { type: 'acc_prefix', value: 'A914' }] },
+  banq_revenue_act:   { id: 'banq_revenue_act',   formula: 'CALCULATE', negate: true,
+    filters: [{ type: 'dept_base', value: BANQ_DEPTS }, { type: 'acc_prefix', value: 'A314' }] },
+
+  // ==========================================================================
+  // F&B — Cost Per Cover, Operating Equipment Usage, % of F&B Sales
+  //
+  // Numerator scoping: dept_level 7 = 'Total Food & Beverage' so values
+  // aggregate every F&B sub-department (kitchen, restaurants, banqueting,
+  // etc.) — matches the F&B group summary's rendering scope.
+  //
+  // Denominator scoping:
+  //   - Cost Per Cover divides by fb_total_covers_act (all A914xxx in
+  //     F&B, INCLUDING banqueting per spec — different from the per-meal
+  //     Average Food Spend KPIs above which split banqueting out).
+  //   - % of F&B Sales divides by total_fb_revenue_act (existing measure).
+  //
+  // Protea note: a movement sub-measure scoped to F&B is included so the
+  // _protea variants of payroll/controllables stay correct if the
+  // PROTEA_CATEGORY_REPOINTS accounts (currently A610112, A652101) ever
+  // post into F&B departments. Today they may not, in which case the
+  // movement evaluates to 0 and _protea matches canonical — safe.
+  // ==========================================================================
+
+  // Per-account F&B atoms (used by Cost Per Cover and Op Equipment Usage)
+  fb_flatware_act:               { id: 'fb_flatware_act',               formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610102' }] },
+  fb_china_act:                  { id: 'fb_china_act',                  formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610100' }] },
+  fb_kitchen_utensils_act:       { id: 'fb_kitchen_utensils_act',       formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A635150' }] },
+  fb_linen_act:                  { id: 'fb_linen_act',                  formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A602406' }] },
+  fb_glassware_act:              { id: 'fb_glassware_act',              formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610402' }] },
+  fb_smalls_act:                 { id: 'fb_smalls_act',                 formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610125' }] },
+  fb_cleaning_supplies_act:      { id: 'fb_cleaning_supplies_act',      formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610106' }] },
+  fb_guest_supplies_act:         { id: 'fb_guest_supplies_act',         formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610201' }] },
+  fb_paper_supplies_act:         { id: 'fb_paper_supplies_act',         formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610104' }] },
+  fb_printing_stationery_act:    { id: 'fb_printing_stationery_act',    formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A606101' }] },
+  fb_laundry_act:                { id: 'fb_laundry_act',                formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610105' }] },
+
+  // Cost Per Cover denominator: every A914xxx customer-count account in F&B
+  // (banqueting depts INCLUDED per spec — total covers across all F&B).
+  fb_total_covers_act: {
+    id: 'fb_total_covers_act',
+    formula: 'CALCULATE',
+    filters: [
+      { type: 'dept_level', level: 7, value: 'Total Food & Beverage' },
+      { type: 'acc_prefix', value: 'A914' }
+    ]
+  },
+
+  // F&B-scope Total Payroll (canonical hierarchy, mirrors total_rooms_payroll_act).
+  total_fb_payroll_act: {
+    id: 'total_fb_payroll_act',
+    formula: 'CALCULATE',
+    filters: [
+      { type: 'dept_level', level: 7, value: 'Total Food & Beverage' },
+      { type: 'acc_level', level: 9, value: 'Total Payroll' }
+    ]
+  },
+
+  // F&B-scope Controllables (canonical hierarchy, mirrors
+  // total_rooms_controllables_act — same residual definition: expense
+  // amount, not Revenue, not Payroll, not COS).
+  total_fb_controllables_act: {
+    id: 'total_fb_controllables_act',
+    formula: 'CALCULATE',
+    filters: [
+      { type: 'dept_level', level: 7, value: 'Total Food & Beverage' },
+      { type: 'acc_level', level: 4, value: 'Profit Amount' },
+      { type: 'acc_level_not_in', level: 6, value: ['Revenue'] },
+      { type: 'acc_level_not_in', level: 9, value: ['Total Payroll', 'Cost Of Sales'] }
+    ]
+  },
+
+  // F&B-scope movement bucket — same repoint list as Rooms; sourced from
+  // PROTEA_CATEGORY_REPOINTS so adding accounts there cascades automatically.
+  fb_payroll_movement_act: {
+    id: 'fb_payroll_movement_act',
+    formula: 'CALCULATE',
+    filters: [
+      { type: 'dept_level', level: 7, value: 'Total Food & Beverage' },
+      { type: 'acc_base', value: PROTEA_PAYROLL_REPOINT_ACCOUNTS }
+    ]
   }
 };
 
@@ -3671,5 +3906,682 @@ export const MEASURES: Record<string, Measure> = {
       const originalGop = adjustedMcp - moved;
       return evaluateDivide(originalGop, ctx.subMeasures.total_sales_act || 0, 0) * 100;
     }
+  },
+
+  // ==========================================================================
+  // ROOMS & RESERVATION SUMMARY KPIs — calculated measures
+  //
+  // Pattern note (Protea-divergent KPIs):
+  //   Whenever a KPI references a subtotal that the Protea path moves
+  //   accounts in or out of, define TWO measures with identical labels but
+  //   different IDs — `<kpi>` (canonical / non-Protea) and `<kpi>_protea`
+  //   (Protea-aware via the movement sub-measure). Non-Protea row configs
+  //   reference the canonical ID; the Protea ROOMS_KPI_CONFIG references the
+  //   `_protea` ID. See plan: "Pattern: KPIs whose totals diverge between
+  //   Protea and non-Protea".
+  // ==========================================================================
+
+  rev_par_after_tac: {
+    id: 'rev_par_after_tac',
+    type: 'calculated',
+    subMeasures: ['total_rooms_revenue_act', 'rooms_tac_act', 'total_rooms_act'],
+    evaluator: (ctx: MeasureContext) => {
+      const revenue = ctx.subMeasures.total_rooms_revenue_act || 0;
+      const tac = ctx.subMeasures.rooms_tac_act || 0;
+      return evaluateDivide(revenue - tac, ctx.subMeasures.total_rooms_act || 0, 0);
+    }
+  },
+
+  bed_nights_sold: {
+    id: 'bed_nights_sold',
+    type: 'simple',
+    subMeasures: ['bed_nights_sold_act']
+  },
+
+  bed_nights_avail: {
+    id: 'bed_nights_avail',
+    type: 'simple',
+    subMeasures: ['bed_nights_avail_act']
+  },
+
+  avg_bed_occupancy_pct: {
+    id: 'avg_bed_occupancy_pct',
+    type: 'calculated',
+    subMeasures: ['bed_nights_sold_act', 'bed_nights_avail_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return evaluateDivide(
+        ctx.subMeasures.bed_nights_sold_act || 0,
+        ctx.subMeasures.bed_nights_avail_act || 0,
+        0
+      ) * 100;
+    }
+  },
+
+  avg_guest_rate: {
+    id: 'avg_guest_rate',
+    type: 'calculated',
+    subMeasures: ['total_rooms_revenue_act', 'bed_nights_sold_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return evaluateDivide(
+        ctx.subMeasures.total_rooms_revenue_act || 0,
+        ctx.subMeasures.bed_nights_sold_act || 0,
+        0
+      );
+    }
+  },
+
+  double_occupancy_pct: {
+    id: 'double_occupancy_pct',
+    type: 'calculated',
+    subMeasures: ['bed_nights_sold_act', 'sold_rooms_act'],
+    evaluator: (ctx: MeasureContext) => {
+      const beds = ctx.subMeasures.bed_nights_sold_act || 0;
+      const rooms = ctx.subMeasures.sold_rooms_act || 0;
+      return evaluateDivide(beds - rooms, rooms, 0) * 100;
+    }
+  },
+
+  rooms_available_per_day: {
+    id: 'rooms_available_per_day',
+    type: 'calculated',
+    subMeasures: ['total_rooms_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return evaluateDivide(
+        ctx.subMeasures.total_rooms_act || 0,
+        ctx.periodDays || 0,
+        0
+      );
+    }
+  },
+
+  bed_available_per_day: {
+    id: 'bed_available_per_day',
+    type: 'calculated',
+    subMeasures: ['total_rooms_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return evaluateDivide(
+        ctx.subMeasures.total_rooms_act || 0,
+        ctx.periodDays || 0,
+        0
+      ) * 2;
+    }
+  },
+
+  // --- Protea-divergent: Payroll & Controllables totals + percent-of-sales ---
+
+  total_rooms_payroll: {
+    id: 'total_rooms_payroll',
+    type: 'simple',
+    subMeasures: ['total_rooms_payroll_act']
+  },
+
+  total_rooms_payroll_protea: {
+    id: 'total_rooms_payroll_protea',
+    type: 'calculated',
+    subMeasures: ['total_rooms_payroll_act', 'rooms_payroll_movement_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return (ctx.subMeasures.total_rooms_payroll_act || 0)
+        + (ctx.subMeasures.rooms_payroll_movement_act || 0);
+    }
+  },
+
+  total_rooms_controllables: {
+    id: 'total_rooms_controllables',
+    type: 'simple',
+    subMeasures: ['total_rooms_controllables_act']
+  },
+
+  total_rooms_controllables_protea: {
+    id: 'total_rooms_controllables_protea',
+    type: 'calculated',
+    subMeasures: ['total_rooms_controllables_act', 'rooms_payroll_movement_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return (ctx.subMeasures.total_rooms_controllables_act || 0)
+        - (ctx.subMeasures.rooms_payroll_movement_act || 0);
+    }
+  },
+
+  payroll_pct_rooms_sales: {
+    id: 'payroll_pct_rooms_sales',
+    type: 'calculated',
+    subMeasures: ['total_rooms_payroll_act', 'total_rooms_revenue_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return evaluateDivide(
+        ctx.subMeasures.total_rooms_payroll_act || 0,
+        ctx.subMeasures.total_rooms_revenue_act || 0,
+        0
+      ) * 100;
+    }
+  },
+
+  payroll_pct_rooms_sales_protea: {
+    id: 'payroll_pct_rooms_sales_protea',
+    type: 'calculated',
+    subMeasures: ['total_rooms_payroll_act', 'rooms_payroll_movement_act', 'total_rooms_revenue_act'],
+    evaluator: (ctx: MeasureContext) => {
+      const payroll = (ctx.subMeasures.total_rooms_payroll_act || 0)
+        + (ctx.subMeasures.rooms_payroll_movement_act || 0);
+      return evaluateDivide(
+        payroll,
+        ctx.subMeasures.total_rooms_revenue_act || 0,
+        0
+      ) * 100;
+    }
+  },
+
+  other_exp_pct_rooms_sales: {
+    id: 'other_exp_pct_rooms_sales',
+    type: 'calculated',
+    subMeasures: ['total_rooms_controllables_act', 'total_rooms_revenue_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return evaluateDivide(
+        ctx.subMeasures.total_rooms_controllables_act || 0,
+        ctx.subMeasures.total_rooms_revenue_act || 0,
+        0
+      ) * 100;
+    }
+  },
+
+  other_exp_pct_rooms_sales_protea: {
+    id: 'other_exp_pct_rooms_sales_protea',
+    type: 'calculated',
+    subMeasures: ['total_rooms_controllables_act', 'rooms_payroll_movement_act', 'total_rooms_revenue_act'],
+    evaluator: (ctx: MeasureContext) => {
+      const controllables = (ctx.subMeasures.total_rooms_controllables_act || 0)
+        - (ctx.subMeasures.rooms_payroll_movement_act || 0);
+      return evaluateDivide(
+        controllables,
+        ctx.subMeasures.total_rooms_revenue_act || 0,
+        0
+      ) * 100;
+    }
+  },
+
+  // --- Per Room Night Sold (Rooms-scope expense ÷ sold rooms) ---
+  // Values are dollars-per-sold-room (NOT multiplied by 100). Denominator is
+  // sold_rooms_act — hotel-Rooms scope, intentionally NOT pinned to a specific
+  // department so the ratio stays meaningful regardless of which Rooms-group
+  // rendering scope the report is in.
+  //
+  // Operating Supplies = sum of the four Operating Equipment Usage atoms
+  // (Flatware + Linen + Glassware + Smalls). Same accounts feed the per-item
+  // breakdown rows below — Operating Supplies is a roll-up of those.
+  prns_operating_supplies: {
+    id: 'prns_operating_supplies',
+    type: 'calculated',
+    subMeasures: ['rooms_flatware_act', 'rooms_linen_act', 'rooms_glassware_act', 'rooms_smalls_act', 'sold_rooms_act'],
+    evaluator: (ctx: MeasureContext) => {
+      const opEquip = (ctx.subMeasures.rooms_flatware_act || 0)
+        + (ctx.subMeasures.rooms_linen_act || 0)
+        + (ctx.subMeasures.rooms_glassware_act || 0)
+        + (ctx.subMeasures.rooms_smalls_act || 0);
+      return evaluateDivide(opEquip, ctx.subMeasures.sold_rooms_act || 0, 0);
+    }
+  },
+  prns_cleaning_supplies: {
+    id: 'prns_cleaning_supplies',
+    type: 'calculated',
+    subMeasures: ['rooms_cleaning_supplies_act', 'sold_rooms_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.rooms_cleaning_supplies_act || 0, ctx.subMeasures.sold_rooms_act || 0, 0)
+  },
+  prns_guest_supplies: {
+    id: 'prns_guest_supplies',
+    type: 'calculated',
+    subMeasures: ['rooms_guest_supplies_act', 'sold_rooms_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.rooms_guest_supplies_act || 0, ctx.subMeasures.sold_rooms_act || 0, 0)
+  },
+  prns_paper_supplies: {
+    id: 'prns_paper_supplies',
+    type: 'calculated',
+    subMeasures: ['rooms_paper_supplies_act', 'sold_rooms_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.rooms_paper_supplies_act || 0, ctx.subMeasures.sold_rooms_act || 0, 0)
+  },
+  prns_printing_stationery: {
+    id: 'prns_printing_stationery',
+    type: 'calculated',
+    subMeasures: ['rooms_printing_stationery_act', 'sold_rooms_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.rooms_printing_stationery_act || 0, ctx.subMeasures.sold_rooms_act || 0, 0)
+  },
+  prns_laundry: {
+    id: 'prns_laundry',
+    type: 'calculated',
+    subMeasures: ['rooms_laundry_act', 'sold_rooms_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.rooms_laundry_act || 0, ctx.subMeasures.sold_rooms_act || 0, 0)
+  },
+
+  // --- Operating Equipment Usage per Room Night Sold ---
+  // Per-item breakdown of the same accounts that roll up into prns_operating_supplies.
+  // Each row = item expense ÷ sold rooms (dollars per sold room, NOT multiplied).
+  prns_flatware: {
+    id: 'prns_flatware',
+    type: 'calculated',
+    subMeasures: ['rooms_flatware_act', 'sold_rooms_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.rooms_flatware_act || 0, ctx.subMeasures.sold_rooms_act || 0, 0)
+  },
+  prns_linen: {
+    id: 'prns_linen',
+    type: 'calculated',
+    subMeasures: ['rooms_linen_act', 'sold_rooms_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.rooms_linen_act || 0, ctx.subMeasures.sold_rooms_act || 0, 0)
+  },
+  prns_glassware: {
+    id: 'prns_glassware',
+    type: 'calculated',
+    subMeasures: ['rooms_glassware_act', 'sold_rooms_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.rooms_glassware_act || 0, ctx.subMeasures.sold_rooms_act || 0, 0)
+  },
+  prns_smalls: {
+    id: 'prns_smalls',
+    type: 'calculated',
+    subMeasures: ['rooms_smalls_act', 'sold_rooms_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.rooms_smalls_act || 0, ctx.subMeasures.sold_rooms_act || 0, 0)
+  },
+
+  // --- F&B Covers (per-meal customer counts) ---
+  fb_breakfast_customers: { id: 'fb_breakfast_customers', type: 'simple', subMeasures: ['fb_nonbanq_breakfast_customers_act'] },
+  fb_lunch_customers:     { id: 'fb_lunch_customers',     type: 'simple', subMeasures: ['fb_nonbanq_lunch_customers_act']     },
+  fb_dinner_customers:    { id: 'fb_dinner_customers',    type: 'simple', subMeasures: ['fb_nonbanq_dinner_customers_act']    },
+  fb_late_snack_customers:{ id: 'fb_late_snack_customers',type: 'simple', subMeasures: ['fb_nonbanq_late_snack_customers_act']},
+  banq_customers:         { id: 'banq_customers',         type: 'simple', subMeasures: ['banq_customers_act']                 },
+
+  // --- F&B Average Food Spend (per-meal revenue ÷ per-meal customers) ---
+  avg_breakfast_spend: {
+    id: 'avg_breakfast_spend',
+    type: 'calculated',
+    subMeasures: ['fb_nonbanq_breakfast_revenue_act', 'fb_nonbanq_breakfast_customers_act'],
+    evaluator: (ctx: MeasureContext) => evaluateDivide(
+      ctx.subMeasures.fb_nonbanq_breakfast_revenue_act || 0,
+      ctx.subMeasures.fb_nonbanq_breakfast_customers_act || 0,
+      0
+    )
+  },
+  avg_lunch_spend: {
+    id: 'avg_lunch_spend',
+    type: 'calculated',
+    subMeasures: ['fb_nonbanq_lunch_revenue_act', 'fb_nonbanq_lunch_customers_act'],
+    evaluator: (ctx: MeasureContext) => evaluateDivide(
+      ctx.subMeasures.fb_nonbanq_lunch_revenue_act || 0,
+      ctx.subMeasures.fb_nonbanq_lunch_customers_act || 0,
+      0
+    )
+  },
+  avg_dinner_spend: {
+    id: 'avg_dinner_spend',
+    type: 'calculated',
+    subMeasures: ['fb_nonbanq_dinner_revenue_act', 'fb_nonbanq_dinner_customers_act'],
+    evaluator: (ctx: MeasureContext) => evaluateDivide(
+      ctx.subMeasures.fb_nonbanq_dinner_revenue_act || 0,
+      ctx.subMeasures.fb_nonbanq_dinner_customers_act || 0,
+      0
+    )
+  },
+  avg_late_snack_spend: {
+    id: 'avg_late_snack_spend',
+    type: 'calculated',
+    subMeasures: ['fb_nonbanq_late_snack_revenue_act', 'fb_nonbanq_late_snack_customers_act'],
+    evaluator: (ctx: MeasureContext) => evaluateDivide(
+      ctx.subMeasures.fb_nonbanq_late_snack_revenue_act || 0,
+      ctx.subMeasures.fb_nonbanq_late_snack_customers_act || 0,
+      0
+    )
+  },
+  avg_banq_spend: {
+    id: 'avg_banq_spend',
+    type: 'calculated',
+    subMeasures: ['banq_revenue_act', 'banq_customers_act'],
+    evaluator: (ctx: MeasureContext) => evaluateDivide(
+      ctx.subMeasures.banq_revenue_act || 0,
+      ctx.subMeasures.banq_customers_act || 0,
+      0
+    )
+  },
+
+  // --- Covers as % of Bed Nights Sold ---
+  // Numerator = per-meal customer count (already non-banq for the first
+  // three; banqueting for the fourth). Denominator = bed nights sold,
+  // sourced from the Rooms department (reused from sold_rooms? No — bed
+  // nights = A960005, distinct from sold rooms A960103). Reuses the
+  // existing bed_nights_sold_act sub-measure (Rooms scope, not pinned to
+  // any specific dept — same hotel-wide stat regardless of which group
+  // summary is rendering it).
+  breakfast_pct_bed_nights: {
+    id: 'breakfast_pct_bed_nights',
+    type: 'calculated',
+    subMeasures: ['fb_nonbanq_breakfast_customers_act', 'bed_nights_sold_act'],
+    evaluator: (ctx: MeasureContext) => evaluateDivide(
+      ctx.subMeasures.fb_nonbanq_breakfast_customers_act || 0,
+      ctx.subMeasures.bed_nights_sold_act || 0,
+      0
+    ) * 100
+  },
+  lunch_pct_bed_nights: {
+    id: 'lunch_pct_bed_nights',
+    type: 'calculated',
+    subMeasures: ['fb_nonbanq_lunch_customers_act', 'bed_nights_sold_act'],
+    evaluator: (ctx: MeasureContext) => evaluateDivide(
+      ctx.subMeasures.fb_nonbanq_lunch_customers_act || 0,
+      ctx.subMeasures.bed_nights_sold_act || 0,
+      0
+    ) * 100
+  },
+  dinner_pct_bed_nights: {
+    id: 'dinner_pct_bed_nights',
+    type: 'calculated',
+    subMeasures: ['fb_nonbanq_dinner_customers_act', 'bed_nights_sold_act'],
+    evaluator: (ctx: MeasureContext) => evaluateDivide(
+      ctx.subMeasures.fb_nonbanq_dinner_customers_act || 0,
+      ctx.subMeasures.bed_nights_sold_act || 0,
+      0
+    ) * 100
+  },
+  late_snack_pct_bed_nights: {
+    id: 'late_snack_pct_bed_nights',
+    type: 'calculated',
+    subMeasures: ['fb_nonbanq_late_snack_customers_act', 'bed_nights_sold_act'],
+    evaluator: (ctx: MeasureContext) => evaluateDivide(
+      ctx.subMeasures.fb_nonbanq_late_snack_customers_act || 0,
+      ctx.subMeasures.bed_nights_sold_act || 0,
+      0
+    ) * 100
+  },
+  banq_pct_bed_nights: {
+    id: 'banq_pct_bed_nights',
+    type: 'calculated',
+    subMeasures: ['banq_customers_act', 'bed_nights_sold_act'],
+    evaluator: (ctx: MeasureContext) => evaluateDivide(
+      ctx.subMeasures.banq_customers_act || 0,
+      ctx.subMeasures.bed_nights_sold_act || 0,
+      0
+    ) * 100
+  },
+
+  // --- Cost Per Cover (dollars-per-cover, NOT multiplied by 100 — label
+  //     says "Cost" not "Cents", so display as currency-style 2-decimal). ---
+  cpc_operating_supplies: {
+    id: 'cpc_operating_supplies',
+    type: 'calculated',
+    subMeasures: ['fb_flatware_act', 'fb_china_act', 'fb_kitchen_utensils_act', 'fb_linen_act', 'fb_glassware_act', 'fb_smalls_act', 'fb_total_covers_act'],
+    evaluator: (ctx: MeasureContext) => {
+      const opEquip = (ctx.subMeasures.fb_flatware_act || 0)
+        + (ctx.subMeasures.fb_china_act || 0)
+        + (ctx.subMeasures.fb_kitchen_utensils_act || 0)
+        + (ctx.subMeasures.fb_linen_act || 0)
+        + (ctx.subMeasures.fb_glassware_act || 0)
+        + (ctx.subMeasures.fb_smalls_act || 0);
+      return evaluateDivide(opEquip, ctx.subMeasures.fb_total_covers_act || 0, 0);
+    }
+  },
+  cpc_cleaning_supplies: {
+    id: 'cpc_cleaning_supplies',
+    type: 'calculated',
+    subMeasures: ['fb_cleaning_supplies_act', 'fb_total_covers_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.fb_cleaning_supplies_act || 0, ctx.subMeasures.fb_total_covers_act || 0, 0)
+  },
+  cpc_guest_supplies: {
+    id: 'cpc_guest_supplies',
+    type: 'calculated',
+    subMeasures: ['fb_guest_supplies_act', 'fb_total_covers_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.fb_guest_supplies_act || 0, ctx.subMeasures.fb_total_covers_act || 0, 0)
+  },
+  cpc_paper_supplies: {
+    id: 'cpc_paper_supplies',
+    type: 'calculated',
+    subMeasures: ['fb_paper_supplies_act', 'fb_total_covers_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.fb_paper_supplies_act || 0, ctx.subMeasures.fb_total_covers_act || 0, 0)
+  },
+  cpc_printing_stationery: {
+    id: 'cpc_printing_stationery',
+    type: 'calculated',
+    subMeasures: ['fb_printing_stationery_act', 'fb_total_covers_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.fb_printing_stationery_act || 0, ctx.subMeasures.fb_total_covers_act || 0, 0)
+  },
+  cpc_laundry: {
+    id: 'cpc_laundry',
+    type: 'calculated',
+    subMeasures: ['fb_laundry_act', 'fb_total_covers_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.fb_laundry_act || 0, ctx.subMeasures.fb_total_covers_act || 0, 0)
+  },
+
+  // --- Operating Equipment Usage per Cover ---
+  // Per-item breakdown of the same atoms that roll up into cpc_operating_supplies.
+  // Each row = item expense ÷ fb_total_covers_act (dollars per cover).
+  cpc_flatware: {
+    id: 'cpc_flatware',
+    type: 'calculated',
+    subMeasures: ['fb_flatware_act', 'fb_total_covers_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.fb_flatware_act || 0, ctx.subMeasures.fb_total_covers_act || 0, 0)
+  },
+  cpc_china: {
+    id: 'cpc_china',
+    type: 'calculated',
+    subMeasures: ['fb_china_act', 'fb_total_covers_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.fb_china_act || 0, ctx.subMeasures.fb_total_covers_act || 0, 0)
+  },
+  cpc_kitchen_utensils: {
+    id: 'cpc_kitchen_utensils',
+    type: 'calculated',
+    subMeasures: ['fb_kitchen_utensils_act', 'fb_total_covers_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.fb_kitchen_utensils_act || 0, ctx.subMeasures.fb_total_covers_act || 0, 0)
+  },
+  cpc_linen: {
+    id: 'cpc_linen',
+    type: 'calculated',
+    subMeasures: ['fb_linen_act', 'fb_total_covers_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.fb_linen_act || 0, ctx.subMeasures.fb_total_covers_act || 0, 0)
+  },
+  cpc_glassware: {
+    id: 'cpc_glassware',
+    type: 'calculated',
+    subMeasures: ['fb_glassware_act', 'fb_total_covers_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.fb_glassware_act || 0, ctx.subMeasures.fb_total_covers_act || 0, 0)
+  },
+  cpc_smalls: {
+    id: 'cpc_smalls',
+    type: 'calculated',
+    subMeasures: ['fb_smalls_act', 'fb_total_covers_act'],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures.fb_smalls_act || 0, ctx.subMeasures.fb_total_covers_act || 0, 0)
+  },
+
+  // --- Percentage of F&B Sales (canonical + Protea-aware variants) ---
+  total_fb_payroll: { id: 'total_fb_payroll', type: 'simple', subMeasures: ['total_fb_payroll_act'] },
+  total_fb_payroll_protea: {
+    id: 'total_fb_payroll_protea',
+    type: 'calculated',
+    subMeasures: ['total_fb_payroll_act', 'fb_payroll_movement_act'],
+    evaluator: (ctx: MeasureContext) =>
+      (ctx.subMeasures.total_fb_payroll_act || 0) + (ctx.subMeasures.fb_payroll_movement_act || 0)
+  },
+  total_fb_controllables: { id: 'total_fb_controllables', type: 'simple', subMeasures: ['total_fb_controllables_act'] },
+  total_fb_controllables_protea: {
+    id: 'total_fb_controllables_protea',
+    type: 'calculated',
+    subMeasures: ['total_fb_controllables_act', 'fb_payroll_movement_act'],
+    evaluator: (ctx: MeasureContext) =>
+      (ctx.subMeasures.total_fb_controllables_act || 0) - (ctx.subMeasures.fb_payroll_movement_act || 0)
+  },
+  payroll_pct_fb_sales: {
+    id: 'payroll_pct_fb_sales',
+    type: 'calculated',
+    subMeasures: ['total_fb_payroll_act', 'total_fb_revenue_act'],
+    evaluator: (ctx: MeasureContext) => evaluateDivide(
+      ctx.subMeasures.total_fb_payroll_act || 0,
+      ctx.subMeasures.total_fb_revenue_act || 0,
+      0
+    ) * 100
+  },
+  payroll_pct_fb_sales_protea: {
+    id: 'payroll_pct_fb_sales_protea',
+    type: 'calculated',
+    subMeasures: ['total_fb_payroll_act', 'fb_payroll_movement_act', 'total_fb_revenue_act'],
+    evaluator: (ctx: MeasureContext) => {
+      const payroll = (ctx.subMeasures.total_fb_payroll_act || 0) + (ctx.subMeasures.fb_payroll_movement_act || 0);
+      return evaluateDivide(payroll, ctx.subMeasures.total_fb_revenue_act || 0, 0) * 100;
+    }
+  },
+  other_exp_pct_fb_sales: {
+    id: 'other_exp_pct_fb_sales',
+    type: 'calculated',
+    subMeasures: ['total_fb_controllables_act', 'total_fb_revenue_act'],
+    evaluator: (ctx: MeasureContext) => evaluateDivide(
+      ctx.subMeasures.total_fb_controllables_act || 0,
+      ctx.subMeasures.total_fb_revenue_act || 0,
+      0
+    ) * 100
+  },
+  other_exp_pct_fb_sales_protea: {
+    id: 'other_exp_pct_fb_sales_protea',
+    type: 'calculated',
+    subMeasures: ['total_fb_controllables_act', 'fb_payroll_movement_act', 'total_fb_revenue_act'],
+    evaluator: (ctx: MeasureContext) => {
+      const controllables = (ctx.subMeasures.total_fb_controllables_act || 0) - (ctx.subMeasures.fb_payroll_movement_act || 0);
+      return evaluateDivide(controllables, ctx.subMeasures.total_fb_revenue_act || 0, 0) * 100;
+    }
   }
 };
+
+// ============================================================================
+// "<group> Payroll/Other-Expenses as % of Hotel Revenue" — measure factory
+//
+// Generates the 3 sub-measures + 8 calculated measures needed for one group's
+// pair of percent-of-revenue KPIs (Payroll + Other Expenses), in canonical
+// AND Protea-aware variants. Used by Administrative & General, Property
+// Operation & Maintenance, and Sales & Marketing — each group gets the same
+// shape, only the dept-scope filter changes.
+//
+// Adding a new group is one factory call: registerPctOfRevenueQuartet({
+//   key: 'newGroupKey',
+//   deptFilter: { type: 'dept_level', level: 7, value: '<group label>' },
+// }).
+//
+// Generated measure IDs follow this naming convention (search-friendly):
+//   total_<key>_payroll_act              ← canonical sub-measure (Payroll)
+//   total_<key>_controllables_act        ← canonical sub-measure (Controllables)
+//   <key>_payroll_movement_act           ← Protea movement bucket sub-measure
+//   total_<key>_payroll                  ← canonical measure (passthrough)
+//   total_<key>_payroll_protea           ← Protea-aware (canonical + movement)
+//   total_<key>_controllables            ← canonical measure (passthrough)
+//   total_<key>_controllables_protea     ← Protea-aware (canonical − movement)
+//   payroll_pct_revenue_<key>            ← KPI (canonical / hotel revenue × 100)
+//   payroll_pct_revenue_<key>_protea     ← KPI (Protea-aware / hotel revenue × 100)
+//   other_exp_pct_revenue_<key>          ← KPI (canonical / hotel revenue × 100)
+//   other_exp_pct_revenue_<key>_protea   ← KPI (Protea-aware / hotel revenue × 100)
+//
+// Hotel-wide revenue denominator is `total_revenue_act` (existing measure;
+// already negate:true so values come through positive).
+//
+// Protea movement: same PROTEA_PAYROLL_REPOINT_ACCOUNTS list as Rooms/F&B.
+// If the repointed accounts don't post into a given group, the movement
+// evaluates to 0 and the _protea variant matches canonical — safe.
+// ============================================================================
+
+const PCT_OF_REVENUE_DENOMINATOR_SUB_ID = 'total_revenue_act';
+
+function registerPctOfRevenueQuartet(opts: {
+  key: string;
+  deptFilter: MeasureFilter;
+}): void {
+  const { key, deptFilter } = opts;
+  const payrollSub        = `total_${key}_payroll_act`;
+  const controllablesSub  = `total_${key}_controllables_act`;
+  const movementSub       = `${key}_payroll_movement_act`;
+  const denom             = PCT_OF_REVENUE_DENOMINATOR_SUB_ID;
+
+  // --- Sub-measures ---
+  SUB_MEASURES[payrollSub] = {
+    id: payrollSub, formula: 'CALCULATE',
+    filters: [deptFilter, { type: 'acc_level', level: 9, value: 'Total Payroll' }]
+  };
+  SUB_MEASURES[controllablesSub] = {
+    id: controllablesSub, formula: 'CALCULATE',
+    filters: [
+      deptFilter,
+      { type: 'acc_level', level: 4, value: 'Profit Amount' },
+      { type: 'acc_level_not_in', level: 6, value: ['Revenue'] },
+      { type: 'acc_level_not_in', level: 9, value: ['Total Payroll', 'Cost Of Sales'] }
+    ]
+  };
+  SUB_MEASURES[movementSub] = {
+    id: movementSub, formula: 'CALCULATE',
+    filters: [deptFilter, { type: 'acc_base', value: PROTEA_PAYROLL_REPOINT_ACCOUNTS }]
+  };
+
+  // --- Calculated measures ---
+  MEASURES[`total_${key}_payroll`] = { id: `total_${key}_payroll`, type: 'simple', subMeasures: [payrollSub] };
+  MEASURES[`total_${key}_payroll_protea`] = {
+    id: `total_${key}_payroll_protea`, type: 'calculated',
+    subMeasures: [payrollSub, movementSub],
+    evaluator: (ctx: MeasureContext) =>
+      (ctx.subMeasures[payrollSub] || 0) + (ctx.subMeasures[movementSub] || 0)
+  };
+  MEASURES[`total_${key}_controllables`] = { id: `total_${key}_controllables`, type: 'simple', subMeasures: [controllablesSub] };
+  MEASURES[`total_${key}_controllables_protea`] = {
+    id: `total_${key}_controllables_protea`, type: 'calculated',
+    subMeasures: [controllablesSub, movementSub],
+    evaluator: (ctx: MeasureContext) =>
+      (ctx.subMeasures[controllablesSub] || 0) - (ctx.subMeasures[movementSub] || 0)
+  };
+  MEASURES[`payroll_pct_revenue_${key}`] = {
+    id: `payroll_pct_revenue_${key}`, type: 'calculated',
+    subMeasures: [payrollSub, denom],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures[payrollSub] || 0, ctx.subMeasures[denom] || 0, 0) * 100
+  };
+  MEASURES[`payroll_pct_revenue_${key}_protea`] = {
+    id: `payroll_pct_revenue_${key}_protea`, type: 'calculated',
+    subMeasures: [payrollSub, movementSub, denom],
+    evaluator: (ctx: MeasureContext) => {
+      const payroll = (ctx.subMeasures[payrollSub] || 0) + (ctx.subMeasures[movementSub] || 0);
+      return evaluateDivide(payroll, ctx.subMeasures[denom] || 0, 0) * 100;
+    }
+  };
+  MEASURES[`other_exp_pct_revenue_${key}`] = {
+    id: `other_exp_pct_revenue_${key}`, type: 'calculated',
+    subMeasures: [controllablesSub, denom],
+    evaluator: (ctx: MeasureContext) =>
+      evaluateDivide(ctx.subMeasures[controllablesSub] || 0, ctx.subMeasures[denom] || 0, 0) * 100
+  };
+  MEASURES[`other_exp_pct_revenue_${key}_protea`] = {
+    id: `other_exp_pct_revenue_${key}_protea`, type: 'calculated',
+    subMeasures: [controllablesSub, movementSub, denom],
+    evaluator: (ctx: MeasureContext) => {
+      const controllables = (ctx.subMeasures[controllablesSub] || 0) - (ctx.subMeasures[movementSub] || 0);
+      return evaluateDivide(controllables, ctx.subMeasures[denom] || 0, 0) * 100;
+    }
+  };
+}
+
+// Register the three undistributed-operating-expense groups. Add a row here
+// (and a matching entry in proteaShared.ts PCT_OF_REVENUE_KPI_GROUPS) to
+// enable the KPI block on a new group summary sheet.
+registerPctOfRevenueQuartet({
+  key: 'ag',
+  deptFilter: { type: 'dept_level', level: 7, value: 'Administrative & General' }
+});
+registerPctOfRevenueQuartet({
+  key: 'pom',
+  deptFilter: { type: 'dept_level', level: 7, value: 'Property Operation & Maintenance' }
+});
+registerPctOfRevenueQuartet({
+  key: 'sm',
+  deptFilter: { type: 'dept_level', level: 7, value: 'Sales & Marketing and Convention Service' }
+});

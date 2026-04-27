@@ -9,6 +9,7 @@
 import ExcelJS from 'exceljs';
 import { PLRow } from '../../types/plReportTypes';
 import * as db from '../../local_db';
+import { BANQUETING_DEPARTMENT_CODES } from './departmentScopes';
 
 // ============================================================================
 // KPI ROW CONFIGS — used to compute KPIs via the F90 calculation engine
@@ -22,14 +23,130 @@ export const ROOMS_KPI_CONFIG: PLRow[] = [
   { type: 'measure', label: 'Occupancy %', measureId: 'occupancy_rooms', formatting: 'percentage', indentLevel: 1 },
   { type: 'measure', label: 'ADR', measureId: 'adr', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'RevPAR', measureId: 'rev_par', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'RevPAR after TAC', measureId: 'rev_par_after_tac', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'Rooms Dept Profit %', measureId: 'rooms_dept_profit_pct', formatting: 'percentage', indentLevel: 1 },
+  // Bed-night & guest-rate KPIs (engine-computed, period-independent)
+  { type: 'measure', label: 'Bed Nights Sold',         measureId: 'bed_nights_sold',         formatting: 'number',     indentLevel: 1 },
+  { type: 'measure', label: 'Bed Nights Available',    measureId: 'bed_nights_avail',        formatting: 'number',     indentLevel: 1 },
+  { type: 'measure', label: 'Average Bed Occupancy %', measureId: 'avg_bed_occupancy_pct',   formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'Average Guest Rate',      measureId: 'avg_guest_rate',          formatting: 'number',     indentLevel: 1 },
+  { type: 'measure', label: 'Double Occupancy %',      measureId: 'double_occupancy_pct',    formatting: 'percentage', indentLevel: 1 },
+  // Period-aware (engine reads periodDays from getProteaF90PLData)
+  { type: 'measure', label: 'Rooms Available per Day', measureId: 'rooms_available_per_day', formatting: 'number',     indentLevel: 1 },
+  { type: 'measure', label: 'Bed Available per Day',   measureId: 'bed_available_per_day',   formatting: 'number',     indentLevel: 1 },
+  // Per Room Night Sold — engine-driven dollars-per-sold-room. Numerator
+  // scoped to Rooms group (dept_level 7); denominator (sold rooms) is hotel-
+  // Rooms scope. Operating Supplies is a roll-up of the four Operating
+  // Equipment Usage items below.
+  { type: 'measure', label: 'Operating Supplies',    measureId: 'prns_operating_supplies',  formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Cleaning Supplies',     measureId: 'prns_cleaning_supplies',   formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Guest Supplies',        measureId: 'prns_guest_supplies',      formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Paper Supplies',        measureId: 'prns_paper_supplies',      formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Printing & Stationery', measureId: 'prns_printing_stationery', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Laundry',               measureId: 'prns_laundry',             formatting: 'number', indentLevel: 1 },
+  // Operating Equipment Usage per Room Night Sold (per-item breakdown of the
+  // accounts that roll into prns_operating_supplies above).
+  { type: 'measure', label: 'Flatware (Cutlery)', measureId: 'prns_flatware',  formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Linen',              measureId: 'prns_linen',     formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Glassware',          measureId: 'prns_glassware', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Room Smalls',        measureId: 'prns_smalls',    formatting: 'number', indentLevel: 1 },
+  // Percent-of-room-sales — Protea variants (numerator includes the
+  // PROTEA_CATEGORY_REPOINTS-moved accounts so the KPI matches what the
+  // Protea report actually displays for Total Payroll / Controllables).
+  { type: 'measure', label: 'Payroll as a % of Room Sales',        measureId: 'payroll_pct_rooms_sales_protea',   formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'Other Expenses as a % of Room Sales', measureId: 'other_exp_pct_rooms_sales_protea', formatting: 'percentage', indentLevel: 1 },
 ];
 
 export const FB_KPI_CONFIG: PLRow[] = [
-  { type: 'measure', label: '% Food COS', measureId: 'food_cost_pct_sales', formatting: 'percentage', indentLevel: 1 },
-  { type: 'measure', label: '% Beverage COS', measureId: 'bev_cost_pct_sales', formatting: 'percentage', indentLevel: 1 },
-  { type: 'measure', label: 'F&B Dept Profit %', measureId: 'fb_dept_profit_pct', formatting: 'percentage', indentLevel: 1 },
+  // Existing % KPIs
+  { type: 'measure', label: '% Food COS',         measureId: 'food_cost_pct_sales', formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: '% Beverage COS',     measureId: 'bev_cost_pct_sales',  formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'F&B Dept Profit %',  measureId: 'fb_dept_profit_pct',  formatting: 'percentage', indentLevel: 1 },
+
+  // Covers — counts of customers per meal period. Per spec: Breakfast/Lunch/
+  // Dinner are scoped to F&B EXCLUDING banqueting; Banqueting Customer is
+  // banqueting depts only. See plMeasureDefinitions.ts for filter details.
+  { type: 'measure', label: 'Breakfast Customers',  measureId: 'fb_breakfast_customers',  formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Lunch Customers',      measureId: 'fb_lunch_customers',      formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Dinner Customers',     measureId: 'fb_dinner_customers',     formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Late Snack Customers', measureId: 'fb_late_snack_customers', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Banqueting Customer',  measureId: 'banq_customers',          formatting: 'number', indentLevel: 1 },
+
+  // Average Food Spend — per-meal revenue ÷ per-meal customers (same scoping).
+  { type: 'measure', label: 'Avg Breakfast Spend',  measureId: 'avg_breakfast_spend',  formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Avg Lunch Spend',      measureId: 'avg_lunch_spend',      formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Avg Dinner Spend',     measureId: 'avg_dinner_spend',     formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Avg Late Snack Spend', measureId: 'avg_late_snack_spend', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Avg Banqueting Spend', measureId: 'avg_banq_spend',       formatting: 'number', indentLevel: 1 },
+
+  // Covers as % of Bed Nights Sold — per-meal customers ÷ A960005 (Rooms-scope
+  // bed nights). Bed nights denominator intentionally hotel-Rooms (not pinned
+  // to F&B depts) — matches spec "the bednight would come from rooms departments".
+  { type: 'measure', label: 'Breakfast Customers as % of Bed Nights',  measureId: 'breakfast_pct_bed_nights',  formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'Lunch Customers as % of Bed Nights',      measureId: 'lunch_pct_bed_nights',      formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'Dinner Customers as % of Bed Nights',     measureId: 'dinner_pct_bed_nights',     formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'Late Snack Customers as % of Bed Nights', measureId: 'late_snack_pct_bed_nights', formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'Banqueting Customer as % of Bed Nights',  measureId: 'banq_pct_bed_nights',       formatting: 'percentage', indentLevel: 1 },
+
+  // Cost Per Cover — denominator is fb_total_covers_act (every A914xxx in
+  // F&B INCLUDING banqueting per spec). Operating Supplies is the SUM of
+  // the six Operating Equipment Usage atoms below.
+  { type: 'measure', label: 'Operating Supplies',    measureId: 'cpc_operating_supplies',  formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Cleaning Supplies',     measureId: 'cpc_cleaning_supplies',   formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Guest Supplies',        measureId: 'cpc_guest_supplies',      formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Paper Supplies',        measureId: 'cpc_paper_supplies',      formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Printing & Stationery', measureId: 'cpc_printing_stationery', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Laundry',               measureId: 'cpc_laundry',             formatting: 'number', indentLevel: 1 },
+
+  // Operating Equipment Usage per Cover — per-item breakdown of the same
+  // accounts that roll into cpc_operating_supplies above.
+  { type: 'measure', label: 'Flatware (Cutlery)',     measureId: 'cpc_flatware',         formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'China (Crockery)',       measureId: 'cpc_china',            formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Kitchen Utensils',       measureId: 'cpc_kitchen_utensils', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Linen',                  measureId: 'cpc_linen',            formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Glassware',              measureId: 'cpc_glassware',        formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Restaurant/Bar Smalls',  measureId: 'cpc_smalls',           formatting: 'number', indentLevel: 1 },
+
+  // Percentage of F&B Sales — Protea variants used here so totals match what
+  // the Protea report displays for Total Payroll / Controllables (which
+  // include the PROTEA_CATEGORY_REPOINTS-moved accounts).
+  { type: 'measure', label: 'Payroll as a % of F&B Sales',         measureId: 'payroll_pct_fb_sales_protea',   formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'Other Expenses as a % of F&B Sales',  measureId: 'other_exp_pct_fb_sales_protea', formatting: 'percentage', indentLevel: 1 },
 ];
+
+// ============================================================================
+// "<group> % of Hotel Revenue" KPI configs — used by Administrative & General,
+// Property Operation & Maintenance, and Sales & Marketing & Convention
+// Service group summary sheets.
+//
+// All three configs have identical labels and shape; only the underlying
+// measure IDs change per-group (generated by registerPctOfRevenueQuartet in
+// plMeasureDefinitions.ts). The renderer uses PCT_OF_REVENUE_KPI_GROUPS
+// (below) to dispatch to the right config given the active groupName.
+//
+// Adding a new group: register a quartet in plMeasureDefinitions.ts, add an
+// entry below using the matching key, and add it to the dispatch map.
+// ============================================================================
+
+const buildPctOfRevenueConfig = (key: string): PLRow[] => [
+  // Protea variants — numerator includes PROTEA_CATEGORY_REPOINTS-moved
+  // accounts so totals match what the Protea report displays for Payroll /
+  // Controllables. Same naming pattern as the Rooms / F&B equivalents.
+  { type: 'measure', label: 'Payroll as a % of Revenue',        measureId: `payroll_pct_revenue_${key}_protea`,   formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'Other Expenses as a % of Revenue', measureId: `other_exp_pct_revenue_${key}_protea`, formatting: 'percentage', indentLevel: 1 },
+];
+
+export const AG_KPI_CONFIG:  PLRow[] = buildPctOfRevenueConfig('ag');
+export const POM_KPI_CONFIG: PLRow[] = buildPctOfRevenueConfig('pom');
+export const SM_KPI_CONFIG:  PLRow[] = buildPctOfRevenueConfig('sm');
+
+/** Group summary sheets that should render the "% of Hotel Revenue" KPI block.
+ *  Keyed by the renderer's `groupName` value. */
+export const PCT_OF_REVENUE_KPI_GROUPS: ReadonlyMap<string, PLRow[]> = new Map([
+  ['Administrative & General',                        AG_KPI_CONFIG],
+  ['Property Operation & Maintenance',                POM_KPI_CONFIG],
+  ['Sales & Marketing and Convention Service',        SM_KPI_CONFIG],
+]);
 
 // ============================================================================
 // CONSTANTS
@@ -364,7 +481,9 @@ export const PROTEA_DEPARTMENT_MOVEMENTS: DepartmentMovement[] = [
 ];
 
 // Banqueting departments — split out of F&B when banqueting toggle is on
-export const BANQUETING_DEPARTMENTS = new Set(['D0230', 'D0231', 'D0232', 'D0233']);
+// Derived from BANQUETING_DEPARTMENT_CODES (single source of truth in
+// departmentScopes.ts). Set wrapper gives O(1) membership lookup for renderers.
+export const BANQUETING_DEPARTMENTS: ReadonlySet<string> = new Set(BANQUETING_DEPARTMENT_CODES);
 
 /** Preferred display order for department groups in the Protea report pack.
  *  Groups not listed here appear after these in their natural (alphabetical) order.

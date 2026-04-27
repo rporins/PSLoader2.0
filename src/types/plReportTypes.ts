@@ -1,6 +1,6 @@
 // Type definitions for Custom P&L Report System
 
-export type FilterType = 'dept_level' | 'dept_base' | 'acc_level' | 'acc_level_not_in' | 'acc_base' | 'acc_prefix';
+export type FilterType = 'dept_level' | 'dept_base' | 'dept_base_not_in' | 'acc_level' | 'acc_level_not_in' | 'acc_base' | 'acc_prefix';
 export type ScenarioType = 'ACT' | 'BUD' | 'PY1';
 export type FormattingType = 'currency' | 'percentage' | 'number' | 'ratio';
 export type FormulaType = 'SUM' | 'COUNT' | 'CALCULATE';
@@ -29,6 +29,11 @@ export interface Measure {
 export interface MeasureContext {
   subMeasures: Record<string, number>;
   scenario: ScenarioType;
+  /** Calendar days in the period being evaluated. Optional — only the
+   *  period-aware measures (e.g. rooms_available_per_day) read it. When
+   *  absent, those measures safe-divide to 0. Computed via daysInPeriod
+   *  in services/reports/periodUtils.ts. */
+  periodDays?: number;
 }
 
 export interface PLRow {

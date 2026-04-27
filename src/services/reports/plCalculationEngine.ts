@@ -79,6 +79,14 @@ function buildFilterCondition(filter: MeasureFilter): string {
     return `dm.base_department = ?`;
   }
 
+  // Inverse of dept_base — exclude a known set (e.g. F&B EXCLUDING banqueting).
+  // NULL departments are excluded too so unmapped rows don't slip through.
+  if (type === 'dept_base_not_in') {
+    const values = Array.isArray(value) ? value : [value];
+    const placeholders = values.map(() => '?').join(', ');
+    return `(dm.base_department NOT IN (${placeholders}) AND dm.base_department IS NOT NULL)`;
+  }
+
   if (type === 'acc_level') {
     const column = `am.level_${level}`;
     if (Array.isArray(value)) {
@@ -237,12 +245,13 @@ function evaluateSubMeasures(queryResult: BaseQueryResult): Record<string, numbe
 function evaluateMeasure(
   measureId: string,
   subMeasures: Record<string, number>,
-  scenario: ScenarioType
+  scenario: ScenarioType,
+  periodDays?: number
 ): number {
   const measure = MEASURES[measureId];
   if (!measure) return 0;
 
-  const context: MeasureContext = { subMeasures, scenario };
+  const context: MeasureContext = { subMeasures, scenario, periodDays };
 
   if (measure.type === 'simple') {
     const subMeasureId = measure.subMeasures?.[0];
@@ -277,7 +286,8 @@ function calculateVariancePercent(actual: number, comparison: number): number {
 export function calculatePLRows(
   actualsData: BaseQueryResult,
   budgetData: BaseQueryResult,
-  lyData: BaseQueryResult
+  lyData: BaseQueryResult,
+  periodDays?: number
 ): PLCalculationResult[] {
   const actualsSubMeasures = evaluateSubMeasures(actualsData);
   const budgetSubMeasures = evaluateSubMeasures(budgetData);
@@ -308,9 +318,9 @@ export function calculatePLRows(
     const measureId = rowConfig.measureId;
     if (!measureId) return;
 
-    const actuals = evaluateMeasure(measureId, actualsSubMeasures, 'ACT');
-    const budget = evaluateMeasure(measureId, budgetSubMeasures, 'BUD');
-    const ly = evaluateMeasure(measureId, lySubMeasures, 'PY1');
+    const actuals = evaluateMeasure(measureId, actualsSubMeasures, 'ACT', periodDays);
+    const budget = evaluateMeasure(measureId, budgetSubMeasures, 'BUD', periodDays);
+    const ly = evaluateMeasure(measureId, lySubMeasures, 'PY1', periodDays);
 
     const vs_bud = calculateVariance(actuals, budget);
     const vs_bud_pct = calculateVariancePercent(actuals, budget);
@@ -344,7 +354,8 @@ export function calculatePLRows(
 export function calculateSummaryPLRows(
   actualsData: BaseQueryResult,
   budgetData: BaseQueryResult,
-  lyData: BaseQueryResult
+  lyData: BaseQueryResult,
+  periodDays?: number
 ): PLCalculationResult[] {
   const actualsSubMeasures = evaluateSubMeasures(actualsData);
   const budgetSubMeasures = evaluateSubMeasures(budgetData);
@@ -380,9 +391,9 @@ export function calculateSummaryPLRows(
     // sub-measures carry no negate flag and are already positive debits.
     // invertSign on a row signals variance-colour inversion only (set via
     // invertVariance on the result so the UI can colour accordingly).
-    const actuals = evaluateMeasure(measureId, actualsSubMeasures, 'ACT');
-    const budget = evaluateMeasure(measureId, budgetSubMeasures, 'BUD');
-    const ly = evaluateMeasure(measureId, lySubMeasures, 'PY1');
+    const actuals = evaluateMeasure(measureId, actualsSubMeasures, 'ACT', periodDays);
+    const budget = evaluateMeasure(measureId, budgetSubMeasures, 'BUD', periodDays);
+    const ly = evaluateMeasure(measureId, lySubMeasures, 'PY1', periodDays);
 
     const vs_bud = calculateVariance(actuals, budget);
     const vs_bud_pct = calculateVariancePercent(actuals, budget);
@@ -448,7 +459,8 @@ export function calculateF90PLRows(
   budgetData: BaseQueryResult,
   lyData: BaseQueryResult,
   rowConfig: PLRow[] = F90_PL_ROW_CONFIG,
-  skipFilter: boolean = false
+  skipFilter: boolean = false,
+  periodDays?: number
 ): PLCalculationResult[] {
   const actualsSubMeasures = evaluateSubMeasures(actualsData);
   const budgetSubMeasures = evaluateSubMeasures(budgetData);
@@ -482,9 +494,9 @@ export function calculateF90PLRows(
     // Has measureId - calculate values regardless of type (header or measure)
     // Apply sign inversion for revenue (credits) and expense (debits) lines
     const sign = row.invertSign ? -1 : 1;
-    const actuals = evaluateMeasure(measureId, actualsSubMeasures, 'ACT') * sign;
-    const budget = evaluateMeasure(measureId, budgetSubMeasures, 'BUD') * sign;
-    const ly = evaluateMeasure(measureId, lySubMeasures, 'PY1') * sign;
+    const actuals = evaluateMeasure(measureId, actualsSubMeasures, 'ACT', periodDays) * sign;
+    const budget = evaluateMeasure(measureId, budgetSubMeasures, 'BUD', periodDays) * sign;
+    const ly = evaluateMeasure(measureId, lySubMeasures, 'PY1', periodDays) * sign;
 
     const vs_bud = calculateVariance(actuals, budget);
     const vs_bud_pct = calculateVariancePercent(actuals, budget);

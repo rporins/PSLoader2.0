@@ -3,6 +3,11 @@ import path from "path";
 import { createClient, Client } from "@libsql/client";
 import dotenv from "dotenv";
 import fs from "fs";
+import {
+  PROTEA_CATEGORY_REPOINTS,
+  PROTEA_CATEGORY_SORT_ORDER,
+} from "./services/reports/proteaMovements";
+import { daysInPeriod } from "./services/reports/periodUtils";
 
 dotenv.config();
 const secretKey = process.env.TEMP_DB_KEY; // will be pulled from the server and used for creation, encryption, and decryption of the database
@@ -1451,7 +1456,8 @@ export async function getSummaryPLData(
     const budgetData = budgetResult.rows[0] as any || {};
     const lyData = lyResult.rows[0] as any || {};
 
-    const plRows = calculateSummaryPLRows(actualsData, budgetData, lyData);
+    const periodDays = daysInPeriod(startMonth, startYear, endMonth, endYear);
+    const plRows = calculateSummaryPLRows(actualsData, budgetData, lyData, periodDays);
 
     return JSON.stringify(plRows);
   } catch (error) {
@@ -1500,7 +1506,8 @@ export async function getF90PLData(
     const budgetData = budgetResult.rows[0] as any || {};
     const lyData = lyResult.rows[0] as any || {};
 
-    const plRows = calculateF90PLRows(actualsData, budgetData, lyData, rowConfig);
+    const periodDays = daysInPeriod(startMonth, startYear, endMonth, endYear);
+    const plRows = calculateF90PLRows(actualsData, budgetData, lyData, rowConfig, false, periodDays);
 
     return JSON.stringify(plRows);
   } catch (error) {
@@ -1557,7 +1564,8 @@ export async function getProteaF90PLData(
     applyProteaAccountMovement(budgetData);
     applyProteaAccountMovement(lyData);
 
-    const plRows = calculateF90PLRows(actualsData, budgetData, lyData, rowConfig, true);
+    const periodDays = daysInPeriod(startMonth, startYear, endMonth, endYear);
+    const plRows = calculateF90PLRows(actualsData, budgetData, lyData, rowConfig, true, periodDays);
 
     return JSON.stringify(plRows);
   } catch (error) {
@@ -1619,16 +1627,21 @@ export async function getProteaBudgetF90PLData(
     applyProteaAccountMovement(lyBudData);
     applyProteaAccountMovement(lyActData);
 
+    const totalPeriodDays = daysInPeriod(startMonth, startYear, endMonth, endYear);
+
     // Totals: slot remap — actuals=CurBud, budget=LYBud, ly=LYAct
-    const totalRows = calculateF90PLRows(curBudData, lyBudData, lyActData, rowConfig, skipFilter);
+    const totalRows = calculateF90PLRows(curBudData, lyBudData, lyActData, rowConfig, skipFilter, totalPeriodDays);
 
     // Monthly breakdown: one set of rows per period
     const monthly: Record<string, string> = {};
     for (let i = 0; i < currentPeriods.length; i++) {
       const monthData = results[3 + i].rows[0] as any || {};
       applyProteaAccountMovement(monthData);
+      // Per-month period days for that single calendar month
+      const [py, pm] = currentPeriods[i].split('-').map(Number);
+      const monthDays = daysInPeriod(pm, py, pm, py);
       // Only the "actuals" slot is populated (= this month's budget)
-      const monthRows = calculateF90PLRows(monthData, {}, {}, rowConfig, true);
+      const monthRows = calculateF90PLRows(monthData, {}, {}, rowConfig, true, monthDays);
       monthly[currentPeriods[i]] = JSON.stringify(monthRows);
     }
 
@@ -5862,7 +5875,7 @@ export interface DepartmentDetailRow {
 
 /** Non-operating departments excluded from all report exports (Excel, Protea).
  *  TODO: Replace with a mapping table attribute (e.g., dm.is_reportable) in a future iteration. */
-export const NON_OPERATING_EXCLUDED_DEPARTMENTS = new Set(['D1468', 'D3095', 'D0376']);
+export const NON_OPERATING_EXCLUDED_DEPARTMENTS = new Set(['D1468', 'D3095', 'D0376', 'D3096', 'D0499']);
 
 // ============================================================================
 // DEPARTMENT DETAIL — SHARED INFRASTRUCTURE
@@ -5912,16 +5925,11 @@ function mapDetailRows(rows: any[]): DepartmentDetailRow[] {
 // PROTEA-SPECIFIC CATEGORY REPOINTS
 // Accounts whose detail-sheet category should differ from the standard
 // hierarchy-based CASE logic. Protea-only — never applied to standard reports.
-// Valid categories: Revenue, Cost of Sales, Payroll, Controllables, Stats, Other
+//
+// PROTEA_CATEGORY_REPOINTS / PROTEA_CATEGORY_SORT_ORDER are imported from
+// services/reports/proteaMovements.ts (single source of truth — also
+// consumed by the measure engine to build Protea-aware totals).
 // ============================================================================
-const PROTEA_CATEGORY_REPOINTS: Array<{ account: string; targetCategory: string }> = [
-  { account: 'A610112', targetCategory: 'Payroll' },
-  { account: 'A652101', targetCategory: 'Payroll' },
-];
-
-const PROTEA_CATEGORY_SORT_ORDER: Record<string, number> = {
-  'Revenue': 1, 'Cost of Sales': 2, 'Payroll': 3, 'Controllables': 4, 'Other': 5, 'Stats': 6
-};
 
 /** Protea category CASE clause — standard hierarchy with repoint overrides. */
 function buildProteaCategoryClauses(): { categoryCase: string; orderCase: string } {

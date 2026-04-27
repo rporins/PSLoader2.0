@@ -255,6 +255,114 @@ class ProteaBudgetPackService {
   }
 
   // ============================================================================
+  // ROOMS KPI BLOCK (Budget Pack column layout)
+  //
+  // Slot remapping (per getProteaBudgetF90PLData): the engine's "actuals" slot
+  // carries Current Budget, "budget" slot carries LY Budget, and "ly" slot
+  // carries LY Actuals. We map them onto the budget pack columns accordingly.
+  //
+  // Monthly columns (budM*) are intentionally left blank for KPI rows: a per-
+  // month KPI requires a per-month engine query, which would multiply the data
+  // round-trips. Add monthly KPI evaluation here as a follow-up if business
+  // need arises.
+  // ============================================================================
+
+  /** Run the F90 engine over a small KPI rowConfig for the budget pack period
+   *  and return a label-indexed map of results (totals only, no monthly). */
+  private async fetchBudgetKpiEngineData(
+    config: ProteaBudgetPackConfig,
+    kpiConfig: any[]
+  ): Promise<Map<string, PLCalculationResult>> {
+    const { total } = await db.getProteaBudgetF90PLData(
+      config.startMonth, config.startYear,
+      config.endMonth, config.endYear,
+      config.ou, config.version, kpiConfig
+    );
+    const rows: PLCalculationResult[] = JSON.parse(total);
+    const map = new Map<string, PLCalculationResult>();
+    for (const row of rows) if (row.type === 'measure') map.set(row.label, row);
+    return map;
+  }
+
+  /** Render the Rooms & Reservation Summary KPI block on a budget pack
+   *  group summary sheet, in the budget pack column layout. */
+  private addBudgetRoomsKpiRows(
+    sheet: ExcelJS.Worksheet,
+    kpi: Map<string, PLCalculationResult>
+  ): void {
+    const tc = this.totalCols;
+    const fmtPct = (v: number) => `${v.toFixed(1)}%`;
+
+    const addBlank = () => {
+      const row = sheet.addRow(new Array(tc).fill(''));
+      row.eachCell((cell) => { cell.border = BORDER_STYLE; cell.font = DATA_FONT; });
+    };
+
+    const addSectionHeader = (label: string) => {
+      const row = sheet.addRow(new Array(tc).fill(''));
+      row.getCell(1).value = label;
+      applyCategorySubtotalStyle(row);
+    };
+
+    const addKpiRow = (label: string, isPct: boolean) => {
+      const result = kpi.get(label);
+      const curBud = result?.actuals ?? 0;
+      const lyBud = result?.budget ?? 0;
+      const lyAct = result?.ly ?? 0;
+      const fmt = isPct ? fmtPct : (v: number) => formatNumber(v);
+
+      const rowData: any = {
+        label: `  ${label}`,
+        lyBud: fmt(lyBud),
+        lyBudVar: lyBud !== 0 ? fmtPct(((curBud - lyBud) / Math.abs(lyBud)) * 100) : '',
+        lyAct: fmt(lyAct),
+        lyActVar: lyAct !== 0 ? fmtPct(((curBud - lyAct) / Math.abs(lyAct)) * 100) : '',
+        curBud: fmt(curBud),
+        comments: '',
+      };
+      // Monthly KPI columns intentionally left blank — see method header.
+      const excelRow = sheet.addRow(rowData);
+      applyDataRowStyle(excelRow);
+      // Don't apply integer format to percentages — leave as text strings already.
+    };
+
+    addBlank();
+    addSectionHeader('Rooms & Reservation Summary');
+    addKpiRow('Occupancy %',                    true);
+    addKpiRow('ADR',                            false);
+    addKpiRow('RevPAR',                         false);
+    addKpiRow('RevPAR after TAC',               false);
+    addKpiRow('Bed Nights Sold',                false);
+    addKpiRow('Bed Nights Available',           false);
+    addKpiRow('Average Bed Occupancy %',        true);
+    addKpiRow('Average Guest Rate',             false);
+    addKpiRow('Double Occupancy %',             true);
+    addKpiRow('Rooms Available per Day',        false);
+    addKpiRow('Bed Available per Day',          false);
+
+    addBlank();
+    addSectionHeader('Per Room Night Sold');
+    addKpiRow('Operating Supplies',    false);
+    addKpiRow('Cleaning Supplies',     false);
+    addKpiRow('Guest Supplies',        false);
+    addKpiRow('Paper Supplies',        false);
+    addKpiRow('Printing & Stationery', false);
+    addKpiRow('Laundry',               false);
+
+    addBlank();
+    addSectionHeader('Operating Equipment Usage per Room Night Sold');
+    addKpiRow('Flatware (Cutlery)', false);
+    addKpiRow('Linen',              false);
+    addKpiRow('Glassware',          false);
+    addKpiRow('Room Smalls',        false);
+
+    addBlank();
+    addSectionHeader('Percentage of Room Sales');
+    addKpiRow('Payroll as a % of Room Sales',         true);
+    addKpiRow('Other Expenses as a % of Room Sales',  true);
+  }
+
+  // ============================================================================
   // F90 WORKSHEET
   // ============================================================================
 
@@ -766,6 +874,11 @@ class ProteaBudgetPackService {
       this.addBudgetDepartmentDataSection(sheet, currentData, lyData, budgetByPeriod, {
         collapseRevenueDetail: !config.generateDetailTabs && isRoomsGroup,
       });
+    }
+
+    if (isRoomsGroup) {
+      const kpi = await this.fetchBudgetKpiEngineData(config, ROOMS_KPI_CONFIG);
+      this.addBudgetRoomsKpiRows(sheet, kpi);
     }
 
     sheet.views = [{ state: 'frozen', xSplit: 1, ySplit: 5 }];
