@@ -769,6 +769,8 @@ export async function initializeDatabase() {
             PRIMARY KEY (dep_acc_combo_id, period_combo, scenario, version, ou)
         )
         `,
+      // Locally-imported data only. Sync reconciliation NEVER touches this table —
+      // see deleteSyncedFinancialDataForPeriods() for the synced-data counterpart.
       `
         CREATE TABLE IF NOT EXISTS financial_data_staging (
             dep_acc_combo_id TEXT NOT NULL,
@@ -5372,6 +5374,27 @@ export async function storeFinancialData(ou: string, records: any[]) {
     console.error("Error storing financial data:", error);
     throw error;
   }
+}
+
+/**
+ * Delete the listed periods from financial_data for an OU.
+ * Used by sync reconciliation to drop orphan periods (present locally,
+ * absent from the server's period manifest).
+ *
+ * SAFETY: this MUST NOT touch financial_data_staging — staging has a separate
+ * lifecycle (locally-imported, sign-off driven) and is never reconciled here.
+ */
+export async function deleteSyncedFinancialDataForPeriods(
+  ou: string,
+  periods: string[]
+): Promise<number> {
+  if (!Array.isArray(periods) || periods.length === 0) return 0;
+  const placeholders = periods.map(() => '?').join(', ');
+  const result = await client.execute({
+    sql: `DELETE FROM financial_data WHERE ou = ? AND period_combo IN (${placeholders})`,
+    args: [ou, ...periods]
+  });
+  return (result as any).rowsAffected ?? 0;
 }
 
 /**

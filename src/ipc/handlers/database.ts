@@ -461,6 +461,15 @@ export class DatabaseHandlers {
     };
   };
 
+  deleteSyncedFinancialDataForPeriodsHandler: IpcHandler = async (event, request) => {
+    const removed = await db.deleteSyncedFinancialDataForPeriods(request.ou, request.periods);
+    return {
+      success: true,
+      data: { removed },
+      timestamp: Date.now(),
+    };
+  };
+
   getFinancialDataCountHandler: IpcHandler = async (event, request) => {
     const result = await db.getFinancialDataCount(request.ou);
     return {
@@ -894,6 +903,7 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_DEPARTMENT_MAP]: handlers.getDepartmentMapHandler,
     [IPC_CHANNELS.DB_STORE_FINANCIAL_DATA]: handlers.storeFinancialDataHandler,
     [IPC_CHANNELS.DB_STORE_FINANCIAL_DATA_FOR_PERIODS]: handlers.storeFinancialDataForPeriodsHandler,
+    [IPC_CHANNELS.DB_DELETE_SYNCED_FINANCIAL_DATA_FOR_PERIODS]: handlers.deleteSyncedFinancialDataForPeriodsHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_COUNT]: handlers.getFinancialDataCountHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_LAST_IMPORT]: handlers.getFinancialDataLastImportHandler,
     [IPC_CHANNELS.DB_GET_FINANCIAL_DATA_LOCAL_VERSIONS]: handlers.getFinancialDataLocalVersionsHandler,

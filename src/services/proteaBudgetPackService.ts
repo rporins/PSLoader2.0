@@ -1113,6 +1113,7 @@ class ProteaBudgetPackService {
     } else {
       this.addBudgetDepartmentDataSection(sheet, currentData, lyData, budgetByPeriod, {
         collapseRevenueDetail: !config.generateDetailTabs && isRoomsGroup,
+        flattenCategories: !isInvestGroup ? ['Payroll', 'Controllables'] : undefined,
       });
     }
 
@@ -1286,7 +1287,7 @@ class ProteaBudgetPackService {
     currentData: any[],   // budget=CurBud, ly=LYAct
     lyData: any[],        // budget=LYBud
     budgetByPeriod: Array<{ account: string; [p: string]: number }>,
-    options?: { collapseRevenueDetail?: boolean }
+    options?: { collapseRevenueDetail?: boolean; flattenCategories?: readonly string[] }
   ): void {
     // Drop accounts that are zero across CurBud / LYBud / LYAct period totals.
     // Cascades through level_12 grouping and category totals — no per-site
@@ -1355,6 +1356,42 @@ class ProteaBudgetPackService {
       blankRow.eachCell((cell) => { cell.border = BORDER_STYLE; cell.font = DATA_FONT; });
     };
 
+    /** Render a single account-detail row (shared by grouped + flat branches). */
+    const renderAcct = (acct: string, curAcctMap: Map<string, any>, lyAcctMap: Map<string, any>, sign: number) => {
+      const curRow = curAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: acct, account: acct };
+      const lyRow = lyAcctMap.get(acct) || { budget: 0 };
+      const bpRow = budgetMap.get(acct);
+
+      const curBud = curRow.budget * sign;
+      const lyBud = lyRow.budget * sign;
+      const lyAct = curRow.ly * sign;
+      const displayName = curRow.accountName || curRow.account;
+
+      const rowData: any = {
+        label: `    ${displayName}`,
+        lyBud: formatNumber(lyBud),
+        lyBudVar: formatPercentage(pct(curBud, lyBud)),
+        lyAct: formatNumber(lyAct),
+        lyActVar: formatPercentage(pct(curBud, lyAct)),
+        curBud: formatNumber(curBud),
+        comments: '',
+      };
+      for (let i = 0; i < this.periods.length; i++) {
+        const p = this.periods[i];
+        rowData[`budM${i}`] = fmtN0(bpRow ? (bpRow[p] || 0) * sign : 0);
+      }
+
+      const excelRow = sheet.addRow(rowData);
+
+      const accountLabel = this.buildAccountLabel(displayName, curRow.account);
+      if (typeof accountLabel !== 'string') {
+        excelRow.getCell(1).value = { richText: [{ font: { size: 10 }, text: '    ' }, ...accountLabel.richText] };
+      }
+
+      applyDataRowStyle(excelRow);
+      this.applyNumberFormats(excelRow);
+    };
+
     for (const category of categories) {
       const curCategoryRows = currentData.filter(r => r.category === category);
       const lyCategoryRows = lyData.filter(r => r.category === category);
@@ -1401,6 +1438,34 @@ class ProteaBudgetPackService {
           applyDataRowStyle(excelRow);
           this.applyNumberFormats(excelRow);
         }
+      } else if (options?.flattenCategories?.includes(category)) {
+        // Flattened: render all accounts without level_12 sub-group headers/subtotals.
+        // A759* accounts are still collected into a "Levies" sub-group rendered
+        // (with header + subtotal) at the bottom of the flat list.
+        const allAccounts: string[] = [];
+        const curAcctMap = new Map<string, any>();
+        const lyAcctMap = new Map<string, any>();
+        for (const row of curCategoryRows) { curAcctMap.set(row.account, row); if (!allAccounts.includes(row.account)) allAccounts.push(row.account); }
+        for (const row of lyCategoryRows) { lyAcctMap.set(row.account, row); if (!allAccounts.includes(row.account)) allAccounts.push(row.account); }
+
+        const leviesAccounts = allAccounts.filter(a => isLeviesAccount(a));
+        const nonLeviesAccounts = allAccounts.filter(a => !isLeviesAccount(a));
+
+        for (const acct of nonLeviesAccounts) renderAcct(acct, curAcctMap, lyAcctMap, sign);
+
+        if (leviesAccounts.length > 0) {
+          const sgHeaderRow = sheet.addRow(new Array(tc).fill(''));
+          sgHeaderRow.getCell(1).value = LEVIES_SUBGROUP;
+          applyGroupHeaderStyle(sgHeaderRow);
+
+          for (const acct of leviesAccounts) renderAcct(acct, curAcctMap, lyAcctMap, sign);
+
+          const curLeviesRows = leviesAccounts.map(a => curAcctMap.get(a)).filter(Boolean);
+          const lyLeviesRows = leviesAccounts.map(a => lyAcctMap.get(a)).filter(Boolean);
+          addTotalRow(`  Total ${LEVIES_SUBGROUP}`, curLeviesRows, lyLeviesRows, applyGroupSubtotalStyle, sign);
+          addBlank();
+        }
+
       } else {
         // Group by level_12
         // A759* accounts are carved out into a "Levies" sub-group.
@@ -1441,41 +1506,7 @@ class ProteaBudgetPackService {
           for (const row of curGroupRows) { curAcctMap.set(row.account, row); if (!allAccounts.includes(row.account)) allAccounts.push(row.account); }
           for (const row of lyGroupRows) { lyAcctMap.set(row.account, row); if (!allAccounts.includes(row.account)) allAccounts.push(row.account); }
 
-          for (const acct of allAccounts) {
-            const curRow = curAcctMap.get(acct) || { actuals: 0, budget: 0, vsBud: 0, ly: 0, vsLy: 0, accountName: acct, account: acct };
-            const lyRow = lyAcctMap.get(acct) || { budget: 0 };
-            const bpRow = budgetMap.get(acct);
-
-            const curBud = curRow.budget * sign;
-            const lyBud = lyRow.budget * sign;
-            const lyAct = curRow.ly * sign;
-            const displayName = curRow.accountName || curRow.account;
-
-            const rowData: any = {
-              label: `    ${displayName}`,
-              lyBud: formatNumber(lyBud),
-              lyBudVar: formatPercentage(pct(curBud, lyBud)),
-              lyAct: formatNumber(lyAct),
-              lyActVar: formatPercentage(pct(curBud, lyAct)),
-              curBud: formatNumber(curBud),
-              comments: '',
-            };
-            for (let i = 0; i < this.periods.length; i++) {
-              const p = this.periods[i];
-              rowData[`budM${i}`] = fmtN0(bpRow ? (bpRow[p] || 0) * sign : 0);
-            }
-
-            const excelRow = sheet.addRow(rowData);
-
-            // Rich text account label
-            const accountLabel = this.buildAccountLabel(displayName, curRow.account);
-            if (typeof accountLabel !== 'string') {
-              excelRow.getCell(1).value = { richText: [{ font: { size: 10 }, text: '    ' }, ...accountLabel.richText] };
-            }
-
-            applyDataRowStyle(excelRow);
-            this.applyNumberFormats(excelRow);
-          }
+          for (const acct of allAccounts) renderAcct(acct, curAcctMap, lyAcctMap, sign);
 
           // Group subtotal
           addTotalRow(`  Total ${proteaRenameLabel(gName)}`, curGroupRows, lyGroupRows, applyGroupSubtotalStyle, sign);

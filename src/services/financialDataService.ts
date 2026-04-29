@@ -29,6 +29,7 @@ export interface IncrementalSyncResult {
   totalCount: number;
   updatedPeriods: string[];
   skippedPeriods: string[];
+  orphanedPeriods: string[];
   message: string;
 }
 
@@ -181,12 +182,27 @@ class FinancialDataService {
       const serverVersions = await this.fetchServerVersions(ou);
 
       if (!serverVersions || serverVersions.length === 0) {
+        // Server authoritatively reports zero periods for this OU.
+        // Treat every local period as an orphan and remove via the same
+        // per-period delete path used in the normal reconciliation branch.
+        // Staging is untouched — getLocalVersions only reads financial_data.
+        const localVersions = await this.getLocalVersions(ou);
+        const orphanPeriods = localVersions.map(v => v.period);
+        if (orphanPeriods.length > 0 && typeof window !== 'undefined' && window.ipcApi) {
+          await window.ipcApi.sendIpcRequest('db:delete-synced-financial-data-for-periods', {
+            ou,
+            periods: orphanPeriods
+          });
+        }
         return {
           success: true,
           totalCount: 0,
           updatedPeriods: [],
           skippedPeriods: [],
-          message: 'No financial data found on server for this OU'
+          orphanedPeriods: orphanPeriods,
+          message: orphanPeriods.length > 0
+            ? `Remote OU has no periods. Removed ${orphanPeriods.length} local period(s). Staging untouched.`
+            : 'No financial data on server and nothing local to reconcile.'
         };
       }
 
@@ -206,27 +222,45 @@ class FinancialDataService {
         if (!localLastModified) {
           // Period doesn't exist locally, needs to be fetched
           outdatedPeriods.push(serverVersion.period);
+        } else if (serverVersion.last_updated !== localLastModified) {
+          // Both values originate from the server and are stored verbatim,
+          // so byte-equality is the honest check. Any divergence — server
+          // newer, local newer, or any other mismatch — means state has
+          // drifted and the period should be refetched. This pairs with the
+          // orphan-period deletion above to give full bidirectional
+          // reconciliation, removing the need for users to guess and hit
+          // a manual force-reset.
+          outdatedPeriods.push(serverVersion.period);
         } else {
-          // Compare timestamps - server last_updated vs local last_modified
-          const serverDate = new Date(serverVersion.last_updated);
-          const localDate = new Date(localLastModified);
-
-          if (serverDate > localDate) {
-            outdatedPeriods.push(serverVersion.period);
-          } else {
-            skippedPeriods.push(serverVersion.period);
-          }
+          skippedPeriods.push(serverVersion.period);
         }
+      }
+
+      // 3b. Detect orphan periods: present locally, absent from server manifest.
+      // Absence in the manifest is the deletion signal — there are no tombstones.
+      // Staging is structurally invisible here (localVersionMap comes from
+      // financial_data only).
+      const serverPeriodSet = new Set(serverVersions.map(v => v.period));
+      const orphanPeriods = [...localVersionMap.keys()].filter(p => !serverPeriodSet.has(p));
+      if (orphanPeriods.length > 0 && typeof window !== 'undefined' && window.ipcApi) {
+        await window.ipcApi.sendIpcRequest('db:delete-synced-financial-data-for-periods', {
+          ou,
+          periods: orphanPeriods
+        });
       }
 
       // 4. If nothing to update, return early
       if (outdatedPeriods.length === 0) {
+        const orphanNote = orphanPeriods.length > 0
+          ? ` Removed ${orphanPeriods.length} orphan period(s).`
+          : '';
         return {
           success: true,
           totalCount: 0,
           updatedPeriods: [],
           skippedPeriods,
-          message: 'All periods are up to date'
+          orphanedPeriods: orphanPeriods,
+          message: `All periods are up to date.${orphanNote}`
         };
       }
 
@@ -239,6 +273,7 @@ class FinancialDataService {
           totalCount: 0,
           updatedPeriods: outdatedPeriods,
           skippedPeriods,
+          orphanedPeriods: orphanPeriods,
           message: `No records found for ${outdatedPeriods.length} period(s)`
         };
       }
@@ -256,7 +291,8 @@ class FinancialDataService {
           totalCount: records.length,
           updatedPeriods: outdatedPeriods,
           skippedPeriods,
-          message: `Updated ${outdatedPeriods.length} period(s) with ${records.length} records. Skipped ${skippedPeriods.length} up-to-date period(s).`
+          orphanedPeriods: orphanPeriods,
+          message: `Updated ${outdatedPeriods.length} period(s) with ${records.length} records. Skipped ${skippedPeriods.length} up-to-date period(s).${orphanPeriods.length > 0 ? ` Removed ${orphanPeriods.length} orphan period(s).` : ''}`
         };
       } else {
         throw new Error('IPC API not available');

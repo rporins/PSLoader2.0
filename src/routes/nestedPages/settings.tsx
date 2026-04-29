@@ -346,42 +346,12 @@ export default function Settings() {
     }
   };
 
-  const handleForceUpdateFinancialData = async () => {
-    if (!selectedHotelOu) {
-      setFinancialDataImportMessage({
-        type: 'error',
-        message: 'Please select a hotel first'
-      });
-      return;
-    }
-
-    setImportingFinancialData(true);
-    setFinancialDataImportMessage(null);
-
-    try {
-      // Force full import - ignores timestamps and downloads all data
-      const result = await financialDataService.importFinancialDataFull(selectedHotelOu);
-
-      setFinancialDataImportMessage({
-        type: 'success',
-        message: `Force update complete: ${result.message}`
-      });
-
-      // Reload financial data info
-      await loadFinancialDataInfo();
-
-      // Clear message after 5 seconds
-      setTimeout(() => setFinancialDataImportMessage(null), 5000);
-    } catch (err: any) {
-      console.error('Failed to force update financial data:', err);
-      setFinancialDataImportMessage({
-        type: 'error',
-        message: err.message || 'Failed to force update financial data'
-      });
-    } finally {
-      setImportingFinancialData(false);
-    }
-  };
+  // Force-update handler removed: bidirectional auto-reconciliation in
+  // importFinancialDataIncremental (orphan-period delete + byte-equality
+  // refetch on any timestamp divergence) covers the cases this button used
+  // to handle. The underlying service methods (importFinancialDataFull /
+  // importFinancialData) are intentionally retained so the button can be
+  // restored if a sync gap surfaces in production.
 
   const handleDownloadTemplate = async (templateId: string) => {
     setTemplateMessage(null);
@@ -783,18 +753,6 @@ export default function Settings() {
                 }}
               >
                 {importingFinancialData ? 'Importing...' : 'Import Financial Data'}
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={importingFinancialData ? <CircularProgress size={20} /> : <DownloadIcon />}
-                onClick={handleForceUpdateFinancialData}
-                disabled={importingFinancialData || !selectedHotelOu}
-                sx={{
-                  borderRadius: 1,
-                  textTransform: 'none',
-                }}
-              >
-                {importingFinancialData ? 'Importing...' : 'Force Update'}
               </Button>
             </Stack>
             {!selectedHotelOu && (

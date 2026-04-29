@@ -155,6 +155,7 @@ export const IPC_CHANNELS = {
   // Financial data import channels
   DB_STORE_FINANCIAL_DATA: 'db:store-financial-data',
   DB_STORE_FINANCIAL_DATA_FOR_PERIODS: 'db:store-financial-data-for-periods',
+  DB_DELETE_SYNCED_FINANCIAL_DATA_FOR_PERIODS: 'db:delete-synced-financial-data-for-periods',
   DB_GET_FINANCIAL_DATA_COUNT: 'db:get-financial-data-count',
   DB_GET_FINANCIAL_DATA_LAST_IMPORT: 'db:get-financial-data-last-import',
   DB_GET_FINANCIAL_DATA_LOCAL_VERSIONS: 'db:get-financial-data-local-versions',

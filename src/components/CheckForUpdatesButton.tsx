@@ -82,10 +82,16 @@ export default function CheckForUpdatesButton({ onDataUpdated }: CheckForUpdates
       // Start cooldown
       setCooldownRemaining(COOLDOWN_SECONDS);
 
-      if (result.updatedPeriods.length > 0) {
+      const updated = result.updatedPeriods.length;
+      const orphaned = result.orphanedPeriods?.length ?? 0;
+
+      if (updated > 0 || orphaned > 0) {
+        const parts: string[] = [];
+        if (updated > 0) parts.push(`Updated ${updated} period(s)`);
+        if (orphaned > 0) parts.push(`removed ${orphaned} stale period(s) no longer on server`);
         setNotification({
           open: true,
-          message: `Updated ${result.updatedPeriods.length} period(s) with new data`,
+          message: parts.join(', '),
           severity: 'success'
         });
         onDataUpdated?.();
