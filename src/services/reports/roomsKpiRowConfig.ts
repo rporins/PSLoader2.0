@@ -17,6 +17,8 @@ export const ROOMS_KPI_ROW_CONFIG: PLRow[] = [
   { type: 'measure', label: 'ADR',                         measureId: 'adr',                     formatting: 'number',     indentLevel: 1 },
   { type: 'measure', label: 'RevPAR',                      measureId: 'rev_par',                 formatting: 'number',     indentLevel: 1 },
   { type: 'measure', label: 'RevPAR after TAC',            measureId: 'rev_par_after_tac',       formatting: 'number',     indentLevel: 1 },
+  { type: 'measure', label: 'Rooms Available',            measureId: 'total_rooms',             formatting: 'number',     indentLevel: 1 },
+  { type: 'measure', label: 'Rooms SOLD',                  measureId: 'sold_rooms',              formatting: 'number',     indentLevel: 1 },
   { type: 'measure', label: 'Bed Nights Sold',             measureId: 'bed_nights_sold',         formatting: 'number',     indentLevel: 1 },
   { type: 'measure', label: 'Bed Nights Available',        measureId: 'bed_nights_avail',        formatting: 'number',     indentLevel: 1 },
   { type: 'measure', label: 'Average Bed Occupancy %',     measureId: 'avg_bed_occupancy_pct',   formatting: 'percentage', indentLevel: 1 },

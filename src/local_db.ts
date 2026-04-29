@@ -5875,7 +5875,7 @@ export interface DepartmentDetailRow {
 
 /** Non-operating departments excluded from all report exports (Excel, Protea).
  *  TODO: Replace with a mapping table attribute (e.g., dm.is_reportable) in a future iteration. */
-export const NON_OPERATING_EXCLUDED_DEPARTMENTS = new Set(['D1468', 'D3095', 'D0376', 'D3096', 'D0499']);
+export const NON_OPERATING_EXCLUDED_DEPARTMENTS = new Set(['D1468', 'D3095', 'D0376', 'D0370', 'D3096', 'D0499']);
 
 // ============================================================================
 // DEPARTMENT DETAIL — SHARED INFRASTRUCTURE

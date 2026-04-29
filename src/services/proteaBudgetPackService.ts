@@ -16,11 +16,11 @@ import ExcelJS from 'exceljs';
 import * as db from '../local_db';
 import { PLCalculationResult } from '../types/plReportTypes';
 import { PROTEA_F90_PL_ROW_CONFIG, PROTEA_F90_PL_ROW_CONFIG_WITH_BANQUETING } from './reports/proteaF90PLRowConfig';
-import { filterZeroRowsAcrossDatasets } from './reports/plCalculationEngine';
 import { INVEST_CUSTOM_SUBGROUPS, InvestSubgroupDef } from './reports/investSubgroupConfig';
 import {
   ROOMS_KPI_CONFIG,
   FB_KPI_CONFIG,
+  PCT_OF_REVENUE_KPI_GROUPS,
   MONTH_NAMES,
   TAB_COLOR_REPORT,
   TAB_COLOR_GROUP_SUMMARY,
@@ -115,6 +115,62 @@ function offsetPeriodMinusYear(period: string): string {
 /** Compute variance percentage: (a - b) / |b| * 100 */
 function pct(a: number, b: number): number {
   return b !== 0 ? ((a - b) / Math.abs(b)) * 100 : 0;
+}
+
+// Budget-pack number/percentage formatters: coalesce null/undefined to 0 so
+// cells render as "0" / "0.0%" instead of blank. The shared helpers in
+// proteaShared.ts return '' for null (used by the actuals pack); we wrap
+// them here so this behaviour is scoped to the budget pack only.
+const fmtN0 = (v: number | null | undefined, decimals: number = 0): number | string =>
+  formatNumber(v ?? 0, decimals);
+const fmtP0 = (v: number | null | undefined): string =>
+  formatPercentage(v ?? 0);
+
+/**
+ * Filter the budget-pack period datasets to "live" accounts only — i.e. any
+ * account whose period totals across the three displayed scenarios (Current
+ * Budget, LY Budget, LY Actuals) sum to non-zero.
+ *
+ * Slot conventions (see comments on addBudgetDepartmentDataSection):
+ *   - currentData: budget = CurBud (period total), ly = LYAct (period total)
+ *   - lyData:      budget = LYBud (period total)
+ *
+ * Per-month detail (budgetByPeriod) is intentionally NOT consulted: the
+ * period totals are sufficient because per-month values that net to zero
+ * across the period make the row visually empty anyway. Filtering once at
+ * the data layer (rather than per-row at render) lets level_12 grouping and
+ * category-empty handling cascade naturally — all-zero groups disappear
+ * with their headers and subtotals, no per-site logic needed.
+ *
+ * O(n) where n = |currentData| + |lyData|. One sums map, one Set, two
+ * filtered arrays — strictly cheaper than iterating per render site.
+ */
+function filterLiveAccountRows(
+  currentData: any[],
+  lyData: any[]
+): { currentData: any[]; lyData: any[] } {
+  const sums = new Map<string, { cur: number; lyB: number; lyA: number }>();
+  const accumulate = (acct: string): { cur: number; lyB: number; lyA: number } => {
+    let s = sums.get(acct);
+    if (!s) { s = { cur: 0, lyB: 0, lyA: 0 }; sums.set(acct, s); }
+    return s;
+  };
+  for (const r of currentData) {
+    const s = accumulate(r.account);
+    s.cur += Number(r.budget) || 0;
+    s.lyA += Number(r.ly) || 0;
+  }
+  for (const r of lyData) {
+    accumulate(r.account).lyB += Number(r.budget) || 0;
+  }
+  const live = new Set<string>();
+  for (const [acct, s] of sums) {
+    if (s.cur !== 0 || s.lyB !== 0 || s.lyA !== 0) live.add(acct);
+  }
+  return {
+    currentData: currentData.filter(r => live.has(r.account)),
+    lyData:      lyData.filter(r => live.has(r.account)),
+  };
 }
 
 // ============================================================================
@@ -255,43 +311,73 @@ class ProteaBudgetPackService {
   }
 
   // ============================================================================
-  // ROOMS KPI BLOCK (Budget Pack column layout)
+  // KPI BLOCKS (Budget Pack column layout) — Rooms, F&B, % of Revenue
   //
   // Slot remapping (per getProteaBudgetF90PLData): the engine's "actuals" slot
   // carries Current Budget, "budget" slot carries LY Budget, and "ly" slot
   // carries LY Actuals. We map them onto the budget pack columns accordingly.
   //
-  // Monthly columns (budM*) are intentionally left blank for KPI rows: a per-
-  // month KPI requires a per-month engine query, which would multiply the data
-  // round-trips. Add monthly KPI evaluation here as a follow-up if business
-  // need arises.
+  // Per-month KPI values come from the same getProteaBudgetF90PLData round-
+  // trip that produces the totals (the DB layer returns total + monthly in a
+  // single call), so wiring them up is a free render-side operation — no
+  // extra queries.
   // ============================================================================
 
-  /** Run the F90 engine over a small KPI rowConfig for the budget pack period
-   *  and return a label-indexed map of results (totals only, no monthly). */
+  /** Bundle of period totals plus per-month maps from a single F90 engine
+   *  call over a KPI rowConfig. Both maps are keyed by row.label. */
   private async fetchBudgetKpiEngineData(
     config: ProteaBudgetPackConfig,
     kpiConfig: any[]
-  ): Promise<Map<string, PLCalculationResult>> {
-    const { total } = await db.getProteaBudgetF90PLData(
+  ): Promise<{
+    total: Map<string, PLCalculationResult>;
+    monthly: Map<string, Map<string, PLCalculationResult>>;
+  }> {
+    // skipFilter=true: keep all configured rows so the per-period maps stay
+    // aligned with the totals map (KPI configs have no spacers/headers, but
+    // a measure that evaluates to zero in some month would otherwise be
+    // dropped from that month's payload).
+    const { total, monthly } = await db.getProteaBudgetF90PLData(
       config.startMonth, config.startYear,
       config.endMonth, config.endYear,
-      config.ou, config.version, kpiConfig
+      config.ou, config.version, kpiConfig, true
     );
-    const rows: PLCalculationResult[] = JSON.parse(total);
-    const map = new Map<string, PLCalculationResult>();
-    for (const row of rows) if (row.type === 'measure') map.set(row.label, row);
-    return map;
+    const totalMap = new Map<string, PLCalculationResult>();
+    for (const row of JSON.parse(total) as PLCalculationResult[]) {
+      if (row.type === 'measure') totalMap.set(row.label, row);
+    }
+    const monthlyMap = new Map<string, Map<string, PLCalculationResult>>();
+    for (const [period, json] of Object.entries(monthly)) {
+      const m = new Map<string, PLCalculationResult>();
+      for (const row of JSON.parse(json as string) as PLCalculationResult[]) {
+        if (row.type === 'measure') m.set(row.label, row);
+      }
+      monthlyMap.set(period, m);
+    }
+    return { total: totalMap, monthly: monthlyMap };
   }
 
-  /** Render the Rooms & Reservation Summary KPI block on a budget pack
-   *  group summary sheet, in the budget pack column layout. */
-  private addBudgetRoomsKpiRows(
+  /** Render an arbitrary stack of KPI sections (header + measure rows) on a
+   *  budget pack group summary sheet. Tuple format per row:
+   *    [displayLabel, isPercentage, decimals?, lookupKey?]
+   *  - lookupKey defaults to displayLabel; pass it when the engine label
+   *    differs from the user-facing label (e.g. FB '% Food COS' rendered
+   *    as 'Food Cost of Sales %').
+   *  - decimals only applies when isPercentage=false (default 0).
+   *  Section headers with empty rows are skipped so that callers can compose
+   *  conditional sections without bookkeeping.
+   */
+  private renderBudgetKpiSections(
     sheet: ExcelJS.Worksheet,
-    kpi: Map<string, PLCalculationResult>
+    kpi: { total: Map<string, PLCalculationResult>; monthly: Map<string, Map<string, PLCalculationResult>> },
+    sections: Array<{
+      header: string;
+      rows: Array<[string, boolean] | [string, boolean, number] | [string, boolean, number, string]>;
+    }>
   ): void {
     const tc = this.totalCols;
     const fmtPct = (v: number) => `${v.toFixed(1)}%`;
+    const fmtNum = (v: number, decimals: number) =>
+      decimals > 0 ? v.toFixed(decimals) : formatNumber(v);
 
     const addBlank = () => {
       const row = sheet.addRow(new Array(tc).fill(''));
@@ -304,62 +390,201 @@ class ProteaBudgetPackService {
       applyCategorySubtotalStyle(row);
     };
 
-    const addKpiRow = (label: string, isPct: boolean) => {
-      const result = kpi.get(label);
-      const curBud = result?.actuals ?? 0;
-      const lyBud = result?.budget ?? 0;
-      const lyAct = result?.ly ?? 0;
-      const fmt = isPct ? fmtPct : (v: number) => formatNumber(v);
+    const addKpiRow = (displayLabel: string, isPct: boolean, decimals: number, lookupKey: string) => {
+      const totalResult = kpi.total.get(lookupKey);
+      const curBud = totalResult?.actuals ?? 0;
+      const lyBud  = totalResult?.budget  ?? 0;
+      const lyAct  = totalResult?.ly      ?? 0;
+      const fmt = isPct ? fmtPct : (v: number) => fmtNum(v, decimals);
 
+      // Slot remap (per getProteaBudgetF90PLData): actuals=CurBud, budget=LYBud, ly=LYAct.
+      // Render 0 / 0.0% (not blank) when there's no LY divisor or no per-month
+      // value, so rows with current-only or LY-only data don't show empty
+      // cells (which look like the report is broken to non-technical users).
       const rowData: any = {
-        label: `  ${label}`,
+        label: `  ${displayLabel}`,
         lyBud: fmt(lyBud),
-        lyBudVar: lyBud !== 0 ? fmtPct(((curBud - lyBud) / Math.abs(lyBud)) * 100) : '',
+        lyBudVar: fmtPct(lyBud !== 0 ? ((curBud - lyBud) / Math.abs(lyBud)) * 100 : 0),
         lyAct: fmt(lyAct),
-        lyActVar: lyAct !== 0 ? fmtPct(((curBud - lyAct) / Math.abs(lyAct)) * 100) : '',
+        lyActVar: fmtPct(lyAct !== 0 ? ((curBud - lyAct) / Math.abs(lyAct)) * 100 : 0),
         curBud: fmt(curBud),
         comments: '',
       };
-      // Monthly KPI columns intentionally left blank — see method header.
+
+      // Per-month KPI value = that month's CurBud slot from the F90 engine
+      // run over the KPI rowConfig (no extra round-trips: monthly was returned
+      // alongside total in fetchBudgetKpiEngineData). Missing month → 0.
+      for (let i = 0; i < this.periods.length; i++) {
+        const monthKpi = kpi.monthly.get(this.periods[i]);
+        const monthVal = monthKpi?.get(lookupKey)?.actuals ?? 0;
+        rowData[`budM${i}`] = fmt(monthVal);
+      }
+
       const excelRow = sheet.addRow(rowData);
       applyDataRowStyle(excelRow);
-      // Don't apply integer format to percentages — leave as text strings already.
     };
 
-    addBlank();
-    addSectionHeader('Rooms & Reservation Summary');
-    addKpiRow('Occupancy %',                    true);
-    addKpiRow('ADR',                            false);
-    addKpiRow('RevPAR',                         false);
-    addKpiRow('RevPAR after TAC',               false);
-    addKpiRow('Bed Nights Sold',                false);
-    addKpiRow('Bed Nights Available',           false);
-    addKpiRow('Average Bed Occupancy %',        true);
-    addKpiRow('Average Guest Rate',             false);
-    addKpiRow('Double Occupancy %',             true);
-    addKpiRow('Rooms Available per Day',        false);
-    addKpiRow('Bed Available per Day',          false);
+    for (const section of sections) {
+      if (section.rows.length === 0) continue;
+      addBlank();
+      addSectionHeader(section.header);
+      for (const r of section.rows) {
+        const [displayLabel, isPct] = r;
+        const decimals = (r[2] as number | undefined) ?? 0;
+        const lookupKey = (r[3] as string | undefined) ?? displayLabel;
+        addKpiRow(displayLabel, isPct, decimals, lookupKey);
+      }
+    }
+  }
 
-    addBlank();
-    addSectionHeader('Per Room Night Sold');
-    addKpiRow('Operating Supplies',    false);
-    addKpiRow('Cleaning Supplies',     false);
-    addKpiRow('Guest Supplies',        false);
-    addKpiRow('Paper Supplies',        false);
-    addKpiRow('Printing & Stationery', false);
-    addKpiRow('Laundry',               false);
+  /** Render the Rooms & Reservation Summary KPI block on a budget pack
+   *  group summary sheet (mirror of addRoomsReservationKpiRows in the
+   *  actuals pack). */
+  private addBudgetRoomsKpiRows(
+    sheet: ExcelJS.Worksheet,
+    kpi: { total: Map<string, PLCalculationResult>; monthly: Map<string, Map<string, PLCalculationResult>> }
+  ): void {
+    this.renderBudgetKpiSections(sheet, kpi, [
+      {
+        header: 'Rooms & Reservation Summary',
+        rows: [
+          ['Occupancy %',                    true],
+          ['ADR',                            false],
+          ['RevPAR',                         false],
+          ['RevPAR after TAC',               false],
+          ['Bed Nights Sold',                false],
+          ['Bed Nights Available',           false],
+          ['Average Bed Occupancy %',        true],
+          ['Average Guest Rate',             false],
+          ['Double Occupancy %',             true],
+          ['Rooms Available per Day',        false],
+          ['Bed Available per Day',          false],
+        ],
+      },
+      {
+        header: 'Per Room Night Sold',
+        rows: [
+          ['Operating Supplies',    false, 2],
+          ['Cleaning Supplies',     false, 2],
+          ['Guest Supplies',        false, 2],
+          ['Paper Supplies',        false, 2],
+          ['Printing & Stationery', false, 2],
+          ['Laundry',               false, 2],
+        ],
+      },
+      {
+        header: 'Operating Equipment Usage per Room Night Sold',
+        rows: [
+          ['Flatware (Cutlery)', false, 2],
+          ['Linen',              false, 2],
+          ['Glassware',          false, 2],
+          ['Room Smalls',        false, 2],
+        ],
+      },
+      {
+        header: 'Percentage of Room Sales',
+        rows: [
+          ['Payroll as a % of Room Sales',         true],
+          ['Other Expenses as a % of Room Sales',  true],
+        ],
+      },
+    ]);
+  }
 
-    addBlank();
-    addSectionHeader('Operating Equipment Usage per Room Night Sold');
-    addKpiRow('Flatware (Cutlery)', false);
-    addKpiRow('Linen',              false);
-    addKpiRow('Glassware',          false);
-    addKpiRow('Room Smalls',        false);
+  /** Render the Total Food & Beverage Summary KPI block on a budget pack
+   *  group summary sheet (mirror of addFbKpiRows in the actuals pack). */
+  private addBudgetFbKpiRows(
+    sheet: ExcelJS.Worksheet,
+    kpi: { total: Map<string, PLCalculationResult>; monthly: Map<string, Map<string, PLCalculationResult>> }
+  ): void {
+    this.renderBudgetKpiSections(sheet, kpi, [
+      {
+        header: 'Covers',
+        rows: [
+          ['Breakfast Customers',  false],
+          ['Lunch Customers',      false],
+          ['Dinner Customers',     false],
+          ['Late Snack Customers', false],
+          ['Banqueting Customer',  false],
+        ],
+      },
+      {
+        header: 'Average Food Spend',
+        rows: [
+          ['Avg Breakfast Spend',  false, 2],
+          ['Avg Lunch Spend',      false, 2],
+          ['Avg Dinner Spend',     false, 2],
+          ['Avg Late Snack Spend', false, 2],
+          ['Avg Banqueting Spend', false, 2],
+        ],
+      },
+      {
+        header: 'Covers as % of Bed Nights Sold',
+        rows: [
+          ['Breakfast Customers as % of Bed Nights',  true],
+          ['Lunch Customers as % of Bed Nights',      true],
+          ['Dinner Customers as % of Bed Nights',     true],
+          ['Late Snack Customers as % of Bed Nights', true],
+          ['Banqueting Customer as % of Bed Nights',  true],
+        ],
+      },
+      {
+        // FB_KPI_CONFIG keys are '% Food COS' / '% Beverage COS'; render under the
+        // user-facing labels the actuals pack uses.
+        header: 'Cost of Sales',
+        rows: [
+          ['Food Cost of Sales %',     true, 0, '% Food COS'],
+          ['Beverage Cost of Sales %', true, 0, '% Beverage COS'],
+        ],
+      },
+      {
+        header: 'Cost Per Cover',
+        rows: [
+          ['Operating Supplies',    false, 2],
+          ['Cleaning Supplies',     false, 2],
+          ['Guest Supplies',        false, 2],
+          ['Paper Supplies',        false, 2],
+          ['Printing & Stationery', false, 2],
+          ['Laundry',               false, 2],
+        ],
+      },
+      {
+        header: 'Operating Equipment Usage per Cover',
+        rows: [
+          ['Flatware (Cutlery)',    false, 2],
+          ['China (Crockery)',      false, 2],
+          ['Kitchen Utensils',      false, 2],
+          ['Linen',                 false, 2],
+          ['Glassware',             false, 2],
+          ['Restaurant/Bar Smalls', false, 2],
+        ],
+      },
+      {
+        header: 'Percentage of F&B Sales',
+        rows: [
+          ['Payroll as a % of F&B Sales',        true],
+          ['Other Expenses as a % of F&B Sales', true],
+        ],
+      },
+    ]);
+  }
 
-    addBlank();
-    addSectionHeader('Percentage of Room Sales');
-    addKpiRow('Payroll as a % of Room Sales',         true);
-    addKpiRow('Other Expenses as a % of Room Sales',  true);
+  /** Render the "Percentage of Revenue" KPI block on undistributed-OPEX group
+   *  summary sheets (A&G / POM / S&M). Mirror of addPctOfRevenueKpiRows in
+   *  the actuals pack. */
+  private addBudgetPctOfRevenueKpiRows(
+    sheet: ExcelJS.Worksheet,
+    kpi: { total: Map<string, PLCalculationResult>; monthly: Map<string, Map<string, PLCalculationResult>> }
+  ): void {
+    this.renderBudgetKpiSections(sheet, kpi, [
+      {
+        header: 'Percentage of Revenue',
+        rows: [
+          ['Payroll as a % of Revenue',        true],
+          ['Other Expenses as a % of Revenue', true],
+        ],
+      },
+    ]);
   }
 
   // ============================================================================
@@ -433,17 +658,12 @@ class ProteaBudgetPackService {
       applyInvestSubgroupOverridesToF90Rows(monthRows, monthOverrides);
     });
 
-    // Suppress rows that are zero across the total AND every monthly column.
-    // All datasets use skipFilter=true so rowIds are original and aligned.
-    // filterZeroRowsAcrossDatasets removes the same rows from all datasets and
-    // applies a single shared renumber map, keeping rowId alignment intact.
-    const allDatasets = [totalData, ...this.periods.map(p => monthlyData.get(p)!)];
-    const filteredDatasets = filterZeroRowsAcrossDatasets(allDatasets);
-    const filteredTotal = filteredDatasets[0];
-    const filteredMonthly = new Map<string, PLCalculationResult[]>();
-    this.periods.forEach((p, i) => filteredMonthly.set(p, filteredDatasets[i + 1]));
-
-    this.addBudgetF90DataRows(sheet, filteredTotal, filteredMonthly);
+    // F90 must never suppress zero rows: layout parity with the validated
+    // actuals Protea pack requires every PROTEA_F90_PL_ROW_CONFIG row to
+    // render, even when all columns are zero (Incentive Fee, Base Royalty
+    // Fee, Refurbishment Fund, Dividends, etc.). Pass datasets through
+    // unfiltered; addBudgetF90DataRows still skips empty spacing rows.
+    this.addBudgetF90DataRows(sheet, totalData, monthlyData);
 
     // Freeze panes (3 title rows + 2 header rows)
     sheet.views = [{ state: 'frozen', xSplit: 1, ySplit: 5 }];
@@ -462,32 +682,32 @@ class ProteaBudgetPackService {
       const indent = '  '.repeat(row.indentLevel || 0);
       const isPct = row.formatting === 'percentage';
 
-      // Slot remapping: actuals=CurBud, budget=LYBud, ly=LYAct
+      // Slot remapping: actuals=CurBud, budget=LYBud, ly=LYAct.
+      // Null/undefined values render as 0 / 0.0% (see fmtN0/fmtP0) so that
+      // rows with data only on one side of the comparison don't show blank
+      // cells, which makes the row look broken.
       const rowData: any = {
         label: indent + row.label,
-        lyBud: isPct ? formatPercentage(row.budget) : formatNumber(row.budget),
+        lyBud: isPct ? fmtP0(row.budget) : fmtN0(row.budget),
         lyBudVar: isPct
-          ? (row.actuals === null || row.budget === null
-              ? ''
-              : `${((row.actuals ?? 0) - (row.budget ?? 0)).toFixed(1)} pts`)
-          : formatPercentage(row.vs_bud_pct),
-        lyAct: isPct ? formatPercentage(row.ly) : formatNumber(row.ly),
+          ? `${((row.actuals ?? 0) - (row.budget ?? 0)).toFixed(1)} pts`
+          : fmtP0(row.vs_bud_pct),
+        lyAct: isPct ? fmtP0(row.ly) : fmtN0(row.ly),
         lyActVar: isPct
-          ? (row.actuals === null || row.ly === null
-              ? ''
-              : `${((row.actuals ?? 0) - (row.ly ?? 0)).toFixed(1)} pts`)
-          : formatPercentage(row.vs_ly_pct),
-        curBud: isPct ? formatPercentage(row.actuals) : formatNumber(row.actuals),
+          ? `${((row.actuals ?? 0) - (row.ly ?? 0)).toFixed(1)} pts`
+          : fmtP0(row.vs_ly_pct),
+        curBud: isPct ? fmtP0(row.actuals) : fmtN0(row.actuals),
       };
 
-      // Monthly budget columns
+      // Monthly budget columns — render 0 (not blank) when a period has no
+      // value for this row, for the same reason as above.
       for (let i = 0; i < this.periods.length; i++) {
         const period = this.periods[i];
         const monthRows = monthlyData.get(period);
         const matchRow = monthRows?.find(r => r.rowId === row.rowId);
-        rowData[`budM${i}`] = matchRow
-          ? (isPct ? formatPercentage(matchRow.actuals) : formatNumber(matchRow.actuals))
-          : '';
+        rowData[`budM${i}`] = isPct
+          ? fmtP0(matchRow?.actuals)
+          : fmtN0(matchRow?.actuals);
       }
 
       rowData.comments = '';
@@ -677,20 +897,31 @@ class ProteaBudgetPackService {
       lyRows.forEach(r => segNames.add(r.name));
       if (segNames.size === 0) continue;
 
+      // Suppress segments where this metric's CurBud/LYBud/LYAct are all zero;
+      // skip the whole category if every segment is suppressed (avoids an
+      // orphan category header). Each metric section runs independently, so a
+      // segment that's zero in Revenue can still show up in Room Nights.
+      const ZERO_AGG = { revAct: 0, revBud: 0, nightsAct: 0, nightsBud: 0 };
+      const liveSegs: Array<{ segName: string; curBud: number; lyBud: number; lyAct: number; curRow: any; lyRow: any }> = [];
+      for (const segName of segNames) {
+        const curRow = curRows.find(r => r.name === segName) || ZERO_AGG;
+        const lyRow = lyRows.find(r => r.name === segName) || ZERO_AGG;
+        const curBud = extractMetric(curRow, metric).val;
+        const lyBud = extractMetric(lyRow, metric).val;
+        const lyAct = extractMetricActuals(lyRow, metric).val;
+        if (curBud !== 0 || lyBud !== 0 || lyAct !== 0) {
+          liveSegs.push({ segName, curBud, lyBud, lyAct, curRow, lyRow });
+        }
+      }
+      if (liveSegs.length === 0) continue;
+
       // Category header
       const catHeader = sheet.addRow(new Array(segTotalCols).fill(''));
       catHeader.getCell(1).value = category;
       applyCategoryHeaderStyle(catHeader);
       sheet.mergeCells(catHeader.number, 1, catHeader.number, segTotalCols);
 
-      for (const segName of segNames) {
-        const curRow = curRows.find(r => r.name === segName) || { revAct: 0, revBud: 0, nightsAct: 0, nightsBud: 0 };
-        const lyRow = lyRows.find(r => r.name === segName) || { revAct: 0, revBud: 0, nightsAct: 0, nightsBud: 0 };
-
-        const curBud = extractMetric(curRow, metric).val;
-        const lyBud = extractMetric(lyRow, metric).val;
-        const lyAct = extractMetricActuals(lyRow, metric).val;
-
+      for (const { segName, curBud, lyBud, lyAct } of liveSegs) {
         const rowData: any = {
           segment: segName,
           category: category,
@@ -701,17 +932,18 @@ class ProteaBudgetPackService {
           curBud: formatNumber(curBud, decimals),
           comments: '',
         };
+        // Missing monthly bucket → render 0 (not blank) so empty cells don't
+        // look like broken output. ADR uses 0/0 → 0 by definition.
         const monthly = monthlyByKey.get(`${category}::${segName}`);
         for (let i = 0; i < this.periods.length; i++) {
-          if (!monthly) { rowData[`budM${i}`] = ''; continue; }
           if (metric === 'revenue') {
-            rowData[`budM${i}`] = formatNumber(-monthly.revMonthly[i], 0);
+            rowData[`budM${i}`] = fmtN0(monthly ? -monthly.revMonthly[i] : 0, 0);
           } else if (metric === 'nights') {
-            rowData[`budM${i}`] = formatNumber(monthly.nightsMonthly[i], 0);
+            rowData[`budM${i}`] = fmtN0(monthly ? monthly.nightsMonthly[i] : 0, 0);
           } else {
-            const n = monthly.nightsMonthly[i];
-            const r = monthly.revMonthly[i];
-            rowData[`budM${i}`] = formatNumber(n !== 0 ? -r / n : 0, 2);
+            const n = monthly?.nightsMonthly[i] ?? 0;
+            const r = monthly?.revMonthly[i] ?? 0;
+            rowData[`budM${i}`] = fmtN0(n !== 0 ? -r / n : 0, 2);
           }
         }
 
@@ -763,12 +995,13 @@ class ProteaBudgetPackService {
 
       this.sheetRegistry.push({ type: 'groupHeader', sheetName: '', groupName, indent: false });
 
-      // Group summary sheet
-      const summaryName = await this.createBudgetGroupSummaryWorksheet(
+      // Group summary sheet — for Invest Factor Owner this returns BOTH the
+      // INVEST FACTOR OWNER SUMMARY and the spun-off FIXED EXPENSES tab.
+      const summaryNames = await this.createBudgetGroupSummaryWorksheet(
         workbook, config, groupName, groupDepts, usedSheetNames, movedCurrent, movedLY, movedDeptData, movedBudgetByPeriod
       );
-      if (summaryName) {
-        this.sheetRegistry.push({ type: 'sheet', sheetName: summaryName, indent: true });
+      for (const name of summaryNames) {
+        this.sheetRegistry.push({ type: 'sheet', sheetName: name, indent: true });
       }
 
       // Individual department detail sheets (if enabled)
@@ -800,10 +1033,10 @@ class ProteaBudgetPackService {
     movedLY: any[],
     movedDeptData: Map<string, { current: any[]; ly: any[] }>,
     movedBudgetByPeriod: Map<string, Array<{ account: string; [p: string]: number }>>
-  ): Promise<string | null> {
+  ): Promise<string[]> {
     const deptIds = groupDepts.map(d => d.baseDepartment);
     let effectiveDeptIds = deptIds.filter(id => !MOVED_DEPT_SET.has(id));
-    if (effectiveDeptIds.length === 0 && !MOVEMENT_TARGET_GROUPS.has(groupName)) return null;
+    if (effectiveDeptIds.length === 0 && !MOVEMENT_TARGET_GROUPS.has(groupName)) return [];
 
     // Fetch current period data (budget=CurBud, ly=LYAct)
     let [currentData, lyData] = await Promise.all([
@@ -846,7 +1079,7 @@ class ProteaBudgetPackService {
     currentData = aggregateDuplicateAccounts(currentData);
     lyData = aggregateDuplicateAccounts(lyData);
 
-    if (currentData.length === 0 && lyData.length === 0) return null;
+    if (currentData.length === 0 && lyData.length === 0) return [];
 
     // Create sheet
     let sheetName = sanitizeSheetName(`${proteaRenameLabel(groupName)} Summary`.toUpperCase());
@@ -865,11 +1098,18 @@ class ProteaBudgetPackService {
     this.addSheetTitleHeader(sheet, config, proteaRenameLabel(groupName));
     this.addColumnHeaders(sheet, config);
 
-    // Render data — Invest Factor Owner uses custom subgroup layout
+    // Render data — Invest Factor Owner uses custom subgroup layout. Fixed
+    // Expenses is hidden here so it can be rendered on its own tab below
+    // (mirrors the actuals pack's INVEST/FIXED EXPENSES split). F90 is
+    // unaffected: its "Fixed Expenses" override is sourced from
+    // computeInvestFactorOwnerSubgroupTotals() which classifies the same
+    // accounts independently of this rendering filter.
     const isInvestGroup = groupName === 'Invest Factor Owner';
     const isRoomsGroup = groupName === 'Rooms and Reservation';
     if (isInvestGroup) {
-      this.addBudgetCustomSubgroupDataSection(sheet, currentData, lyData, budgetByPeriod);
+      this.addBudgetCustomSubgroupDataSection(sheet, currentData, lyData, budgetByPeriod, {
+        hideSubgroupNames: ['Fixed Expenses'],
+      });
     } else {
       this.addBudgetDepartmentDataSection(sheet, currentData, lyData, budgetByPeriod, {
         collapseRevenueDetail: !config.generateDetailTabs && isRoomsGroup,
@@ -879,7 +1119,75 @@ class ProteaBudgetPackService {
     if (isRoomsGroup) {
       const kpi = await this.fetchBudgetKpiEngineData(config, ROOMS_KPI_CONFIG);
       this.addBudgetRoomsKpiRows(sheet, kpi);
+    } else if (groupName === 'Total Food & Beverage') {
+      const kpi = await this.fetchBudgetKpiEngineData(config, FB_KPI_CONFIG);
+      this.addBudgetFbKpiRows(sheet, kpi);
+    } else {
+      // % of Hotel Revenue block — A&G, POM, S&M (any group registered
+      // in PCT_OF_REVENUE_KPI_GROUPS). Mirrors the actuals pack dispatch.
+      const pctRevConfig = PCT_OF_REVENUE_KPI_GROUPS.get(groupName);
+      if (pctRevConfig) {
+        const kpi = await this.fetchBudgetKpiEngineData(config, pctRevConfig);
+        this.addBudgetPctOfRevenueKpiRows(sheet, kpi);
+      }
     }
+
+    sheet.views = [{ state: 'frozen', xSplit: 1, ySplit: 5 }];
+
+    // Spawn the FIXED EXPENSES companion tab off the same fetched dataset
+    // (no extra DB round-trips). Returns null if the subgroup is empty.
+    const sheetNames: string[] = [finalName];
+    if (isInvestGroup) {
+      const fixedExpName = this.createBudgetFixedExpensesSheet(
+        workbook, config, currentData, lyData, budgetByPeriod, usedSheetNames
+      );
+      if (fixedExpName) sheetNames.push(fixedExpName);
+    }
+    return sheetNames;
+  }
+
+  /**
+   * FIXED EXPENSES tab — renders ONLY the level_20 = 'Fixed Expenses' subgroup
+   * out of the same INVEST FACTOR OWNER dataset. Mirrors the actuals pack's
+   * createInvestFixedExpensesSheet (proteaReportPackService.ts) but uses the
+   * budget pack column layout.
+   *
+   * No extra queries: data is the same currentData / lyData / budgetByPeriod
+   * already aggregated for the INVEST FACTOR OWNER SUMMARY.
+   *
+   * Tie-out: F90's "Fixed Expenses" row, the INVEST sheet (where it's hidden),
+   * and this sheet all sum the same accounts (level_20 = 'Fixed Expenses' on
+   * D0480/D0490/D0690/D0691). The INVEST sheet hides the subgroup at render
+   * time only — accounts remain in the data, so F90's independent classifier
+   * call still produces the same total. No double counting, no orphan data.
+   */
+  private createBudgetFixedExpensesSheet(
+    workbook: ExcelJS.Workbook,
+    config: ProteaBudgetPackConfig,
+    currentData: any[],
+    lyData: any[],
+    budgetByPeriod: Array<{ account: string; [p: string]: number }>,
+    usedSheetNames: Set<string>
+  ): string | null {
+    let sheetName = sanitizeSheetName('FIXED EXPENSES');
+    let finalName = sheetName;
+    let counter = 1;
+    while (usedSheetNames.has(finalName.toLowerCase())) {
+      const suffix = ` (${counter})`;
+      finalName = sheetName.substring(0, 31 - suffix.length) + suffix;
+      counter++;
+    }
+    usedSheetNames.add(finalName.toLowerCase());
+
+    const sheet = workbook.addWorksheet(finalName, { properties: { tabColor: TAB_COLOR_GROUP_SUMMARY } });
+    sheet.columns = this.buildColumns();
+
+    this.addSheetTitleHeader(sheet, config, 'Fixed Expenses');
+    this.addColumnHeaders(sheet, config);
+
+    this.addBudgetCustomSubgroupDataSection(sheet, currentData, lyData, budgetByPeriod, {
+      onlySubgroupNames: ['Fixed Expenses'],
+    });
 
     sheet.views = [{ state: 'frozen', xSplit: 1, ySplit: 5 }];
     return finalName;
@@ -980,6 +1288,12 @@ class ProteaBudgetPackService {
     budgetByPeriod: Array<{ account: string; [p: string]: number }>,
     options?: { collapseRevenueDetail?: boolean }
   ): void {
+    // Drop accounts that are zero across CurBud / LYBud / LYAct period totals.
+    // Cascades through level_12 grouping and category totals — no per-site
+    // suppression logic needed. F90 deliberately does NOT use this; layout
+    // parity with the validated actuals pack requires every config row.
+    ({ currentData, lyData } = filterLiveAccountRows(currentData, lyData));
+
     const tc = this.totalCols;
     const budgetMap = new Map<string, { [p: string]: number }>();
     for (const row of budgetByPeriod) {
@@ -1078,7 +1392,9 @@ class ProteaBudgetPackService {
           };
           for (let i = 0; i < this.periods.length; i++) {
             const p = this.periods[i];
-            rowData[`budM${i}`] = bpRow ? formatNumber((bpRow[p] || 0) * sign) : '';
+            // No current-budget row → render 0 (not blank) so rows that only
+            // have LY data don't look broken across the monthly columns.
+            rowData[`budM${i}`] = fmtN0(bpRow ? (bpRow[p] || 0) * sign : 0);
           }
 
           const excelRow = sheet.addRow(rowData);
@@ -1146,7 +1462,7 @@ class ProteaBudgetPackService {
             };
             for (let i = 0; i < this.periods.length; i++) {
               const p = this.periods[i];
-              rowData[`budM${i}`] = bpRow ? formatNumber((bpRow[p] || 0) * sign) : '';
+              rowData[`budM${i}`] = fmtN0(bpRow ? (bpRow[p] || 0) * sign : 0);
             }
 
             const excelRow = sheet.addRow(rowData);
@@ -1178,11 +1494,29 @@ class ProteaBudgetPackService {
   // Groups accounts by level_20 mapping table instead of category/level_12.
   // ============================================================================
 
+  /**
+   * Render the level_20 / INVEST-classified subgroup layout.
+   *
+   * The optional `hideSubgroupNames` / `onlySubgroupNames` filters are pure
+   * rendering-layer controls — they DO NOT alter classification, the data
+   * fetched, or anything F90 depends on. F90's "Fixed Expenses" / "TOTAL
+   * MANAGEMENT FEES" / etc. row values come from
+   * computeInvestFactorOwnerSubgroupTotals(), which independently re-runs
+   * the same OWNER_DEPARTMENTS fetch + classifyAccountsByLevel20 — so
+   * suppressing a subgroup here cannot create a tie-out gap with F90.
+   *
+   * Used by:
+   *  - INVEST FACTOR OWNER SUMMARY tab: hideSubgroupNames=['Fixed Expenses']
+   *  - FIXED EXPENSES tab:              onlySubgroupNames=['Fixed Expenses']
+   *  (mirrors the actuals pack's pattern, see createInvestFixedExpensesSheet
+   *   in proteaReportPackService.ts)
+   */
   private addBudgetCustomSubgroupDataSection(
     sheet: ExcelJS.Worksheet,
     currentData: any[],
     lyData: any[],
-    budgetByPeriod: Array<{ account: string; [p: string]: number }>
+    budgetByPeriod: Array<{ account: string; [p: string]: number }>,
+    options?: { hideSubgroupNames?: readonly string[]; onlySubgroupNames?: readonly string[] }
   ): void {
     const tc = this.totalCols;
     const budgetMap = new Map<string, { [p: string]: number }>();
@@ -1209,6 +1543,10 @@ class ProteaBudgetPackService {
     // Filter out stats
     currentData = currentData.filter(r => r.category !== 'Stats');
     lyData = lyData.filter(r => r.category !== 'Stats');
+
+    // Drop accounts that are zero across CurBud / LYBud / LYAct period totals.
+    // Empty subgroups skip naturally via the length check below.
+    ({ currentData, lyData } = filterLiveAccountRows(currentData, lyData));
 
     // Classify accounts using level_20 mapping table
     const allRows = [...currentData, ...lyData];
@@ -1291,8 +1629,17 @@ class ProteaBudgetPackService {
       blankRow.eachCell((cell) => { cell.border = BORDER_STYLE; cell.font = DATA_FONT; });
     };
 
+    // Pre-resolve the allow/deny predicate once per render — Set lookups are
+    // O(1) and avoid repeating includes() inside the hot loop.
+    const hideSet = options?.hideSubgroupNames?.length
+      ? new Set(options.hideSubgroupNames) : null;
+    const onlySet = options?.onlySubgroupNames?.length
+      ? new Set(options.onlySubgroupNames) : null;
+
     // Render each subgroup in config order
     for (const sg of effectiveSubgroups) {
+      if (onlySet && !onlySet.has(sg.name)) continue;
+      if (hideSet && hideSet.has(sg.name)) continue;
       const curRows = curBySubgroup.get(sg.name) || [];
       const lyRows = lyBySubgroup.get(sg.name) || [];
       if (curRows.length === 0 && lyRows.length === 0) continue;
@@ -1330,7 +1677,7 @@ class ProteaBudgetPackService {
         };
         for (let i = 0; i < this.periods.length; i++) {
           const p = this.periods[i];
-          rowData[`budM${i}`] = bpRow ? formatNumber(bpRow[p] || 0) : '';
+          rowData[`budM${i}`] = fmtN0(bpRow ? bpRow[p] || 0 : 0);
         }
 
         const excelRow = sheet.addRow(rowData);
