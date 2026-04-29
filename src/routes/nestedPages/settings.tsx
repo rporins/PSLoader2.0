@@ -21,6 +21,11 @@ import {
   IconButton,
   TextField,
   Grid,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import CachedIcon from "@mui/icons-material/Cached";
@@ -69,6 +74,7 @@ export default function Settings() {
   const [financialDataImportMessage, setFinancialDataImportMessage] = useState<{ type: 'success' | 'error' | 'info', message: string } | null>(null);
   const [financialDataCount, setFinancialDataCount] = useState<number | null>(null);
   const [lastImportDate, setLastImportDate] = useState<string | null>(null);
+  const [rebuildConfirmOpen, setRebuildConfirmOpen] = useState(false);
 
   // Template download state
   const [templateMessage, setTemplateMessage] = useState<{ type: 'success' | 'error', message: string } | null>(null);
@@ -346,12 +352,46 @@ export default function Settings() {
     }
   };
 
-  // Force-update handler removed: bidirectional auto-reconciliation in
-  // importFinancialDataIncremental (orphan-period delete + byte-equality
-  // refetch on any timestamp divergence) covers the cases this button used
-  // to handle. The underlying service methods (importFinancialDataFull /
-  // importFinancialData) are intentionally retained so the button can be
-  // restored if a sync gap surfaces in production.
+  // Nuclear recovery path: discards all locally synced financial_data for
+  // the selected OU and re-fetches everything from the server. Routine
+  // updates are handled automatically by importFinancialDataIncremental
+  // (orphan-period delete + byte-equality refetch). This button exists as
+  // a confidence/escape hatch for the rare case where sync state drifts in
+  // a way the incremental reconciliation can't detect (e.g. backend
+  // updates a row without bumping last_updated). Staging is NOT touched.
+  const handleRebuildFromServer = async () => {
+    if (!selectedHotelOu) {
+      setFinancialDataImportMessage({
+        type: 'error',
+        message: 'Please select a hotel first'
+      });
+      return;
+    }
+
+    setRebuildConfirmOpen(false);
+    setImportingFinancialData(true);
+    setFinancialDataImportMessage(null);
+
+    try {
+      const result = await financialDataService.importFinancialDataFull(selectedHotelOu);
+
+      setFinancialDataImportMessage({
+        type: 'success',
+        message: `Rebuilt from server: ${result.message}`
+      });
+
+      await loadFinancialDataInfo();
+      setTimeout(() => setFinancialDataImportMessage(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to rebuild financial data from server:', err);
+      setFinancialDataImportMessage({
+        type: 'error',
+        message: err.message || 'Failed to rebuild financial data from server'
+      });
+    } finally {
+      setImportingFinancialData(false);
+    }
+  };
 
   const handleDownloadTemplate = async (templateId: string) => {
     setTemplateMessage(null);
@@ -760,9 +800,63 @@ export default function Settings() {
                 Please select a hotel first
               </Typography>
             )}
+
+            <Box sx={{ mt: 4, pt: 3, borderTop: '1px dashed', borderColor: 'divider' }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                Recovery
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                Use only if data appears out of sync. Routine updates are handled automatically.
+                This action discards all locally synced data for the selected hotel and re-downloads
+                from the server. Your staging data and imported files are not affected.
+              </Typography>
+              <Button
+                variant="outlined"
+                color="warning"
+                onClick={() => setRebuildConfirmOpen(true)}
+                disabled={importingFinancialData || !selectedHotelOu}
+                sx={{
+                  borderRadius: 1,
+                  textTransform: 'none',
+                }}
+              >
+                Rebuild from Server
+              </Button>
+            </Box>
           </Box>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={rebuildConfirmOpen}
+        onClose={() => setRebuildConfirmOpen(false)}
+        aria-labelledby="rebuild-confirm-title"
+      >
+        <DialogTitle id="rebuild-confirm-title">Rebuild financial data from server?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            This will discard all locally synced financial data for the selected hotel and
+            re-download everything from the server. Your staging data and imported files
+            will not be affected.
+          </DialogContentText>
+          <DialogContentText sx={{ mt: 2, fontWeight: 500 }}>
+            Continue?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRebuildConfirmOpen(false)} sx={{ textTransform: 'none' }}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleRebuildFromServer}
+            color="warning"
+            variant="contained"
+            sx={{ textTransform: 'none' }}
+          >
+            Rebuild from Server
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Card variant="outlined" sx={{ mt: 2, borderRadius: 2, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
         <CardContent>
