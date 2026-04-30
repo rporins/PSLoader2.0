@@ -6,7 +6,7 @@
  * (via proteaShared.ts) but uses a budget-comparison column layout.
  *
  * Column layout (N = number of selected months):
- *   A: Label | B: LY Budget | C: vs Cur % | D: LY Actuals | E: vs Cur %
+ *   A: Label | B: LY Budget | C: vs Cur % | D: Forecast (LY Actuals data) | E: vs For %
  *   F: Current Budget Total | G..G+N-1: Budget per month | last: Comments
  *
  * Runs in the Electron main process.
@@ -60,6 +60,7 @@ import {
   EXCEL_EXCLUDED_DEPARTMENTS,
   PROTEA_MOVEMENT_SOURCE_DEPTS,
   isMovedAccount,
+  isDetailOnlyAccount,
   PROTEA_DEPARTMENT_MOVEMENTS,
   BANQUETING_DEPARTMENTS,
   PROTEA_GROUP_DISPLAY_ORDER,
@@ -116,6 +117,24 @@ function offsetPeriodMinusYear(period: string): string {
 function pct(a: number, b: number): number {
   return b !== 0 ? ((a - b) / Math.abs(b)) * 100 : 0;
 }
+
+// Groups that render "Department Profit" ABOVE the Stats block (so the
+// bottom-line sits on top of the statistical breakdown, not beneath it).
+// Diverges from STATS_KEEP_GROUPS in proteaReportPackService.ts — the budget
+// pack also lifts A&G's totals above Stats per stakeholder request; the
+// actuals pack keeps the original below-Stats placement for now.
+const BUDGET_STATS_KEEP_GROUPS = new Set([
+  'Total Food & Beverage',
+  'Total Banqueting',
+  'Utilities Dept',
+  'Administrative & General',
+]);
+
+// Groups hidden from the summary-only variant of the pack (adds noise without
+// insight when detail tabs are off). When generateDetailTabs is ON the group
+// renders normally — summary sheet plus its per-department detail tabs.
+const BUDGET_SUMMARY_ONLY_HIDDEN_GROUPS = new Set(['Payroll Cost Allocation']);
+const DEPT_PROFIT_EXPENSE_CATEGORIES = ['Cost of Sales', 'Payroll', 'Controllables', 'Other'] as const;
 
 // Budget-pack number/percentage formatters: coalesce null/undefined to 0 so
 // cells render as "0" / "0.0%" instead of blank. The shared helpers in
@@ -270,7 +289,7 @@ class ProteaBudgetPackService {
     const subHeaders: string[] = [
       'P&L Line',
       'LY Budget', 'vs Cur %',
-      'LY Actuals', 'vs Cur %',
+      'Forecast', 'vs For %',
       'Total',
     ];
     for (const p of this.periods) {
@@ -452,6 +471,8 @@ class ProteaBudgetPackService {
           ['ADR',                            false],
           ['RevPAR',                         false],
           ['RevPAR after TAC',               false],
+          ['Rooms Available',                false],
+          ['Rooms SOLD',                     false, 0, 'Sold Rooms'],
           ['Bed Nights Sold',                false],
           ['Bed Nights Available',           false],
           ['Average Bed Occupancy %',        true],
@@ -783,7 +804,7 @@ class ProteaBudgetPackService {
     sheet.mergeCells(groupRow.number, 7, groupRow.number, 7 + this.periods.length);
     applyHeaderStyle(groupRow);
 
-    const subHeaders: string[] = ['Segment', 'Category', 'LY Budget', 'vs Cur %', 'LY Actuals', 'vs Cur %', 'Total'];
+    const subHeaders: string[] = ['Segment', 'Category', 'LY Budget', 'vs Cur %', 'Forecast', 'vs For %', 'Total'];
     for (const p of this.periods) subHeaders.push(this.periodLabel(p));
     subHeaders.push('Comments');
     const headerRow = sheet.addRow(subHeaders);
@@ -959,6 +980,13 @@ class ProteaBudgetPackService {
 
         const excelRow = sheet.addRow(rowData);
         applyDataRowStyle(excelRow);
+        // Thousands separator on numeric cells; ADR keeps 2dp, others 0dp.
+        // Percentage cells are pre-formatted strings (skipped by typeof check).
+        const numFmt = metric === 'adr' ? '#,##0.00' : '#,##0';
+        for (let c = 3; c < segTotalCols; c++) {
+          const cell = excelRow.getCell(c);
+          if (typeof cell.value === 'number') cell.numFmt = numFmt;
+        }
       }
     }
   }
@@ -1002,6 +1030,10 @@ class ProteaBudgetPackService {
     for (const [groupName, groupDepts] of sortedGroups) {
       const nonMovedDepts = groupDepts.filter(d => !MOVED_DEPT_SET.has(d.baseDepartment));
       if (nonMovedDepts.length === 0 && !MOVEMENT_TARGET_GROUPS.has(groupName)) continue;
+
+      // Hide noisy groups in the summary-only variant of the pack. When
+      // detail tabs are on, the group renders in full (summary + dept tabs).
+      if (!config.generateDetailTabs && BUDGET_SUMMARY_ONLY_HIDDEN_GROUPS.has(groupName)) continue;
 
       this.sheetRegistry.push({ type: 'groupHeader', sheetName: '', groupName, indent: false });
 
@@ -1063,12 +1095,32 @@ class ProteaBudgetPackService {
       ? await db.getProteaGroupDepartmentBudgetByPeriod(config.ou, effectiveDeptIds, this.periods, config.version)
       : [];
 
-    // Merge moved account data for Admin & General target
-    if (MOVEMENT_TARGET_GROUPS.has(groupName)) {
+    // Strip A730/A745 from native group fetch when the group's effective depts
+    // include a movement source. D0490 is in PROTEA_MOVEMENT_SOURCE_DEPTS but
+    // NOT in MOVED_DEPT_SET, so it stays in effectiveDeptIds for the Invest
+    // Factor Owner group — meaning the native fetch carries A730/A745 unless
+    // we filter them out here. Mirrors proteaReportPackService.ts:580-586.
+    const groupContainsSourceDept = effectiveDeptIds.some(id => PROTEA_MOVEMENT_SOURCE_DEPTS.includes(id));
+    if (groupContainsSourceDept) {
+      currentData = currentData.filter(r => !isMovedAccount(r.account));
+      lyData = lyData.filter(r => !isMovedAccount(r.account));
+      budgetByPeriod = budgetByPeriod.filter(r => !isMovedAccount(r.account));
+    }
+
+    // Merge moved A730/A745 account data into Administrative & General only.
+    // Mirrors proteaReportPackService.ts:589 — moved accounts must NOT land in
+    // Invest Factor Owner (they'd duplicate against F90, which strips them).
+    if (groupName === 'Administrative & General') {
       const movedAccountsCur = movedCurrent.filter(r => isMovedAccount(r.account));
       const movedAccountsLY = movedLY.filter(r => isMovedAccount(r.account));
       currentData = [...currentData, ...movedAccountsCur];
       lyData = [...lyData, ...movedAccountsLY];
+      // Route A730/A745 per-period budget into A&G's monthly columns.
+      // Pre-fetched movedBudgetByPeriod is keyed by source dept (D0480/D0690/
+      // D0691); only the moved-account rows belong here.
+      for (const mvBp of movedBudgetByPeriod.values()) {
+        budgetByPeriod = [...budgetByPeriod, ...mvBp.filter(r => isMovedAccount(r.account))];
+      }
     }
 
     // Merge moved department data
@@ -1081,7 +1133,7 @@ class ProteaBudgetPackService {
         }
         const mvBudByPeriod = movedBudgetByPeriod.get(mv.sourceDept);
         if (mvBudByPeriod) {
-          budgetByPeriod = [...budgetByPeriod, ...mvBudByPeriod];
+          budgetByPeriod = [...budgetByPeriod, ...mvBudByPeriod.filter(r => !isMovedAccount(r.account))];
         }
       }
     }
@@ -1124,6 +1176,9 @@ class ProteaBudgetPackService {
       this.addBudgetDepartmentDataSection(sheet, currentData, lyData, budgetByPeriod, {
         collapseRevenueDetail: !config.generateDetailTabs && isRoomsGroup,
         flattenCategories: !isInvestGroup ? ['Payroll', 'Controllables'] : undefined,
+        suppressStats: isRoomsGroup,
+        showDeptProfit: BUDGET_STATS_KEEP_GROUPS.has(groupName),
+        hideDetailOnlyAccounts: !config.generateDetailTabs,
       });
     }
 
@@ -1297,13 +1352,22 @@ class ProteaBudgetPackService {
     currentData: any[],   // budget=CurBud, ly=LYAct
     lyData: any[],        // budget=LYBud
     budgetByPeriod: Array<{ account: string; [p: string]: number }>,
-    options?: { collapseRevenueDetail?: boolean; flattenCategories?: readonly string[] }
+    options?: { collapseRevenueDetail?: boolean; flattenCategories?: readonly string[]; suppressStats?: boolean; showDeptProfit?: boolean; hideDetailOnlyAccounts?: boolean }
   ): void {
     // Drop accounts that are zero across CurBud / LYBud / LYAct period totals.
     // Cascades through level_12 grouping and category totals — no per-site
     // suppression logic needed. F90 deliberately does NOT use this; layout
     // parity with the validated actuals pack requires every config row.
     ({ currentData, lyData } = filterLiveAccountRows(currentData, lyData));
+
+    // Strip allocation-driver / low-signal accounts in summary-only mode.
+    // budgetByPeriod is also filtered so monthly columns don't reference
+    // accounts that are no longer in currentData/lyData.
+    if (options?.hideDetailOnlyAccounts) {
+      currentData = currentData.filter(r => !isDetailOnlyAccount(r.account));
+      lyData = lyData.filter(r => !isDetailOnlyAccount(r.account));
+      budgetByPeriod = budgetByPeriod.filter(r => !isDetailOnlyAccount(r.account));
+    }
 
     const tc = this.totalCols;
     const budgetMap = new Map<string, { [p: string]: number }>();
@@ -1402,13 +1466,111 @@ class ProteaBudgetPackService {
       this.applyNumberFormats(excelRow);
     };
 
+    /**
+     * Render the bottom-line totals — "Department Profit" + "Department Profit %"
+     * for revenue-bearing groups, or a single "Total" for non-revenue groups
+     * (Admin & General, POM, S&M). Mirrors proteaReportPackService.ts:1046-1182.
+     *
+     * Sign convention: revenue rows are stored as negative (CR), expense rows
+     * as positive (DR). Profit = -(rev + exp) → flip with sign=-1.
+     *
+     * The Department Profit numeric row is delegated to addTotalRow with sign=-1
+     * (DRY — reuses the existing curBud/lyBud/lyAct + monthly aggregation). The
+     * GOP% row is hand-rolled because addTotalRow only emits absolute numbers,
+     * not percentage cells with "X.X pts" variance markers.
+     */
+    const renderDeptProfit = () => {
+      const curRevRows = currentData.filter(r => r.category === 'Revenue');
+      const lyRevRows  = lyData.filter(r => r.category === 'Revenue');
+      const isRevenueGroup = curRevRows.length > 0 || lyRevRows.length > 0;
+
+      if (isRevenueGroup) {
+        const isProfitable = (cat: string) =>
+          cat === 'Revenue' || (DEPT_PROFIT_EXPENSE_CATEGORIES as readonly string[]).includes(cat);
+        const curRevExp = currentData.filter(r => isProfitable(r.category));
+        const lyRevExp  = lyData.filter(r => isProfitable(r.category));
+
+        // Department Profit (numeric) — sign=-1 flips stored signs into a
+        // positive profit. Monthly columns inherit the same flip.
+        addTotalRow('Department Profit', curRevExp, lyRevExp, applyCategorySubtotalStyle, -1);
+
+        // Department Profit % — GOP margin = profit / revenue. Variance is
+        // expressed in percentage points (pts), matching the actuals pack.
+        const curBudRev    = -sumField(curRevRows, 'budget');
+        const lyBudRev     = -sumField(lyRevRows,  'budget');
+        const lyActRev     = -sumField(curRevRows, 'ly');
+        const curBudProfit = -sumField(curRevExp,  'budget');
+        const lyBudProfit  = -sumField(lyRevExp,   'budget');
+        const lyActProfit  = -sumField(curRevExp,  'ly');
+
+        const gop = (p: number, r: number) => r !== 0 ? (p / r) * 100 : 0;
+        const curBudGop = gop(curBudProfit, curBudRev);
+        const lyBudGop  = gop(lyBudProfit,  lyBudRev);
+        const lyActGop  = gop(lyActProfit,  lyActRev);
+
+        const gopRowData: any = {
+          label: 'Department Profit %',
+          lyBud: formatPercentage(lyBudGop),
+          lyBudVar: `${(curBudGop - lyBudGop).toFixed(1)} pts`,
+          lyAct: formatPercentage(lyActGop),
+          lyActVar: `${(curBudGop - lyActGop).toFixed(1)} pts`,
+          curBud: formatPercentage(curBudGop),
+          comments: '',
+        };
+
+        // Monthly GOP%: aggregate revenue and rev+exp budgets per period in a
+        // single pass over the rev+exp account set, then derive profit = -total
+        // and revenue = -revPortion. Keeps it O(periods × accounts) — same cost
+        // class as addTotalRow's monthly loop.
+        const revAccts = new Set(curRevRows.map(r => r.account));
+        const allAccts = new Set(curRevExp.map(r => r.account));
+        for (let i = 0; i < this.periods.length; i++) {
+          const p = this.periods[i];
+          let totalM = 0, revM = 0;
+          for (const acct of allAccts) {
+            const bp = budgetMap.get(acct);
+            if (!bp) continue;
+            const v = bp[p] || 0;
+            totalM += v;
+            if (revAccts.has(acct)) revM += v;
+          }
+          gopRowData[`budM${i}`] = formatPercentage(gop(-totalM, -revM));
+        }
+
+        const gopRow = sheet.addRow(gopRowData);
+        applyCategorySubtotalStyle(gopRow);
+        this.applyNumberFormats(gopRow);
+        addBlank();
+      } else if (currentData.length > 0 || lyData.length > 0) {
+        // Non-revenue group (A&G, POM, S&M): a single "Total" row over all
+        // non-Stats accounts at face value (no sign flip, expenses positive).
+        const curAll = currentData.filter(r => r.category !== 'Stats');
+        const lyAll  = lyData.filter(r => r.category !== 'Stats');
+        if (curAll.length > 0 || lyAll.length > 0) {
+          addTotalRow('Total', curAll, lyAll, applyCategorySubtotalStyle, 1);
+          addBlank();
+        }
+      }
+    };
+
+    let deptProfitRendered = false;
+
     for (const category of categories) {
+      if (options?.suppressStats && category === 'Stats') continue;
       const curCategoryRows = currentData.filter(r => r.category === category);
       const lyCategoryRows = lyData.filter(r => r.category === category);
       if (curCategoryRows.length === 0 && lyCategoryRows.length === 0) continue;
 
       const isStats = category === 'Stats';
       const isRevenue = category === 'Revenue';
+
+      // Render Department Profit BEFORE the Stats block for groups that retain
+      // Stats (F&B, Banqueting, Utilities). Otherwise it falls through to the
+      // post-loop render (suppressed-Stats groups + non-revenue groups).
+      if (isStats && options?.showDeptProfit && !deptProfitRendered) {
+        renderDeptProfit();
+        deptProfitRendered = true;
+      }
       const sign = isRevenue ? -1 : 1;
 
       // When collapsing revenue detail (Rooms & Reservation without dept detail
@@ -1527,6 +1689,12 @@ class ProteaBudgetPackService {
       // Category total
       addTotalRow(`Total ${category}`, curCategoryRows, lyCategoryRows, applyCategorySubtotalStyle, sign);
       addBlank();
+    }
+
+    // Bottom-line totals (Department Profit / Total) — rendered here unless
+    // already emitted before the Stats block via showDeptProfit.
+    if (!deptProfitRendered) {
+      renderDeptProfit();
     }
   }
 
@@ -1849,7 +2017,9 @@ class ProteaBudgetPackService {
         current: current.filter(r => !isMovedAccount(r.account)),
         ly: ly.filter(r => !isMovedAccount(r.account)),
       });
-      movedBudgetByPeriod.set(mv.sourceDept, budByPeriod.filter(r => !isMovedAccount(r.account)));
+      // Carries BOTH moved and non-moved rows; consumers filter at use site
+      // (A&G pulls A730/A745; dept-level target groups exclude them).
+      movedBudgetByPeriod.set(mv.sourceDept, budByPeriod);
     }));
 
     // 4. Department worksheets

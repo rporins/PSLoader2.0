@@ -463,6 +463,17 @@ export const isMovedAccount = (acct: string) =>
   PROTEA_MOVED_ACCOUNT_PREFIXES.some(p => acct.startsWith(p));
 
 // ============================================================================
+// DETAIL-ONLY ACCOUNTS
+// Accounts hidden from summary-only views (detail tabs OFF) but visible when
+// detail tabs are ON, so users can audit them. Used for low-signal driver
+// /allocation stats that add noise to executive summaries. Mirrors the
+// isMovedAccount predicate shape — list + O(1) lookup helper.
+// ============================================================================
+export const PROTEA_DETAIL_ONLY_ACCOUNTS: ReadonlySet<string> = new Set(['A914100']);
+export const isDetailOnlyAccount = (acct: string): boolean =>
+  PROTEA_DETAIL_ONLY_ACCOUNTS.has(acct);
+
+// ============================================================================
 // PROTEA DEPARTMENT-LEVEL MOVEMENT CONFIG
 // Certain departments report under a different group in the Protea extract.
 // Report-level only — underlying data is unchanged.  The F90 is unaffected.
