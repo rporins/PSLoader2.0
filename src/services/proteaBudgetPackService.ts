@@ -2022,6 +2022,20 @@ class ProteaBudgetPackService {
       movedBudgetByPeriod.set(mv.sourceDept, budByPeriod);
     }));
 
+    // D0490 is in PROTEA_MOVEMENT_SOURCE_DEPTS but not MOVED_DEPT_SET. Its native
+    // group fetch carries A745/A730 rows that are filtered out at render time
+    // (line 1107), so they never reach movedBudgetByPeriod. Pre-fetch them here
+    // so A&G can pick them up for monthly columns.
+    const extraMovedSourceDepts = PROTEA_MOVEMENT_SOURCE_DEPTS.filter(d => !MOVED_DEPT_SET.has(d));
+    await Promise.all(extraMovedSourceDepts.map(async (dept) => {
+      if (!movedBudgetByPeriod.has(dept)) {
+        const budByPeriod = await db.getProteaDepartmentBudgetByPeriod(
+          config.ou, dept, this.periods, config.version
+        );
+        movedBudgetByPeriod.set(dept, budByPeriod);
+      }
+    }));
+
     // 4. Department worksheets
     await this.createBudgetDepartmentWorksheets(workbook, config, departments, movedCurrent, movedLY, movedDeptData, movedBudgetByPeriod);
 
