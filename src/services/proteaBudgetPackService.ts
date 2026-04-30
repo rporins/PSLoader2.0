@@ -681,27 +681,37 @@ class ProteaBudgetPackService {
 
       const indent = '  '.repeat(row.indentLevel || 0);
       const isPct = row.formatting === 'percentage';
+      // Category headers (REVENUE, DEPARTMENT PROFIT, etc.) carry no data —
+      // their numeric cells must stay blank rather than coalescing to 0.
+      const isBlankHeader = row.type === 'header' && row.actuals === null;
 
       // Slot remapping: actuals=CurBud, budget=LYBud, ly=LYAct.
-      // Null/undefined values render as 0 / 0.0% (see fmtN0/fmtP0) so that
-      // rows with data only on one side of the comparison don't show blank
-      // cells, which makes the row look broken.
+      // For data rows, null/undefined coalesces to 0 / 0.0% (see fmtN0/fmtP0)
+      // so one-sided rows don't look broken. Header rows skip this entirely.
       const rowData: any = {
         label: indent + row.label,
-        lyBud: isPct ? fmtP0(row.budget) : fmtN0(row.budget),
-        lyBudVar: isPct
-          ? `${((row.actuals ?? 0) - (row.budget ?? 0)).toFixed(1)} pts`
-          : fmtP0(row.vs_bud_pct),
-        lyAct: isPct ? fmtP0(row.ly) : fmtN0(row.ly),
-        lyActVar: isPct
-          ? `${((row.actuals ?? 0) - (row.ly ?? 0)).toFixed(1)} pts`
-          : fmtP0(row.vs_ly_pct),
-        curBud: isPct ? fmtP0(row.actuals) : fmtN0(row.actuals),
+        lyBud: isBlankHeader ? '' : isPct ? fmtP0(row.budget) : fmtN0(row.budget),
+        lyBudVar: isBlankHeader
+          ? ''
+          : isPct
+            ? `${((row.actuals ?? 0) - (row.budget ?? 0)).toFixed(1)} pts`
+            : fmtP0(row.vs_bud_pct),
+        lyAct: isBlankHeader ? '' : isPct ? fmtP0(row.ly) : fmtN0(row.ly),
+        lyActVar: isBlankHeader
+          ? ''
+          : isPct
+            ? `${((row.actuals ?? 0) - (row.ly ?? 0)).toFixed(1)} pts`
+            : fmtP0(row.vs_ly_pct),
+        curBud: isBlankHeader ? '' : isPct ? fmtP0(row.actuals) : fmtN0(row.actuals),
       };
 
       // Monthly budget columns — render 0 (not blank) when a period has no
-      // value for this row, for the same reason as above.
+      // value for this row, for the same reason as above. Headers stay blank.
       for (let i = 0; i < this.periods.length; i++) {
+        if (isBlankHeader) {
+          rowData[`budM${i}`] = '';
+          continue;
+        }
         const period = this.periods[i];
         const monthRows = monthlyData.get(period);
         const matchRow = monthRows?.find(r => r.rowId === row.rowId);
