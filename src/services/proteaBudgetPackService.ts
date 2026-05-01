@@ -1308,7 +1308,10 @@ class ProteaBudgetPackService {
           lyData = aggregateDuplicateAccounts([...lyData, ...mvData.ly]);
         }
         const mvBp = movedBudgetByPeriod.get(mv.sourceDept);
-        if (mvBp) budgetByPeriod = [...budgetByPeriod, ...mvBp];
+        // A730/A745 belong to A&G only — strip them here so the target detail
+        // tab's monthly columns mirror the totals path (movedDeptData was
+        // pre-filtered !isMovedAccount at fetch time, line 2017).
+        if (mvBp) budgetByPeriod = [...budgetByPeriod, ...mvBp.filter(r => !isMovedAccount(r.account))];
       }
     }
 
