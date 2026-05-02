@@ -108,6 +108,13 @@ class BackgroundSyncService {
       // Sync financial data (once-per-day check)
       await this.syncFinancialData(this.currentOU);
 
+      // Drop staging rows now superseded by the synced financial data
+      if (typeof window !== 'undefined' && window.ipcApi) {
+        await window.ipcApi.sendIpcRequest('db:auto-clean-staging', {}).catch((err: unknown) => {
+          console.error('[BackgroundSync] Failed to clean staging after sync:', err);
+        });
+      }
+
       // console.log('[BackgroundSync] Sync completed successfully');
     } catch (error) {
       console.error('[BackgroundSync] Sync failed:', error);

@@ -209,13 +209,6 @@ export function buildScenarioQuery(
       WHERE fds.scenario = '${scenario}'
         AND fds.period_combo IN (${periods.map(() => '?').join(', ')})
         ${ou ? 'AND fds.ou = ?' : ''}
-        AND NOT EXISTS (
-          SELECT 1 FROM financial_data fd2
-          WHERE fd2.dep_acc_combo_id = fds.dep_acc_combo_id
-            AND fd2.period_combo = fds.period_combo
-            AND fd2.scenario = '${scenario}'
-            AND fd2.ou = fds.ou
-        )
     )
     SELECT
       ${selectClauses.join(',\n      ')}
