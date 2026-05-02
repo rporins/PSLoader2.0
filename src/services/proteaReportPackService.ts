@@ -117,9 +117,6 @@ class ProteaReportPackService {
     workbook.created = new Date();
     workbook.modified = new Date();
 
-    // Auto-clean staging if its period has already been imported into financial_data
-    await db.autoCleanStagingIfImported();
-
     // Reset sheet registry for this report
     this.sheetRegistry = [];
 

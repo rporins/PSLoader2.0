@@ -27,6 +27,7 @@ import { styled, alpha } from "@mui/material/styles";
 import { PLCalculationResult } from "../../types/plReportTypes";
 import { useSettingsStore, useFinancialDataVersion } from "../../store/settings";
 import CheckForUpdatesButton from "../../components/CheckForUpdatesButton";
+import { useStagingAutoCleanOnMount } from "../../hooks/useStagingAutoCleanOnMount";
 
 interface SummaryPLRow extends PLCalculationResult {
   id: number;
@@ -103,6 +104,7 @@ const CustomToolbar = () => {
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export default function SummaryPL() {
+  useStagingAutoCleanOnMount();
   const [rows, setRows] = useState<SummaryPLRow[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [settingsLoaded, setSettingsLoaded] = useState<boolean>(false);

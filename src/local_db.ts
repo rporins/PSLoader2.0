@@ -1241,9 +1241,6 @@ export async function getFinancialReportData(
   const periods = generatePeriods(startPeriod, numberOfPeriods);
 
   try {
-    // Auto-clean staging if its period has already been imported
-    await autoCleanStagingIfImported();
-
     // Get the latest period for staging data join optimization
     const latestPeriod = periods[periods.length - 1];
 
@@ -1283,6 +1280,7 @@ export async function getFinancialReportData(
             WHERE fd2.dep_acc_combo_id = fds.dep_acc_combo_id
               AND fd2.period_combo = fds.period_combo
               AND fd2.scenario = 'ACT'
+              AND fd2.ou = fds.ou
           )
       ),
       combined_budget AS (
@@ -1320,6 +1318,7 @@ export async function getFinancialReportData(
             WHERE fd2.dep_acc_combo_id = fds.dep_acc_combo_id
               AND fd2.period_combo = fds.period_combo
               AND fd2.scenario = 'BUD'
+              AND fd2.ou = fds.ou
           )
       ),
       actuals_data AS (
@@ -1430,9 +1429,6 @@ export async function getSummaryPLData(
   version: string = 'MAIN'
 ): Promise<string> {
   try {
-    // Auto-clean staging if its period has already been imported
-    await autoCleanStagingIfImported();
-
     const {
       generatePeriods,
       generateLYPeriods,
@@ -1480,9 +1476,6 @@ export async function getF90PLData(
   rowConfig?: any[]
 ): Promise<string> {
   try {
-    // Auto-clean staging if its period has already been imported
-    await autoCleanStagingIfImported();
-
     const {
       generatePeriods,
       generateLYPeriods,
@@ -1533,8 +1526,6 @@ export async function getProteaF90PLData(
   skipFilter: boolean = false
 ): Promise<string> {
   try {
-    await autoCleanStagingIfImported();
-
     const {
       generatePeriods,
       generateLYPeriods,
@@ -1592,8 +1583,6 @@ export async function getProteaBudgetF90PLData(
   skipFilter: boolean = false
 ): Promise<{ total: string; monthly: Record<string, string> }> {
   try {
-    await autoCleanStagingIfImported();
-
     const {
       generatePeriods,
       generateLYPeriods,
@@ -4106,40 +4095,32 @@ export async function clearStagingTable(ou?: string): Promise<void> {
   }
 }
 
-// Auto-clean staging table if its period has already been imported into financial_data.
-// Called before union reports to prevent stale staging data from being included.
-// Near-zero cost when staging is empty (single COUNT query short-circuits).
+// Drop any staging row whose exact (combo, ou, period, scenario) is already in
+// financial_data — those rows are invisible to reports anyway (the UNION's
+// NOT EXISTS suppresses them) so deletion is pure storage hygiene and cannot
+// alter report output. Designed to run ONCE per session at app init, not on
+// the report read path. Single correlated DELETE — index-perfect against the
+// financial_data PK; SQLite short-circuits when staging is empty.
 export async function autoCleanStagingIfImported(): Promise<number> {
   try {
-    const countResult = await client.execute({
-      sql: "SELECT COUNT(*) as cnt FROM financial_data_staging",
+    const result = await client.execute({
+      sql: `
+        DELETE FROM financial_data_staging
+        WHERE EXISTS (
+          SELECT 1
+          FROM financial_data fd
+          WHERE fd.dep_acc_combo_id = financial_data_staging.dep_acc_combo_id
+            AND fd.ou               = financial_data_staging.ou
+            AND fd.period_combo     = financial_data_staging.period_combo
+            AND fd.scenario         = financial_data_staging.scenario
+        )
+      `,
       args: []
     });
-
-    const count = (countResult.rows[0] as any)?.cnt || 0;
-    if (count === 0) return 0;
-
-    // Staging is invariantly single-(ou, period), so one row pluck is enough.
-    const stagingKey = await client.execute({
-      sql: "SELECT ou, period_combo FROM financial_data_staging LIMIT 1",
-      args: []
-    });
-    if (stagingKey.rows.length === 0) return 0;
-
-    const { ou, period_combo: period } = stagingKey.rows[0] as any;
-
-    const existsInMain = await client.execute({
-      sql: "SELECT 1 FROM financial_data WHERE ou = ? AND period_combo = ? AND scenario = 'ACT' LIMIT 1",
-      args: [ou, period]
-    });
-    if (existsInMain.rows.length === 0) return 0;
-
-    const deleteResult = await client.execute({
-      sql: "DELETE FROM financial_data_staging WHERE ou = ? AND period_combo = ?",
-      args: [ou, period]
-    });
-    const cleared = Number((deleteResult as any).rowsAffected ?? 0);
-    console.log(`[AutoClean] Cleared ${cleared} staging row(s) for OU ${ou} period ${period} - already in financial_data`);
+    const cleared = Number((result as any).rowsAffected ?? 0);
+    if (cleared > 0) {
+      console.log(`[AutoClean] Cleared ${cleared} superseded staging row(s) already present in financial_data`);
+    }
     return cleared;
   } catch (error) {
     console.error("[AutoClean] Error during staging auto-cleanup:", error);

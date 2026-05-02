@@ -129,6 +129,7 @@ export const IPC_CHANNELS = {
 
   // Staging table channels
   DB_CLEAR_STAGING_TABLE: 'db:clear-staging-table',
+  DB_AUTO_CLEAN_STAGING: 'db:auto-clean-staging',
   DB_GET_STAGING_DATA: 'db:get-staging-data',
   DB_ADD_STAGING_ROW: 'db:add-staging-row',
   DB_UPDATE_STAGING_ROW: 'db:update-staging-row',

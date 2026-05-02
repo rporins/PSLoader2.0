@@ -1975,8 +1975,6 @@ class ProteaBudgetPackService {
     workbook.created = new Date();
     workbook.modified = new Date();
 
-    await db.autoCleanStagingIfImported();
-
     this.sheetRegistry = [];
     this.periods = generatePeriodsSync(config.startMonth, config.startYear, config.endMonth, config.endYear);
     this.lyPeriods = this.periods.map(offsetPeriodMinusYear);

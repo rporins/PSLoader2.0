@@ -333,6 +333,17 @@ export class DatabaseHandlers {
     };
   };
 
+  // One-shot housekeeping: drop staging rows already mirrored in financial_data.
+  // Wired from AppInitializer; never called from report read paths.
+  autoCleanStagingHandler: IpcHandler = async () => {
+    const cleared = await db.autoCleanStagingIfImported();
+    return {
+      success: true,
+      data: { cleared },
+      timestamp: Date.now(),
+    };
+  };
+
   getStagingDataHandler: IpcHandler = async (event, request) => {
     const result = await db.getStagingData(request.ou);
     return {
@@ -881,6 +892,7 @@ export function createDatabaseHandlers() {
     [IPC_CHANNELS.DB_GET_IMPORT_SESSION]: handlers.getImportSessionHandler,
     [IPC_CHANNELS.DB_GET_IMPORT_SESSIONS]: handlers.getImportSessionsHandler,
     [IPC_CHANNELS.DB_CLEAR_STAGING_TABLE]: handlers.clearStagingTableHandler,
+    [IPC_CHANNELS.DB_AUTO_CLEAN_STAGING]: handlers.autoCleanStagingHandler,
     [IPC_CHANNELS.DB_GET_STAGING_DATA]: handlers.getStagingDataHandler,
     [IPC_CHANNELS.DB_ADD_STAGING_ROW]: handlers.addStagingRowHandler,
     [IPC_CHANNELS.DB_UPDATE_STAGING_ROW]: handlers.updateStagingRowHandler,

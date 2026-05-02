@@ -31,6 +31,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorIcon from "@mui/icons-material/Error";
 import { useSettingsStore, useFinancialDataVersion } from "../../store/settings";
 import CheckForUpdatesButton from "../../components/CheckForUpdatesButton";
+import { useStagingAutoCleanOnMount } from "../../hooks/useStagingAutoCleanOnMount";
 
 // ============================================================================
 // STYLES
@@ -74,6 +75,7 @@ const YEARS = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 +
 // ============================================================================
 
 export default function ProteaReportPack() {
+  useStagingAutoCleanOnMount();
   const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
   const financialDataVersion = useFinancialDataVersion();
   const setFinancialDataVersion = useSettingsStore((s) => s.setFinancialDataVersion);

@@ -27,6 +27,7 @@ import {
 import { styled, alpha } from "@mui/material/styles";
 import { useSettingsStore, useFinancialDataVersion } from "../../store/settings";
 import CheckForUpdatesButton from "../../components/CheckForUpdatesButton";
+import { useStagingAutoCleanOnMount } from "../../hooks/useStagingAutoCleanOnMount";
 
 interface StagingVsBudgetRow {
   id: number;
@@ -113,6 +114,7 @@ const CustomToolbar = () => {
 };
 
 export default function DataTable() {
+  useStagingAutoCleanOnMount();
   const [rows, setRows] = useState<StagingVsBudgetRow[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [period, setPeriod] = useState<string>('');

@@ -214,6 +214,7 @@ export function buildScenarioQuery(
           WHERE fd2.dep_acc_combo_id = fds.dep_acc_combo_id
             AND fd2.period_combo = fds.period_combo
             AND fd2.scenario = '${scenario}'
+            AND fd2.ou = fds.ou
         )
     )
     SELECT

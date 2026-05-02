@@ -39,6 +39,16 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
 
         // Start background sync service
         backgroundSyncService.start();
+
+        // One-shot staging housekeeping: drop rows already mirrored in
+        // financial_data. Fire-and-forget — never block app boot.
+        if (window.ipcApi) {
+          window.ipcApi
+            .sendIpcRequest("db:auto-clean-staging", {})
+            .catch((err: unknown) => {
+              console.warn("[AutoClean] startup trigger failed:", err);
+            });
+        }
         // console.log("Background sync service started");
         // console.log("App settings initialized successfully");
         setIsInitialized(true);
