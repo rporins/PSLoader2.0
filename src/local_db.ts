@@ -4109,7 +4109,7 @@ export async function clearStagingTable(ou?: string): Promise<void> {
 // Auto-clean staging table if its period has already been imported into financial_data.
 // Called before union reports to prevent stale staging data from being included.
 // Near-zero cost when staging is empty (single COUNT query short-circuits).
-export async function autoCleanStagingIfImported(): Promise<boolean> {
+export async function autoCleanStagingIfImported(): Promise<number> {
   try {
     const countResult = await client.execute({
       sql: "SELECT COUNT(*) as cnt FROM financial_data_staging",
@@ -4117,36 +4117,33 @@ export async function autoCleanStagingIfImported(): Promise<boolean> {
     });
 
     const count = (countResult.rows[0] as any)?.cnt || 0;
-    if (count === 0) return false;
+    if (count === 0) return 0;
 
-    // Staging has data - check if that period already exists in financial_data
-    const stagingPeriod = await client.execute({
-      sql: "SELECT DISTINCT period_combo FROM financial_data_staging LIMIT 1",
+    // Staging is invariantly single-(ou, period), so one row pluck is enough.
+    const stagingKey = await client.execute({
+      sql: "SELECT ou, period_combo FROM financial_data_staging LIMIT 1",
       args: []
     });
+    if (stagingKey.rows.length === 0) return 0;
 
-    if (stagingPeriod.rows.length === 0) return false;
-
-    const period = (stagingPeriod.rows[0] as any).period_combo;
+    const { ou, period_combo: period } = stagingKey.rows[0] as any;
 
     const existsInMain = await client.execute({
-      sql: "SELECT 1 FROM financial_data WHERE period_combo = ? AND scenario = 'ACT' LIMIT 1",
-      args: [period]
+      sql: "SELECT 1 FROM financial_data WHERE ou = ? AND period_combo = ? AND scenario = 'ACT' LIMIT 1",
+      args: [ou, period]
     });
+    if (existsInMain.rows.length === 0) return 0;
 
-    if (existsInMain.rows.length === 0) return false;
-
-    // Period exists in both tables - staging data has been imported, clear it
-    await client.execute({
-      sql: "DELETE FROM financial_data_staging",
-      args: []
+    const deleteResult = await client.execute({
+      sql: "DELETE FROM financial_data_staging WHERE ou = ? AND period_combo = ?",
+      args: [ou, period]
     });
-
-    console.log(`[AutoClean] Staging table cleared - period ${period} already exists in financial_data`);
-    return true;
+    const cleared = Number((deleteResult as any).rowsAffected ?? 0);
+    console.log(`[AutoClean] Cleared ${cleared} staging row(s) for OU ${ou} period ${period} - already in financial_data`);
+    return cleared;
   } catch (error) {
     console.error("[AutoClean] Error during staging auto-cleanup:", error);
-    return false;
+    return 0;
   }
 }
 
