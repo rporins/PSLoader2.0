@@ -2,6 +2,7 @@ import { SubMeasure, Measure, MeasureContext, MeasureFilter } from '../../types/
 import { KNOWN_LEVEL_20_VALUES, OWNER_DEPARTMENTS } from './investSubgroupConfig';
 import { PROTEA_PAYROLL_REPOINT_ACCOUNTS } from './proteaMovements';
 import { BANQUETING_DEPARTMENT_CODES } from './departmentScopes';
+import { PROTEA_PAYROLL_SUB_MEASURES, PROTEA_PAYROLL_MEASURES } from './proteaPayrollMeasures';
 
 // Mutable copy for measure filters (engine expects string[] not readonly[]).
 const BANQ_DEPTS = [...BANQUETING_DEPARTMENT_CODES];
@@ -4585,3 +4586,12 @@ registerPctOfRevenueQuartet({
   key: 'sm',
   deptFilter: { type: 'dept_level', level: 7, value: 'Sales & Marketing and Convention Service' }
 });
+
+// Merge the Protea Payroll tab's sub-measures and measures. Defined in their
+// own module so the per-department / per-account boilerplate stays compact
+// and so the Payroll tab can evolve without churning this file. Order matters:
+// must run AFTER the manual rooms/fb _protea definitions and AFTER the three
+// registerPctOfRevenueQuartet calls above so the registry is fully populated
+// before downstream consumers (calculation engine init) read it.
+Object.assign(SUB_MEASURES, PROTEA_PAYROLL_SUB_MEASURES);
+Object.assign(MEASURES, PROTEA_PAYROLL_MEASURES);

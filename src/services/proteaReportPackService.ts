@@ -9,6 +9,7 @@ import ExcelJS from 'exceljs';
 import * as db from '../local_db';
 import { PLCalculationResult } from '../types/plReportTypes';
 import { PROTEA_F90_PL_ROW_CONFIG, PROTEA_F90_PL_ROW_CONFIG_WITH_BANQUETING } from './reports/proteaF90PLRowConfig';
+import { PROTEA_PAYROLL_PL_ROW_CONFIG } from './reports/proteaPayrollPLRowConfig';
 import { PLRow } from '../types/plReportTypes';
 import { INVEST_CUSTOM_SUBGROUPS, InvestSubgroupDef } from './reports/investSubgroupConfig';
 
@@ -130,6 +131,10 @@ class ProteaReportPackService {
     // 1. Create F90 Report worksheet (uses Protea account movement mutation)
     await this.createF90Worksheet(workbook, config);
     this.sheetRegistry.push({ type: 'sheet', sheetName: 'F90 Report', indent: false });
+
+    // 1b. Create Payroll worksheet (sits immediately after F90)
+    await this.createPayrollWorksheet(workbook, config);
+    this.sheetRegistry.push({ type: 'sheet', sheetName: 'Payroll', indent: false });
 
     // 2. Create Room Segments worksheet
     await this.createRoomSegmentWorksheet(workbook, config);
@@ -329,16 +334,100 @@ class ProteaReportPackService {
     applyInvestSubgroupOverridesToF90Rows(ytdData, ytdTotals);
 
     // Add data rows with month and range side by side
-    this.addF90DataRows(sheet, monthData, ytdData);
+    this.addPLDataRows(sheet, monthData, ytdData);
 
     // Freeze panes (2 title rows + 2 header rows)
     sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
   }
 
   /**
-   * Helper to add F90 data rows with month and range data side by side
+   * Creates the Payroll worksheet — mirrors F90's column layout (Selected
+   * Month | YTD, with LY / vs LY % / Actuals / Budget / vs Bud / vs Bud %
+   * inside each side) so users get a consistent reading experience.
+   *
+   * Skips the F90-specific INVEST FACTOR OWNER override pass — the Payroll
+   * tab has no below-the-line section, so engine-evaluated measure values
+   * are authoritative.
    */
-  private addF90DataRows(sheet: ExcelJS.Worksheet, monthData: PLCalculationResult[], rangeData: PLCalculationResult[]): void {
+  private async createPayrollWorksheet(
+    workbook: ExcelJS.Workbook,
+    config: ProteaReportPackConfig
+  ): Promise<void> {
+    const sheet = workbook.addWorksheet('Payroll', { properties: { tabColor: TAB_COLOR_REPORT } });
+
+    sheet.columns = [
+      { key: 'label', width: 45 },
+      { key: 'mLy', width: 14 },
+      { key: 'mVsLyPct', width: 12 },
+      { key: 'mAct', width: 14 },
+      { key: 'mBud', width: 14 },
+      { key: 'mVsBud', width: 14 },
+      { key: 'mVsBudPct', width: 12 },
+      { key: 'sep', width: 2 },
+      { key: 'rLy', width: 14 },
+      { key: 'rVsLyPct', width: 12 },
+      { key: 'rAct', width: 14 },
+      { key: 'rBud', width: 14 },
+      { key: 'rVsBud', width: 14 },
+      { key: 'rVsBudPct', width: 12 },
+      { key: 'comments', width: 35 },
+    ];
+
+    const TOTAL_COLS = 15;
+
+    this.addSheetTitleHeader(sheet, config, TOTAL_COLS, 'Payroll');
+
+    const groupRow = sheet.addRow(new Array(TOTAL_COLS).fill(''));
+    groupRow.getCell(2).value = `Selected Month: ${MONTH_NAMES[config.selectedMonth - 1]} ${config.selectedYear}`;
+    groupRow.getCell(9).value = getRangeLabel(config.ytdStartMonth, config.ytdStartYear, config.ytdEndMonth, config.ytdEndYear);
+    sheet.mergeCells(groupRow.number, 2, groupRow.number, 7);
+    sheet.mergeCells(groupRow.number, 9, groupRow.number, 14);
+    applyHeaderStyle(groupRow);
+
+    const headerRow = sheet.addRow([
+      'Payroll Line',
+      'LY', 'vs LY %', 'Actuals', 'Budget', 'vs Bud', 'vs Bud %',
+      '',
+      'LY', 'vs LY %', 'Actuals', 'Budget', 'vs Bud', 'vs Bud %',
+      'Comments'
+    ]);
+    applyHeaderStyle(headerRow);
+
+    // skipFilter=true on the month query keeps rowId alignment with the YTD
+    // query (same pattern as F90 — see createF90Worksheet above).
+    const monthDataJson = await db.getProteaF90PLData(
+      config.selectedMonth,
+      config.selectedYear,
+      config.selectedMonth,
+      config.selectedYear,
+      config.ou,
+      config.version,
+      PROTEA_PAYROLL_PL_ROW_CONFIG,
+      true
+    );
+    const monthData: PLCalculationResult[] = JSON.parse(monthDataJson);
+
+    const ytdDataJson = await db.getProteaF90PLData(
+      config.ytdStartMonth,
+      config.ytdStartYear,
+      config.ytdEndMonth,
+      config.ytdEndYear,
+      config.ou,
+      config.version,
+      PROTEA_PAYROLL_PL_ROW_CONFIG
+    );
+    const ytdData: PLCalculationResult[] = JSON.parse(ytdDataJson);
+
+    this.addPLDataRows(sheet, monthData, ytdData);
+
+    sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
+  }
+
+  /**
+   * Helper to add side-by-side (Selected Month | YTD) PL-style data rows to a sheet.
+   * Generic across any PLRow[] config — used by F90 and Payroll worksheets.
+   */
+  private addPLDataRows(sheet: ExcelJS.Worksheet, monthData: PLCalculationResult[], rangeData: PLCalculationResult[]): void {
     // Build lookup map keyed by rowId so that rows align correctly even when
     // filterZeroRows removes different rows from each array.  rowId is assigned
     // sequentially from the same rowConfig, so matching IDs always refer to the
