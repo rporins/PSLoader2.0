@@ -9,7 +9,10 @@ import ExcelJS from 'exceljs';
 import * as db from '../local_db';
 import { PLCalculationResult } from '../types/plReportTypes';
 import { PROTEA_F90_PL_ROW_CONFIG, PROTEA_F90_PL_ROW_CONFIG_WITH_BANQUETING } from './reports/proteaF90PLRowConfig';
-import { PROTEA_PAYROLL_PL_ROW_CONFIG } from './reports/proteaPayrollPLRowConfig';
+import { buildProteaPayrollPLRowConfig } from './reports/proteaPayrollPLRowConfig';
+import { registerProteaBurdenLineMeasures } from './reports/proteaPayrollMeasures';
+import { PROTEA_PAYROLL_REPOINT_ACCOUNTS } from './reports/proteaMovements';
+import { SUB_MEASURES, MEASURES } from './reports/plMeasureDefinitions';
 import { PLRow } from '../types/plReportTypes';
 import { INVEST_CUSTOM_SUBGROUPS, InvestSubgroupDef } from './reports/investSubgroupConfig';
 
@@ -393,6 +396,33 @@ class ProteaReportPackService {
     ]);
     applyHeaderStyle(headerRow);
 
+    // Discover the burden lines that actually have data in this OU/period
+    // across ACT/BUD/LY for both the month and the custom range, then
+    // register a per-account measure for each so the engine can compute
+    // side-by-side values just like the static rows did. The 3 NOT BENEFITS
+    // repointed accounts ride through the same discovery — they only show
+    // when they have data, exactly like any Associate Benefits account.
+    // Result: no more 'Other' catch-all; every account is visible by name.
+    const burdenAccounts = await db.getProteaPayrollBurdenAccounts(
+      config.ou,
+      config.version,
+      {
+        startMonth: config.selectedMonth, startYear: config.selectedYear,
+        endMonth: config.selectedMonth, endYear: config.selectedYear,
+      },
+      {
+        startMonth: config.ytdStartMonth, startYear: config.ytdStartYear,
+        endMonth: config.ytdEndMonth, endYear: config.ytdEndYear,
+      },
+      PROTEA_PAYROLL_REPOINT_ACCOUNTS
+    );
+    registerProteaBurdenLineMeasures(
+      burdenAccounts.map(a => a.account),
+      SUB_MEASURES,
+      MEASURES
+    );
+    const payrollRowConfig = buildProteaPayrollPLRowConfig(burdenAccounts);
+
     // skipFilter=true on the month query keeps rowId alignment with the YTD
     // query (same pattern as F90 — see createF90Worksheet above).
     const monthDataJson = await db.getProteaF90PLData(
@@ -402,7 +432,7 @@ class ProteaReportPackService {
       config.selectedYear,
       config.ou,
       config.version,
-      PROTEA_PAYROLL_PL_ROW_CONFIG,
+      payrollRowConfig,
       true
     );
     const monthData: PLCalculationResult[] = JSON.parse(monthDataJson);
@@ -414,7 +444,7 @@ class ProteaReportPackService {
       config.ytdEndYear,
       config.ou,
       config.version,
-      PROTEA_PAYROLL_PL_ROW_CONFIG
+      payrollRowConfig
     );
     const ytdData: PLCalculationResult[] = JSON.parse(ytdDataJson);
 
@@ -454,29 +484,33 @@ class ProteaReportPackService {
 
       const indent = '  '.repeat(primary.indentLevel || 0);
       const isPercentage = primary.formatting === 'percentage';
+      // 'ratio' = decimal/per-unit values (per-room-night, headcount-per-room).
+      // Renders like 'number' but with 2 dp so small fractional ratios are legible.
+      const isRatio = primary.formatting === 'ratio';
+      const ratioDp = isRatio ? 2 : 0;
 
       const excelRow = sheet.addRow({
         label: indent + primary.label,
-        mLy: mRow ? (isPercentage ? formatPercentage(mRow.ly) : formatNumber(mRow.ly)) : '',
+        mLy: mRow ? (isPercentage ? formatPercentage(mRow.ly) : formatNumber(mRow.ly, ratioDp)) : '',
         mVsLyPct: mRow ? (isPercentage
           ? `${((mRow.actuals ?? 0) - (mRow.ly ?? 0)).toFixed(1)} pts`
           : formatPercentage(mRow.vs_ly_pct)) : '',
-        mAct: mRow ? (isPercentage ? formatPercentage(mRow.actuals) : formatNumber(mRow.actuals)) : '',
-        mBud: mRow ? (isPercentage ? formatPercentage(mRow.budget) : formatNumber(mRow.budget)) : '',
+        mAct: mRow ? (isPercentage ? formatPercentage(mRow.actuals) : formatNumber(mRow.actuals, ratioDp)) : '',
+        mBud: mRow ? (isPercentage ? formatPercentage(mRow.budget) : formatNumber(mRow.budget, ratioDp)) : '',
         mVsBud: mRow ? (isPercentage
           ? `${((mRow.actuals ?? 0) - (mRow.budget ?? 0)).toFixed(1)} pts`
-          : formatNumber(mRow.vs_bud)) : '',
+          : formatNumber(mRow.vs_bud, ratioDp)) : '',
         mVsBudPct: mRow ? (isPercentage ? '' : formatPercentage(mRow.vs_bud_pct)) : '',
         sep: '',
-        rLy: rRow ? (isPercentage ? formatPercentage(rRow.ly) : formatNumber(rRow.ly)) : '',
+        rLy: rRow ? (isPercentage ? formatPercentage(rRow.ly) : formatNumber(rRow.ly, ratioDp)) : '',
         rVsLyPct: rRow ? (isPercentage
           ? `${((rRow.actuals ?? 0) - (rRow.ly ?? 0)).toFixed(1)} pts`
           : formatPercentage(rRow.vs_ly_pct)) : '',
-        rAct: rRow ? (isPercentage ? formatPercentage(rRow.actuals) : formatNumber(rRow.actuals)) : '',
-        rBud: rRow ? (isPercentage ? formatPercentage(rRow.budget) : formatNumber(rRow.budget)) : '',
+        rAct: rRow ? (isPercentage ? formatPercentage(rRow.actuals) : formatNumber(rRow.actuals, ratioDp)) : '',
+        rBud: rRow ? (isPercentage ? formatPercentage(rRow.budget) : formatNumber(rRow.budget, ratioDp)) : '',
         rVsBud: rRow ? (isPercentage
           ? `${((rRow.actuals ?? 0) - (rRow.budget ?? 0)).toFixed(1)} pts`
-          : formatNumber(rRow.vs_bud)) : '',
+          : formatNumber(rRow.vs_bud, ratioDp)) : '',
         rVsBudPct: rRow ? (isPercentage ? '' : formatPercentage(rRow.vs_bud_pct)) : '',
         comments: ''
       });
@@ -505,10 +539,11 @@ class ProteaReportPackService {
 
       // Apply number formatting to both sides
       if (!isPercentage) {
+        const numFmt = isRatio ? '#,##0.00' : '#,##0';
         [2, 4, 5, 6, 9, 11, 12, 13].forEach(col => {
           const cell = excelRow.getCell(col);
           if (typeof cell.value === 'number') {
-            cell.numFmt = '#,##0';
+            cell.numFmt = numFmt;
           }
         });
       }

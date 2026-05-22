@@ -1,8 +1,13 @@
 /**
  * Protea Payroll Tab — row configuration
  *
- * Built programmatically off PAYROLL_DEPTS and PAYROLL_BURDEN_LINES so adding
- * a department or burden line is a one-line edit to proteaPayrollMeasures.ts.
+ * Built programmatically off PAYROLL_DEPTS (per-department rows) and a
+ * caller-supplied list of dynamically-discovered burden lines (the actual
+ * base_accounts that have data in the source). Adding a department is
+ * still a one-line edit to proteaPayrollMeasures.ts; adding a burden line
+ * needs no code change — post a non-zero amount to an account that sits in
+ * Lodging Operations × (level_12 'Associate Benefits' OR a repointed NOT
+ * BENEFITS account) and it appears automatically.
  *
  * Sign convention:
  *   Payroll sub-measures (Associate Wages, A631208, burden accounts) have
@@ -15,10 +20,18 @@
  */
 
 import { PLRow } from '../../types/plReportTypes';
-import {
-  PAYROLL_DEPTS,
-  PAYROLL_BURDEN_LINES,
-} from './proteaPayrollMeasures';
+import { PAYROLL_DEPTS } from './proteaPayrollMeasures';
+
+// ----------------------------------------------------------------------------
+// Types
+// ----------------------------------------------------------------------------
+
+export interface BurdenLineInput {
+  /** base_account (e.g. 'A560324') */
+  account: string;
+  /** display label (account_description_detail_level_max) */
+  name: string;
+}
 
 // ----------------------------------------------------------------------------
 // Helpers — keep the config compact and let juniors slot rows in by editing
@@ -51,11 +64,11 @@ const deptStaffSummaryRows = (): PLRow[] =>
     indentLevel: 1,
   }));
 
-const burdenLineRows = (): PLRow[] =>
-  PAYROLL_BURDEN_LINES.map(line => ({
+const burdenLineRows = (burdenLines: readonly BurdenLineInput[]): PLRow[] =>
+  burdenLines.map(line => ({
     type: 'measure',
-    label: line.label,
-    measureId: `payroll_burden_${line.key}`,
+    label: line.name,
+    measureId: `payroll_burden_acct_${line.account}`,
     formatting: 'number',
     indentLevel: 1,
   }));
@@ -64,7 +77,10 @@ const burdenLineRows = (): PLRow[] =>
 // Row config
 // ----------------------------------------------------------------------------
 
-export const PROTEA_PAYROLL_PL_ROW_CONFIG: PLRow[] = [
+export function buildProteaPayrollPLRowConfig(
+  burdenLines: readonly BurdenLineInput[]
+): PLRow[] {
+  return [
   // ===== SALARIES =====
   sectionTitle('SALARIES'),
   blank,
@@ -83,9 +99,11 @@ export const PROTEA_PAYROLL_PL_ROW_CONFIG: PLRow[] = [
   blank,
 
   // ===== PAYROLL BURDEN =====
+  // Burden lines are discovered dynamically (see proteaReportPackService).
+  // The catch-all 'Other' row was removed when this section went dynamic —
+  // every account contributing to the total is now visible by name.
   subHeader('PAYROLL BURDEN'),
-  ...burdenLineRows(),
-  { type: 'measure', label: 'Other', measureId: 'payroll_other_burden', formatting: 'number', indentLevel: 1 },
+  ...burdenLineRows(burdenLines),
   total('Total Payroll Burden', 'payroll_total_burden'),
   blank,
 
@@ -112,7 +130,30 @@ export const PROTEA_PAYROLL_PL_ROW_CONFIG: PLRow[] = [
 
   subHeader('Casuals'),
   ...deptRows('contract_count'),
-  total('Total Contracts Employees', 'payroll_lodging_contract_count'),
+  total('Total Casuals', 'payroll_lodging_contract_count'),
 
   total('Total STAFF', 'payroll_lodging_total_staff'),
-];
+  blank,
+
+  // ===== KPIs =====
+  sectionTitle('Percentage of Total Revenue'),
+  { type: 'measure', label: 'Total Staff Expenses',  measureId: 'payroll_kpi_staff_exp_pct_rev',    formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'Salaries & Casuals',    measureId: 'payroll_kpi_salaries_pct_rev',     formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'Direct Labour Cost',    measureId: 'payroll_kpi_direct_labour_pct_rev',formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'Payroll Burden',        measureId: 'payroll_kpi_burden_pct_rev',       formatting: 'percentage', indentLevel: 1 },
+  blank,
+
+  sectionTitle('Percentage of Salaries'),
+  { type: 'measure', label: 'Total Payroll Burden - as % of salaries EXCL Contractors', measureId: 'payroll_kpi_burden_pct_salaries_excl_contractors', formatting: 'percentage', indentLevel: 1 },
+  blank,
+
+  sectionTitle('Other'),
+  { type: 'measure', label: 'STAFF ratio - Number of STAFF per Room available', measureId: 'payroll_kpi_staff_per_room_avail', formatting: 'ratio', indentLevel: 1 },
+  blank,
+
+  sectionTitle('Per Room Night Sold'),
+  { type: 'measure', label: 'Total Salaries',        measureId: 'payroll_kpi_salaries_per_room_sold',  formatting: 'ratio', indentLevel: 1 },
+  { type: 'measure', label: 'Total Payroll Burden',  measureId: 'payroll_kpi_burden_per_room_sold',    formatting: 'ratio', indentLevel: 1 },
+  { type: 'measure', label: 'Contract expense',      measureId: 'payroll_kpi_contracts_per_room_sold', formatting: 'ratio', indentLevel: 1 },
+  ];
+}

@@ -35,6 +35,7 @@ import RoomSegmentReview from "./routes/nestedPages/roomSegmentReview";
 import ExcelExport from "./routes/nestedPages/excelExport";
 import ProteaReportPack from "./routes/nestedPages/proteaReportPack";
 import ProteaBudgetPack from "./routes/nestedPages/proteaBudgetPack";
+import BSTExtract from "./routes/nestedPages/bstExtract";
 import ProteaF90PL from "./routes/nestedPages/proteaF90PL";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -146,6 +147,11 @@ const router = createHashRouter([
         path: "protea-budget-pack",
         element: <ProteaBudgetPack />,
         handle: { title: "Protea Budget Pack" },
+      },
+      {
+        path: "protea-bst-extract",
+        element: <BSTExtract />,
+        handle: { title: "BST Extract" },
       },
       {
         path: "coa",

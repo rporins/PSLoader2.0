@@ -850,6 +850,15 @@ const handleSignOut = useCallback(async () => {
             </ListItemButton>
           </ListItem>
 
+          <ListItem key="protea-bst-extract" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/protea-bst-extract")}>
+              <ListItemIcon sx={listItemIconStyle}>
+                <FileDownloadIcon />
+              </ListItemIcon>
+              <ListItemText primary="BST Extract" sx={listItemTextStyle} />
+            </ListItemButton>
+          </ListItem>
+
           {/* Protea sub-section */}
           {open && (
             <ListItem disablePadding sx={{ display: "block" }}>

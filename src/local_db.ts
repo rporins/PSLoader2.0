@@ -5192,6 +5192,25 @@ export async function getAccountMapByBase(baseAccount: string): Promise<AccountM
   }
 }
 
+export async function getAccountNamesByBase(
+  baseAccounts: readonly string[]
+): Promise<Map<string, string>> {
+  if (baseAccounts.length === 0) return new Map();
+  const placeholders = baseAccounts.map(() => '?').join(',');
+  const result = await client.execute({
+    sql: `SELECT base_account, account_description_detail_level_max
+          FROM account_maps WHERE base_account IN (${placeholders})`,
+    args: [...baseAccounts],
+  });
+  const out = new Map<string, string>();
+  for (const r of result.rows) {
+    const acct = r.base_account as string;
+    const name = (r.account_description_detail_level_max as string) ?? acct;
+    out.set(acct, name);
+  }
+  return out;
+}
+
 /**
  * Get department map by base_department
  */
@@ -6685,6 +6704,162 @@ export async function getProteaGroupDepartmentDetailData(
 }
 
 /**
+ * Discovers the bottom-level Payroll Burden base_accounts that have data
+ * within the Protea Payroll tab's scope (Lodging Operations level_2 ×
+ * (level_12 'Associate Benefits' OR repointed NOT BENEFITS accounts)).
+ *
+ * "Has data" = any non-zero row in ACT/BUD/LY across either the selected
+ * month or the custom range. Includes financial_data and the latest
+ * staging period; the precise staging-vs-actual reconciliation isn't
+ * needed here — we only care about account existence.
+ *
+ * Returns accounts sorted: Associate Benefits accounts alphabetically by
+ * description first, then the 3 NOT BENEFITS lines at the bottom (also
+ * alphabetical). Consumer (proteaReportPackService) uses this list to
+ * (a) dynamically register `payroll_burden_acct_<base>` measures and
+ * (b) build the Payroll-tab burden rows — replacing the previous static
+ * 15-line list + 'Other' catch-all.
+ */
+export interface PayrollBurdenAccount {
+  account: string;
+  name: string;
+  isAssocBenefit: boolean;
+}
+
+export async function getProteaPayrollBurdenAccounts(
+  ou: string,
+  version: string,
+  monthRange: { startMonth: number; startYear: number; endMonth: number; endYear: number },
+  customRange: { startMonth: number; startYear: number; endMonth: number; endYear: number },
+  repointAccounts: readonly string[]
+): Promise<PayrollBurdenAccount[]> {
+  try {
+    const {
+      generatePeriods,
+      generateLYPeriods,
+    } = await import('./services/reports/plCalculationEngine');
+
+    // Union all relevant periods (month + range) and their LY equivalents.
+    const monthPeriods = generatePeriods(monthRange);
+    const rangePeriods = generatePeriods(customRange);
+    const actPeriods = Array.from(new Set([...monthPeriods, ...rangePeriods]));
+    const lyPeriods = Array.from(new Set([
+      ...generateLYPeriods(monthPeriods),
+      ...generateLYPeriods(rangePeriods),
+    ]));
+    const latestStagingPeriod = actPeriods[actPeriods.length - 1];
+
+    const actPlaceholders = actPeriods.map(() => '?').join(', ');
+    const lyPlaceholders = lyPeriods.map(() => '?').join(', ');
+    const repointPlaceholders = repointAccounts.map(() => '?').join(', ');
+    const burdenScopeClause = repointAccounts.length > 0
+      ? `(am.level_12 = 'Associate Benefits' OR fd.account IN (${repointPlaceholders}))`
+      : `am.level_12 = 'Associate Benefits'`;
+    const burdenScopeClauseStaging = repointAccounts.length > 0
+      ? `(am.level_12 = 'Associate Benefits' OR fds.account IN (${repointPlaceholders}))`
+      : `am.level_12 = 'Associate Benefits'`;
+
+    // Union of fd ACT (current version path = MAIN, mirrors detail query) +
+    // fd BUD (caller version) + fd ACT for LY periods + staging for latest period.
+    // amount != 0 in each subquery keeps the set tight; a SELECT DISTINCT outer
+    // wrap is unnecessary — the GROUP BY does it.
+    const query = `
+      WITH burden_hits AS (
+        SELECT fd.account
+        FROM financial_data fd
+        JOIN department_maps dm ON fd.department = dm.base_department
+        JOIN account_maps am ON fd.account = am.base_account
+        WHERE fd.ou = ?
+          AND fd.scenario = 'ACT'
+          AND fd.version = 'MAIN'
+          AND dm.level_2 = 'Lodging Operations'
+          AND ${burdenScopeClause}
+          AND fd.period_combo IN (${actPlaceholders})
+          AND fd.amount != 0
+
+        UNION ALL
+
+        SELECT fd.account
+        FROM financial_data fd
+        JOIN department_maps dm ON fd.department = dm.base_department
+        JOIN account_maps am ON fd.account = am.base_account
+        WHERE fd.ou = ?
+          AND fd.scenario = 'BUD'
+          AND fd.version = ?
+          AND dm.level_2 = 'Lodging Operations'
+          AND ${burdenScopeClause}
+          AND fd.period_combo IN (${actPlaceholders})
+          AND fd.amount != 0
+
+        UNION ALL
+
+        SELECT fd.account
+        FROM financial_data fd
+        JOIN department_maps dm ON fd.department = dm.base_department
+        JOIN account_maps am ON fd.account = am.base_account
+        WHERE fd.ou = ?
+          AND fd.scenario = 'ACT'
+          AND fd.version = 'MAIN'
+          AND dm.level_2 = 'Lodging Operations'
+          AND ${burdenScopeClause}
+          AND fd.period_combo IN (${lyPlaceholders})
+          AND fd.amount != 0
+
+        UNION ALL
+
+        SELECT fds.account
+        FROM financial_data_staging fds
+        JOIN department_maps dm ON fds.department = dm.base_department
+        JOIN account_maps am ON fds.account = am.base_account
+        WHERE fds.ou = ?
+          AND fds.scenario = 'ACT'
+          AND dm.level_2 = 'Lodging Operations'
+          AND ${burdenScopeClauseStaging}
+          AND fds.period_combo = ?
+          AND fds.amount != 0
+      )
+      SELECT
+        am.base_account AS account,
+        am.account_description_detail_level_max AS name,
+        CASE WHEN am.level_12 = 'Associate Benefits' THEN 1 ELSE 0 END AS is_assoc_benefit
+      FROM burden_hits bh
+      JOIN account_maps am ON bh.account = am.base_account
+      GROUP BY am.base_account, am.account_description_detail_level_max, am.level_12
+      ORDER BY is_assoc_benefit DESC, name ASC
+    `;
+
+    const params: any[] = [
+      // ACT block
+      ou,
+      ...repointAccounts,
+      ...actPeriods,
+      // BUD block
+      ou, version,
+      ...repointAccounts,
+      ...actPeriods,
+      // LY block
+      ou,
+      ...repointAccounts,
+      ...lyPeriods,
+      // Staging block
+      ou,
+      ...repointAccounts,
+      latestStagingPeriod,
+    ];
+
+    const result = await client.execute({ sql: query, args: params });
+    return result.rows.map(r => ({
+      account: r.account as string,
+      name: (r.name as string) || (r.account as string),
+      isAssocBenefit: Number(r.is_assoc_benefit) === 1,
+    }));
+  } catch (error) {
+    console.error(`Error getting Protea payroll burden accounts:`, error);
+    throw error;
+  }
+}
+
+/**
  * Interface for per-unit denominator values (rooms sold or covers)
  */
 export interface PerUnitDenominator {
@@ -7256,4 +7431,181 @@ export async function getRoomSegmentBudgetByMonth(
     console.error(`Error getting room segment budget by month for OU ${ou}:`, error);
     throw error;
   }
+}
+
+// ============================================================================
+// BST EXTRACT — flat per-(dept,acct) values for the mapped (period, scenario, version)
+// tuples. Reads financial_data ONLY (no staging reconciliation by design —
+// downstream BST consumes the committed GL). Balance-sheet accounts excluded.
+// ============================================================================
+
+export interface BSTExtractTuple {
+  period_combo: string;   // zero-padded, e.g. "2024-01"
+  scenario: 'ACT' | 'BUD';
+  version: 'MAIN' | 'OWNR';
+}
+
+export interface BSTExtractRow {
+  department: string;     // e.g. "D0010"
+  account: string;        // e.g. "A361011"
+  account_desc: string;
+  /** key = `${period_combo}|${scenario}|${version}` → amount */
+  amounts: Map<string, number>;
+}
+
+export async function getBSTExtractData(
+  ou: string,
+  tuples: BSTExtractTuple[]
+): Promise<BSTExtractRow[]> {
+  if (tuples.length === 0) return [];
+
+  // Dedupe to distinct (period, scenario, version) — multiple CSV columns can
+  // map to the same tuple, but the DB only needs to fetch each once.
+  const distinct = new Map<string, BSTExtractTuple>();
+  for (const t of tuples) distinct.set(`${t.period_combo}|${t.scenario}|${t.version}`, t);
+  const uniq = Array.from(distinct.values());
+
+  // Group by (scenario, version) → one `scenario=? AND version=? AND period_combo IN (...)`
+  // clause per group. Keeps the composite PK
+  // (dep_acc_combo_id, period_combo, scenario, version, ou) usable.
+  const groups = new Map<string, { scenario: string; version: string; periods: string[] }>();
+  for (const t of uniq) {
+    const k = `${t.scenario}|${t.version}`;
+    let g = groups.get(k);
+    if (!g) { g = { scenario: t.scenario, version: t.version, periods: [] }; groups.set(k, g); }
+    g.periods.push(t.period_combo);
+  }
+
+  const fdGroupClauses: string[] = [];
+  const fdParams: any[] = [];
+  for (const g of groups.values()) {
+    fdGroupClauses.push(`(fd.scenario = ? AND fd.version = ? AND fd.period_combo IN (${g.periods.map(() => '?').join(', ')}))`);
+    fdParams.push(g.scenario, g.version, ...g.periods);
+  }
+
+  // Departments to drop from the BST extract entirely. Stored verbatim in
+  // financial_data.department — 'CORP' and 'TTHTL' have no 'D' prefix.
+  const BST_EXCLUDED_DEPARTMENTS = ['CORP', 'TTHTL', 'D1468'];
+  const excludedPh = BST_EXCLUDED_DEPARTMENTS.map(() => '?').join(', ');
+
+  const sql = `
+    SELECT
+      fd.department,
+      fd.account,
+      am.account_description_detail_level_max AS account_desc,
+      fd.period_combo,
+      fd.scenario,
+      fd.version,
+      SUM(fd.amount) AS amount
+    FROM financial_data fd
+    LEFT JOIN account_maps am ON fd.account = am.base_account
+    WHERE fd.ou = ?
+      AND ${excludeBalanceSheet('fd.account')}
+      AND fd.department NOT IN (${excludedPh})
+      AND (${fdGroupClauses.join(' OR ')})
+    GROUP BY fd.department, fd.account, fd.period_combo, fd.scenario, fd.version
+  `;
+
+  const result = await client.execute({ sql, args: [ou, ...BST_EXCLUDED_DEPARTMENTS, ...fdParams] });
+
+  // Pivot rows → Map keyed by (department, account)
+  const byKey = new Map<string, BSTExtractRow>();
+  for (const r of result.rows as any[]) {
+    const dept = r.department as string;
+    const acct = r.account as string;
+    if (!dept || !acct) continue;
+    const k = `${dept}|${acct}`;
+    let row = byKey.get(k);
+    if (!row) {
+      row = {
+        department: dept,
+        account: acct,
+        account_desc: (r.account_desc as string) || acct,
+        amounts: new Map(),
+      };
+      byKey.set(k, row);
+    }
+    const amtKey = `${r.period_combo}|${r.scenario}|${r.version}`;
+    row.amounts.set(amtKey, Number(r.amount) || 0);
+  }
+  return Array.from(byKey.values());
+}
+
+// ============================================================================
+// X-ACCOUNT RESOLUTION
+// Maps "template" accounts that end in literal Xs (e.g. A610XXX, A6100XX,
+// A61000X) to a real account from account_maps. Deterministic:
+//   1. lower = replace Xs with 0; upper = replace Xs with 9
+//   2. Primary  = smallest base_account in [lower, upper] with no X
+//   3. Fallback = smallest base_account >= lower with no X
+// Account ids are fixed 7 chars (A + 6 digits), so lexicographic BETWEEN on the
+// account_maps.base_account PK is equivalent to numeric ordering. Single
+// batched query for the whole result set — no N+1, no temp tables.
+// ============================================================================
+
+export interface XAccountResolution {
+  account: string;            // real base_account, e.g. "A610001"
+  description: string | null; // account_maps.account_description_detail_level_max
+}
+
+export async function resolveXAccounts(
+  xAccounts: string[]
+): Promise<Map<string, XAccountResolution>> {
+  const result = new Map<string, XAccountResolution>();
+  if (xAccounts.length === 0) return result;
+
+  // Dedupe — same X-template can appear under many departments.
+  const uniq = Array.from(new Set(xAccounts));
+
+  // Build the VALUES list for the bounds CTE.
+  const valuesPh = uniq.map(() => '(?, ?, ?)').join(', ');
+  const args: any[] = [];
+  for (const x of uniq) {
+    args.push(x, x.replace(/X/g, '0'), x.replace(/X/g, '9'));
+  }
+
+  const sql = `
+    WITH bounds(x_acct, lower_b, upper_b) AS (VALUES ${valuesPh}),
+    chosen AS (
+      SELECT
+        b.x_acct,
+        (SELECT am.base_account FROM account_maps am
+          WHERE am.base_account BETWEEN b.lower_b AND b.upper_b
+            AND am.base_account NOT LIKE '%X%'
+          ORDER BY am.base_account
+          LIMIT 1) AS in_range_acct,
+        (SELECT am.base_account FROM account_maps am
+          WHERE am.base_account >= b.lower_b
+            AND am.base_account NOT LIKE '%X%'
+          ORDER BY am.base_account
+          LIMIT 1) AS upward_acct
+      FROM bounds b
+    )
+    SELECT
+      c.x_acct,
+      c.in_range_acct,
+      ir.account_description_detail_level_max AS in_range_desc,
+      c.upward_acct,
+      up.account_description_detail_level_max AS upward_desc
+    FROM chosen c
+    LEFT JOIN account_maps ir ON ir.base_account = c.in_range_acct
+    LEFT JOIN account_maps up ON up.base_account = c.upward_acct
+  `;
+
+  const rs = await client.execute({ sql, args });
+
+  for (const r of rs.rows as any[]) {
+    const xAcct = r.x_acct as string;
+    const inRange = r.in_range_acct as string | null;
+    const upward = r.upward_acct as string | null;
+
+    if (inRange) {
+      result.set(xAcct, { account: inRange, description: (r.in_range_desc as string) ?? null });
+    } else if (upward) {
+      result.set(xAcct, { account: upward, description: (r.upward_desc as string) ?? null });
+    } else {
+      console.warn(`[BST Extract] No real account found in account_maps for X-template '${xAcct}'`);
+    }
+  }
+  return result;
 }
