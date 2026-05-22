@@ -21,8 +21,7 @@ import HelpOutlineRoundedIcon from "@mui/icons-material/HelpOutlineRounded";
 import marriottLogo from "../images/marriott_logo.png";
 
 // 3D imports
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Environment, Float, MeshTransmissionMaterial, ContactShadows } from "@react-three/drei";
+import { Canvas, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
 // ────────────────────────────────────────────────────────────
@@ -377,61 +376,6 @@ const SecondaryButton = styled(Button)(({ theme }) => ({
 /** 4) 3D SCENE COMPONENTS */
 // ────────────────────────────────────────────────────────────
 
-function ChromeSphere({ position, scale = 1 }: { position: [number, number, number]; scale?: number }) {
-  const meshRef = useRef<THREE.Mesh>(null!);
-  const { viewport } = useThree();
-  
-  useFrame((state) => {
-    if (!meshRef.current) return;
-    const t = state.clock.elapsedTime;
-    meshRef.current.rotation.x = Math.sin(t * 0.3) * 0.2;
-    meshRef.current.rotation.y = Math.cos(t * 0.2) * 0.3;
-    meshRef.current.position.y = position[1] + Math.sin(t * 0.5) * 0.1;
-    
-    // Magnetic mouse interaction
-    const x = (state.mouse.x * viewport.width) / 2;
-    const y = (state.mouse.y * viewport.height) / 2;
-    const dist = Math.sqrt(
-      Math.pow(x - meshRef.current.position.x, 2) + 
-      Math.pow(y - meshRef.current.position.y, 2)
-    );
-    if (dist < 2) {
-      const force = (2 - dist) * 0.05;
-      meshRef.current.position.x += (x - meshRef.current.position.x) * force;
-      meshRef.current.position.z = position[2] + force * 2;
-    } else {
-      meshRef.current.position.x += (position[0] - meshRef.current.position.x) * 0.1;
-      meshRef.current.position.z += (position[2] - meshRef.current.position.z) * 0.1;
-    }
-  });
-  
-  return (
-    <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
-      <mesh ref={meshRef} position={position} scale={scale}>
-        <sphereGeometry args={[1, 64, 64]} />
-        <MeshTransmissionMaterial
-          backside
-          samples={8}
-          resolution={512}
-          transmission={0.95}
-          roughness={0.1}
-          thickness={0.5}
-          ior={1.5}
-          chromaticAberration={0.2}
-          anisotropy={0.3}
-          distortion={0.2}
-          distortionScale={0.2}
-          temporalDistortion={0.1}
-          clearcoat={1}
-          attenuationDistance={0.5}
-          attenuationColor="#ffffff"
-          color="#c9b8ff"
-        />
-      </mesh>
-    </Float>
-  );
-}
-
 function ParticleField() {
   const count = 1000;
   const meshRef = useRef<THREE.Points>(null!);
@@ -482,36 +426,38 @@ function ParticleField() {
   );
 }
 
+class Scene3DBoundary extends React.Component<
+  { children: React.ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(err: unknown) {
+    console.warn("[landing] 3D scene disabled:", err);
+  }
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
 function Scene3D({ reduceMotion }: { reduceMotion: boolean }) {
   if (reduceMotion) return null;
-  
+
   return (
     <Box sx={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 0 }}>
-      <Canvas
-        dpr={[1, 2]}
-        gl={{ antialias: true, alpha: true }}
-        camera={{ position: [0, 0, 5], fov: 50 }}
-      >
-        <ambientLight intensity={0.4} />
-        <directionalLight position={[10, 10, 5]} intensity={0.5} />
-        <pointLight position={[-10, -10, -5]} intensity={0.3} color="#8b5cf6" />
-        
-        <Suspense fallback={null}>
-          <Environment preset="city" />
-          <ChromeSphere position={[-2.5, 1, -2]} scale={0.8} />
-          <ChromeSphere position={[2.5, -1, -3]} scale={0.6} />
-          <ChromeSphere position={[0, 0.5, -4]} scale={0.4} />
-          <ParticleField />
-        </Suspense>
-        
-        <ContactShadows
-          opacity={0.2}
-          scale={10}
-          blur={2}
-          far={10}
-          position={[0, -2, 0]}
-        />
-      </Canvas>
+      <Scene3DBoundary>
+        <Canvas
+          dpr={[1, 2]}
+          gl={{ antialias: true, alpha: true }}
+          camera={{ position: [0, 0, 5], fov: 50 }}
+        >
+          <Suspense fallback={null}>
+            <ParticleField />
+          </Suspense>
+        </Canvas>
+      </Scene3DBoundary>
     </Box>
   );
 }

@@ -13,8 +13,9 @@
  *     leading zeros on open). MUST be emitted unquoted.
  *   - Numeric columns are right-padded to 26 chars to match BST's expected layout.
  *   - Prior2YR YTD is always `0.00` (BST consumes monthly periods elsewhere).
- *   - Header strings are quoted; AcctString / Prod / DeptID / Acct are unquoted;
- *     Acct Descr is quoted (may contain commas).
+ *   - Header strings are quoted; all data fields (including Acct Descr) are
+ *     unquoted to match the original BST export format. Any commas in
+ *     descriptions are stripped to keep the CSV parseable.
  *
  * Data scope:
  *   - Raw GL values from financial_data (with ACT/MAIN staging reconciliation).
@@ -66,8 +67,8 @@ const HEADER = [
 /** Right-align to 26 chars, 2 dp. Matches BST's column-aligned layout. */
 const padNumeric = (v: number) => v.toFixed(2).padStart(26, ' ');
 
-/** Quote + escape internal double-quotes (for Acct Descr only). */
-const escapeDescr = (s: string) => `"${(s || '').replace(/"/g, '""')}"`;
+/** Sanitise description for unquoted CSV emission: strip commas + double-quotes. */
+const sanitiseDescr = (s: string) => (s || '').replace(/[",]/g, '');
 
 /** Strip the 'D'/'A' prefix from a stored department/account id. */
 const stripPrefix = (id: string) => id && id.length > 1 ? id.slice(1) : id;
@@ -142,14 +143,15 @@ export class BSTExtractService {
       fields.push(prod);                                // Prod (unquoted)
       fields.push(`="${deptNum}"`);                     // DeptID (unquoted, Excel leading-zero trick)
       fields.push(acctNum);                             // Acct (unquoted)
-      fields.push(escapeDescr(effectiveDesc));          // Acct Descr (quoted)
+      fields.push(sanitiseDescr(effectiveDesc));        // Acct Descr (unquoted — matches original BST format)
       for (const v of values) fields.push(padNumeric(v));
 
       lines.push(fields.join(','));
     }
 
-    // CRLF line endings — Excel on Windows is the consumer.
-    const body = lines.join('\r\n') + '\r\n';
+    // LF-only line endings — the VBA importer splits the file on CHAR(10),
+    // so a CR would leave a stray \r on the last field of every row.
+    const body = lines.join('\n') + '\n';
     await fs.promises.writeFile(filePath, body, { encoding: 'utf8' });
   }
 }
