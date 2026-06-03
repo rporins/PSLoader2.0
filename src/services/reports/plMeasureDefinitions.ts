@@ -2535,14 +2535,14 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
   fb_flatware_act:               { id: 'fb_flatware_act',               formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610102' }] },
   fb_china_act:                  { id: 'fb_china_act',                  formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610100' }] },
   fb_kitchen_utensils_act:       { id: 'fb_kitchen_utensils_act',       formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A635150' }] },
-  fb_linen_act:                  { id: 'fb_linen_act',                  formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A602406' }] },
+  fb_linen_act:                  { id: 'fb_linen_act',                  formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610105' }] },
   fb_glassware_act:              { id: 'fb_glassware_act',              formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610402' }] },
   fb_smalls_act:                 { id: 'fb_smalls_act',                 formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610125' }] },
   fb_cleaning_supplies_act:      { id: 'fb_cleaning_supplies_act',      formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610106' }] },
   fb_guest_supplies_act:         { id: 'fb_guest_supplies_act',         formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610201' }] },
   fb_paper_supplies_act:         { id: 'fb_paper_supplies_act',         formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610104' }] },
   fb_printing_stationery_act:    { id: 'fb_printing_stationery_act',    formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A606101' }] },
-  fb_laundry_act:                { id: 'fb_laundry_act',                formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A610105' }] },
+  fb_laundry_act:                { id: 'fb_laundry_act',                formula: 'CALCULATE', filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'acc_base', value: 'A602406' }] },
 
   // Cost Per Cover denominator: every A914xxx customer-count account in F&B
   // (banqueting depts INCLUDED per spec — total covers across all F&B).
@@ -3998,13 +3998,13 @@ export const MEASURES: Record<string, Measure> = {
   bed_available_per_day: {
     id: 'bed_available_per_day',
     type: 'calculated',
-    subMeasures: ['total_rooms_act'],
+    subMeasures: ['bed_nights_avail_act'],
     evaluator: (ctx: MeasureContext) => {
       return evaluateDivide(
-        ctx.subMeasures.total_rooms_act || 0,
+        ctx.subMeasures.bed_nights_avail_act || 0,
         ctx.periodDays || 0,
         0
-      ) * 2;
+      );
     }
   },
 
