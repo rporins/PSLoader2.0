@@ -192,6 +192,8 @@ export function buildScenarioQuery(
         AND fds.period_combo = ?
         AND fd.period_combo = fds.period_combo
         AND fds.scenario = '${scenario}'
+        AND fds.ou = fd.ou
+        AND fds.version = fd.version
       WHERE fd.scenario = '${scenario}'
         AND fd.version = ?
         AND fd.period_combo IN (${periods.map(() => '?').join(', ')})

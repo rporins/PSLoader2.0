@@ -1258,6 +1258,8 @@ export async function getFinancialReportData(
           AND fds.period_combo = ?
           AND fd.period_combo = fds.period_combo
           AND fds.scenario = 'ACT'
+          AND fds.ou = fd.ou
+          AND fds.version = fd.version
         WHERE fd.scenario = 'ACT'
           AND fd.version = ?
           AND fd.period_combo IN (${periods.map(() => '?').join(', ')})
@@ -1289,6 +1291,8 @@ export async function getFinancialReportData(
           AND fds.period_combo = ?
           AND fd.period_combo = fds.period_combo
           AND fds.scenario = 'BUD'
+          AND fds.ou = fd.ou
+          AND fds.version = fd.version
         WHERE fd.scenario = 'BUD'
           AND fd.version = ?
           AND fd.period_combo IN (${periods.map(() => '?').join(', ')})
@@ -5999,6 +6003,8 @@ export async function getDepartmentDetailData(
           ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
           AND fd.period_combo = fds.period_combo
           AND fds.scenario = 'ACT'
+          AND fds.ou = fd.ou
+          AND fds.version = fd.version
         WHERE fd.scenario = 'ACT'
           AND fd.ou = ?
           AND fd.version = ?
@@ -6016,6 +6022,7 @@ export async function getDepartmentDetailData(
           AND fds.period_combo = fd.period_combo
           AND fd.scenario = 'ACT'
           AND fd.version = ?
+          AND fd.ou = fds.ou
         WHERE fds.scenario = 'ACT'
           AND fds.ou = ?
           AND fds.department = ?
@@ -6143,6 +6150,8 @@ export async function getGroupDepartmentDetailData(
           ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
           AND fd.period_combo = fds.period_combo
           AND fds.scenario = 'ACT'
+          AND fds.ou = fd.ou
+          AND fds.version = fd.version
         WHERE fd.scenario = 'ACT'
           AND fd.ou = ?
           AND fd.version = ?
@@ -6160,6 +6169,7 @@ export async function getGroupDepartmentDetailData(
           AND fds.period_combo = fd.period_combo
           AND fd.scenario = 'ACT'
           AND fd.version = ?
+          AND fd.ou = fds.ou
         WHERE fds.scenario = 'ACT'
           AND fds.ou = ?
           AND fds.department IN (${deptPlaceholders})
@@ -6293,6 +6303,8 @@ export async function getAllDepartmentDetailData(
           ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
           AND fd.period_combo = fds.period_combo
           AND fds.scenario = 'ACT'
+          AND fds.ou = fd.ou
+          AND fds.version = fd.version
         WHERE fd.scenario = 'ACT'
           AND fd.ou = ?
           AND fd.version = ?
@@ -6312,6 +6324,7 @@ export async function getAllDepartmentDetailData(
           AND fds.period_combo = fd.period_combo
           AND fd.scenario = 'ACT'
           AND fd.version = ?
+          AND fd.ou = fds.ou
         WHERE fds.scenario = 'ACT'
           AND fds.ou = ?
           AND dm.level_2 IN ('Lodging Operations', 'Lodging Non-Operating')
@@ -6455,6 +6468,8 @@ export async function getProteaDepartmentDetailData(
           ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
           AND fd.period_combo = fds.period_combo
           AND fds.scenario = 'ACT'
+          AND fds.ou = fd.ou
+          AND fds.version = fd.version
         WHERE fd.scenario = 'ACT'
           AND fd.ou = ?
           AND fd.version = ?
@@ -6472,6 +6487,7 @@ export async function getProteaDepartmentDetailData(
           AND fds.period_combo = fd.period_combo
           AND fd.scenario = 'ACT'
           AND fd.version = ?
+          AND fd.ou = fds.ou
         WHERE fds.scenario = 'ACT'
           AND fds.ou = ?
           AND fds.department = ?
@@ -6600,6 +6616,8 @@ export async function getProteaGroupDepartmentDetailData(
           ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
           AND fd.period_combo = fds.period_combo
           AND fds.scenario = 'ACT'
+          AND fds.ou = fd.ou
+          AND fds.version = fd.version
         WHERE fd.scenario = 'ACT'
           AND fd.ou = ?
           AND fd.version = ?
@@ -6617,6 +6635,7 @@ export async function getProteaGroupDepartmentDetailData(
           AND fds.period_combo = fd.period_combo
           AND fd.scenario = 'ACT'
           AND fd.version = ?
+          AND fd.ou = fds.ou
         WHERE fds.scenario = 'ACT'
           AND fds.ou = ?
           AND fds.department IN (${deptPlaceholders})
@@ -6907,6 +6926,8 @@ export async function getRoomsSoldForPeriod(
           ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
           AND fd.period_combo = fds.period_combo
           AND fds.scenario = 'ACT'
+          AND fds.ou = fd.ou
+          AND fds.version = fd.version
         WHERE fd.scenario = 'ACT'
           AND fd.ou = ?
           AND fd.version = ?
@@ -6923,6 +6944,7 @@ export async function getRoomsSoldForPeriod(
           AND fds.period_combo = fd.period_combo
           AND fd.scenario = 'ACT'
           AND fd.version = ?
+          AND fd.ou = fds.ou
         WHERE fds.scenario = 'ACT'
           AND fds.ou = ?
           AND fds.account = 'A960103'
@@ -7026,6 +7048,8 @@ export async function getDepartmentVolumeForPeriod(
           ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
           AND fd.period_combo = fds.period_combo
           AND fds.scenario = 'ACT'
+          AND fds.ou = fd.ou
+          AND fds.version = fd.version
         WHERE fd.scenario = 'ACT'
           AND fd.ou = ?
           AND fd.version = ?
@@ -7042,6 +7066,7 @@ export async function getDepartmentVolumeForPeriod(
           AND fds.period_combo = fd.period_combo
           AND fd.scenario = 'ACT'
           AND fd.version = ?
+          AND fd.ou = fds.ou
         WHERE fds.scenario = 'ACT'
           AND fds.ou = ?
           AND fds.department IN (${deptPlaceholders})
@@ -7238,6 +7263,7 @@ export async function getRoomSegmentExportData(
         segment.revenueAccount,
         ...periods,
         ou,
+        'MAIN',                           // NOT EXISTS — actuals existence check always MAIN
         ou, version,                      // budget - uses user selection
         segment.revenueAccount,
         ...periods,
@@ -7256,6 +7282,8 @@ export async function getRoomSegmentExportData(
             ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
             AND fds.period_combo = ?
             AND fds.scenario = 'ACT'
+            AND fds.ou = fd.ou
+            AND fds.version = fd.version
           WHERE fd.scenario = 'ACT'
             AND fd.ou = ?
             AND fd.version = ?
@@ -7277,6 +7305,8 @@ export async function getRoomSegmentExportData(
               WHERE fd2.dep_acc_combo_id = fds.dep_acc_combo_id
                 AND fd2.period_combo = fds.period_combo
                 AND fd2.scenario = 'ACT'
+                AND fd2.version = ?
+                AND fd2.ou = fds.ou
             )
         ),
         actuals AS (
@@ -7329,6 +7359,7 @@ export async function getRoomSegmentExportData(
           segment.statAccount,
           ...periods,
           ou,
+          'MAIN',                           // NOT EXISTS — actuals existence check always MAIN
           ou, version,                      // budget - uses user selection
           segment.statAccount,
           ...periods,
