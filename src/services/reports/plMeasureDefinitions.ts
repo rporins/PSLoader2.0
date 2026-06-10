@@ -2507,7 +2507,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     filters: [{ type: 'dept_level', level: 7, value: 'Total Food & Beverage' }, { type: 'dept_base_not_in', value: BANQ_DEPTS }, { type: 'acc_base', value: ['A314014', 'A314017'] }] },
 
   banq_customers_act: { id: 'banq_customers_act', formula: 'CALCULATE',
-    filters: [{ type: 'dept_base', value: BANQ_DEPTS }, { type: 'acc_prefix', value: 'A914' }] },
+    filters: [{ type: 'dept_base', value: BANQ_DEPTS }, { type: 'acc_prefix', value: 'A9140' }] },
   banq_revenue_act:   { id: 'banq_revenue_act',   formula: 'CALCULATE', negate: true,
     filters: [{ type: 'dept_base', value: BANQ_DEPTS }, { type: 'acc_prefix', value: 'A314' }] },
 
