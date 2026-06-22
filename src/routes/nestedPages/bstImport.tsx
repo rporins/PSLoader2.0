@@ -125,6 +125,7 @@ export default function BstImport() {
 
   // ETL / upload state.
   const [ignore700304, setIgnore700304] = useState<boolean>(true);
+  const [ignoreReservationAllocation, setIgnoreReservationAllocation] = useState<boolean>(true);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState<boolean>(false);
   const [parseResult, setParseResult] = useState<BstTransformResult | null>(null);
@@ -216,7 +217,7 @@ export default function BstImport() {
 
   // Read + transform the file in the renderer, then pre-flight validate.
   const runParse = useCallback(
-    async (file: File, ignoreFlag: boolean) => {
+    async (file: File, ignore700304Flag: boolean, ignoreResAllocFlag: boolean) => {
       if (!selectedWindow || !currencyValid || !currency) return;
       setParsing(true);
       setUploadError("");
@@ -224,7 +225,8 @@ export default function BstImport() {
       try {
         const result = await parseAndTransformBstFile(file, selectedWindow, {
           currency,
-          ignore700304: ignoreFlag,
+          ignore700304: ignore700304Flag,
+          ignoreReservationAllocation: ignoreResAllocFlag,
         });
         setParseResult(result);
         setValidationErrors(validateOwnerBudgetRows(result.rows, selectedWindow));
@@ -246,14 +248,21 @@ export default function BstImport() {
     event.target.value = "";
     if (!file) return;
     setSelectedFile(file);
-    runParse(file, ignore700304);
+    runParse(file, ignore700304, ignoreReservationAllocation);
   };
 
   const handleToggleIgnore = (event: React.ChangeEvent<HTMLInputElement>) => {
     const next = event.target.checked;
     setIgnore700304(next);
     // Re-derive the rows against the same file with the new rule.
-    if (selectedFile) runParse(selectedFile, next);
+    if (selectedFile) runParse(selectedFile, next, ignoreReservationAllocation);
+  };
+
+  const handleToggleReservationAllocation = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const next = event.target.checked;
+    setIgnoreReservationAllocation(next);
+    // Re-derive the rows against the same file with the new rule.
+    if (selectedFile) runParse(selectedFile, ignore700304, next);
   };
 
   const handleUpload = async () => {
@@ -480,6 +489,17 @@ export default function BstImport() {
                       sx={{ mb: 1, display: "block" }}
                     />
 
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={ignoreReservationAllocation}
+                          onChange={handleToggleReservationAllocation}
+                        />
+                      }
+                      label="Ignore reservation allocation"
+                      sx={{ mb: 1, display: "block" }}
+                    />
+
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -516,6 +536,12 @@ export default function BstImport() {
                           <CountChip label="Empty/zero skipped" value={parseResult.skippedZeroBlank} />
                           {ignore700304 && (
                             <CountChip label="700304 ignored" value={parseResult.ignoredCount} />
+                          )}
+                          {ignoreReservationAllocation && (
+                            <CountChip
+                              label="Res. allocation ignored"
+                              value={parseResult.reservationAllocationIgnored}
+                            />
                           )}
                           {parseResult.ouMismatch > 0 && (
                             <CountChip label="Wrong OU skipped" value={parseResult.ouMismatch} color="warning" />

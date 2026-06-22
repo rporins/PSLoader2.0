@@ -35,6 +35,16 @@ const MONTHS_IN_FILE = 12;
 /** Account excluded by the default "Ignore 700304" toggle. */
 const IGNORED_ACCOUNT = 'A700304';
 
+/**
+ * Reservation-allocation lines excluded by the default toggle: exact
+ * account+department pairs, keyed "<account>|<department>" in their final
+ * (A-/D-prefixed) form.
+ */
+const RESERVATION_ALLOCATION_COMBOS = new Set<string>([
+  'A660112|D0010',
+  'A759101|D0120',
+]);
+
 /** Accounts whose code starts with "3" (→ "A3…") are sign-flipped. */
 const NEGATE_PREFIX = 'A3';
 
@@ -57,6 +67,8 @@ export interface BstTransformOptions {
   currency: string;
   /** When true (default), rows for account A700304 are dropped. */
   ignore700304: boolean;
+  /** When true (default), the reservation-allocation dept+account combos are dropped. */
+  ignoreReservationAllocation: boolean;
 }
 
 /** Outcome of parsing + transforming, with counts for the review summary. */
@@ -66,6 +78,7 @@ export interface BstTransformResult {
   emitted: number; // owner-budget rows produced
   skippedZeroBlank: number; // month cells that were empty or rounded to 0
   ignoredCount: number; // source rows dropped by the 700304 toggle
+  reservationAllocationIgnored: number; // source rows dropped by the reservation-allocation toggle
   skippedNonNumeric: number; // month cells that were non-numeric
   ouMismatch: number; // source rows whose OU ≠ the window's OU
 }
@@ -173,6 +186,7 @@ export function transformToOwnerBudgetRows(
   let sourceRows = 0;
   let skippedZeroBlank = 0;
   let ignoredCount = 0;
+  let reservationAllocationIgnored = 0;
   let skippedNonNumeric = 0;
   let ouMismatch = 0;
 
@@ -185,9 +199,18 @@ export function transformToOwnerBudgetRows(
     sourceRows++;
 
     const account = formatAccount(rawAccount);
+    const department = formatDepartment(row[COL.DEPARTMENT]);
 
     if (options.ignore700304 && account === IGNORED_ACCOUNT) {
       ignoredCount++;
+      continue;
+    }
+
+    if (
+      options.ignoreReservationAllocation &&
+      RESERVATION_ALLOCATION_COMBOS.has(`${account}|${department}`)
+    ) {
+      reservationAllocationIgnored++;
       continue;
     }
 
@@ -197,7 +220,6 @@ export function transformToOwnerBudgetRows(
       continue;
     }
 
-    const department = formatDepartment(row[COL.DEPARTMENT]);
     const negate = account.startsWith(NEGATE_PREFIX);
 
     for (let j = 0; j < monthCount; j++) {
@@ -235,6 +257,7 @@ export function transformToOwnerBudgetRows(
     emitted: rows.length,
     skippedZeroBlank,
     ignoredCount,
+    reservationAllocationIgnored,
     skippedNonNumeric,
     ouMismatch,
   };
