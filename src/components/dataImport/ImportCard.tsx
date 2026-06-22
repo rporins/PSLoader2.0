@@ -615,7 +615,7 @@ const ImportCard: React.FC<ImportCardProps> = ({
               }}
             />
             <Typography variant="body2" fontWeight={600} mb={0.5} fontSize="0.9rem">
-              {isDragActive ? 'Drop file here' : 'Drop file or click to browse'}
+              {isDragActive ? 'Drop file here' : 'Click to browse'}
             </Typography>
             <Typography variant="caption" color="text.secondary" fontSize="0.75rem">
               Accepts: {(importFile.fileTypes || []).map((ft) => `.${ft.toUpperCase()}`).join(', ') || 'All files'}

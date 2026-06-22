@@ -45,10 +45,10 @@ export default function SignOffUpload() {
   const [validations, setValidations] = useState<ValidationStatus[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [signature, setSignature] = useState<string>("");
-  const [signedOff, setSignedOff] = useState<boolean>(false);
   const [uploading, setUploading] = useState<boolean>(false);
-  const [uploadComplete, setUploadComplete] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string>("");
+  const [signedByName, setSignedByName] = useState<string>("");
+  const [signedAt, setSignedAt] = useState<string>("");
   const [unmappedCount, setUnmappedCount] = useState<number>(0);
   const [invalidComboCount, setInvalidComboCount] = useState<number>(0);
   const [totalRecords, setTotalRecords] = useState<number>(0);
@@ -146,10 +146,9 @@ export default function SignOffUpload() {
   const hasWarnings = validations.some(v => v.status === "warning");
   const hasDataIssues = unmappedCount > 0 || invalidComboCount > 0;
 
-  const handleSignOff = () => {
-    if (signature.trim().length > 0) {
-      setSignedOff(true);
-    }
+  const handleSignOffAndUpload = async () => {
+    if (signature.trim().length === 0) return;
+    await handleUpload();
   };
 
   const handleUpload = async () => {
@@ -202,7 +201,9 @@ export default function SignOffUpload() {
       // Upload data via API
       const uploadedData = await submittedDataService.uploadBulk(submittedData, signedBy);
 
-      setUploadComplete(true);
+      // Capture the signer identity/time at the moment of success for the completion message
+      setSignedByName(signedBy);
+      setSignedAt(new Date().toLocaleString());
 
       // Mark sign-off as completed
       if (selectedHotelOu) {
@@ -362,20 +363,27 @@ export default function SignOffUpload() {
         </CardContent>
       </StyledCard>
 
-      {/* Sign-Off Card */}
-      <StyledCard>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Digital Sign-Off
-          </Typography>
-          <Divider sx={{ mb: 2 }} />
+      {/* Sign-Off & Upload Card */}
+      {!signOffCompleted && (
+        <StyledCard>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              Digital Sign-Off
+            </Typography>
+            <Divider sx={{ mb: 2 }} />
 
-          <Alert severity="info" sx={{ mb: 3 }}>
-            By signing off, you confirm that you have reviewed your P&L for accuracy and that all data
-            is correct and ready for upload.
-          </Alert>
+            <Alert severity="info" sx={{ mb: 3 }}>
+              By signing off, you confirm that you have reviewed your P&L for accuracy and that all data
+              is correct and ready for upload. Clicking the button below signs off and uploads your data
+              in a single step.
+            </Alert>
 
-          {!signedOff ? (
+            {uploadError && (
+              <Alert severity="error" sx={{ mb: 2 }} icon={<ErrorIcon />}>
+                {uploadError}
+              </Alert>
+            )}
+
             <Stack spacing={2}>
               <TextField
                 label="Enter Your Name to Sign"
@@ -384,78 +392,24 @@ export default function SignOffUpload() {
                 value={signature}
                 onChange={(e) => setSignature(e.target.value)}
                 placeholder="Type your full name"
-                disabled={!allValidationsPassed || !validationCompleted || signOffCompleted || hasDataIssues}
+                disabled={uploading || !allValidationsPassed || !validationCompleted || signOffCompleted || hasDataIssues}
                 InputProps={{
                   startAdornment: <EditIcon sx={{ mr: 1, color: 'text.secondary' }} />,
                 }}
               />
               <Button
                 variant="contained"
-                color="primary"
-                onClick={handleSignOff}
-                disabled={!allValidationsPassed || signature.trim().length === 0 || !validationCompleted || signOffCompleted || hasDataIssues}
+                color="success"
+                onClick={handleSignOffAndUpload}
+                disabled={uploading || !allValidationsPassed || signature.trim().length === 0 || !validationCompleted || signOffCompleted || hasDataIssues}
                 fullWidth
+                size="large"
+                startIcon={<UploadIcon />}
               >
-                Sign Off
+                {uploading ? "Signing off & uploading…" : "Sign Off & Upload"}
               </Button>
+              {uploading && <LinearProgress />}
             </Stack>
-          ) : (
-            <Paper sx={{ p: 2, bgcolor: 'success.light', color: 'success.contrastText' }}>
-              <Stack direction="row" spacing={2} alignItems="center">
-                <CheckCircleIcon />
-                <Box>
-                  <Typography variant="subtitle1" fontWeight={600}>
-                    Signed by: {signature}
-                  </Typography>
-                  <Typography variant="body2">
-                    {new Date().toLocaleString()}
-                  </Typography>
-                </Box>
-              </Stack>
-            </Paper>
-          )}
-        </CardContent>
-      </StyledCard>
-
-      {/* Upload Card */}
-      {signedOff && !signOffCompleted && (
-        <StyledCard>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Upload Data
-            </Typography>
-            <Divider sx={{ mb: 2 }} />
-
-            {uploadComplete ? (
-              <Stack spacing={2}>
-                <Alert severity="success" icon={<CheckCircleIcon />}>
-                  Data uploaded successfully!
-                </Alert>
-              </Stack>
-            ) : (
-              <>
-                {uploadError && (
-                  <Alert severity="error" sx={{ mb: 2 }} icon={<ErrorIcon />}>
-                    {uploadError}
-                  </Alert>
-                )}
-                <Typography variant="body1" paragraph>
-                  Ready to upload your data. Click the button below to proceed.
-                </Typography>
-                <Button
-                  variant="contained"
-                  color="success"
-                  onClick={handleUpload}
-                  disabled={uploading}
-                  fullWidth
-                  startIcon={<UploadIcon />}
-                  size="large"
-                >
-                  {uploading ? "Uploading..." : "Upload Data"}
-                </Button>
-                {uploading && <LinearProgress sx={{ mt: 2 }} />}
-              </>
-            )}
           </CardContent>
         </StyledCard>
       )}
@@ -478,6 +432,11 @@ export default function SignOffUpload() {
             <Typography variant="body2" color="text.secondary">
               Data has been signed off and uploaded successfully. You can now view reports or reset all stages to start a new workflow.
             </Typography>
+            {signedByName && (
+              <Typography variant="body2" color="text.secondary" mt={1} fontWeight={600}>
+                Signed by: {signedByName}{signedAt ? ` • ${signedAt}` : ""}
+              </Typography>
+            )}
           </Alert>
 
           <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>

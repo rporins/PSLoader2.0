@@ -49,6 +49,7 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import MeetingRoomIcon from "@mui/icons-material/MeetingRoom";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
+import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import ThemeToggle from "./customComponents/themeToggle";
 import { useSettingsStore } from "../store/settings";
 import authService, { Hotel } from "../services/auth";
@@ -743,6 +744,23 @@ const handleSignOut = useCallback(async () => {
             </ListItemButton>
           </ListItem>
 
+          {/* Actuals Import Section */}
+          <Divider sx={{ my: 1 }} />
+          {open && (
+            <ListItem disablePadding sx={{ display: "block" }}>
+              <ListItemText
+                primary="ACTUALS IMPORT"
+                sx={{
+                  px: 2.5,
+                  py: 1,
+                  color: 'text.secondary',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                }}
+              />
+            </ListItem>
+          )}
+
           <ListItem key="DataImport" disablePadding sx={{ display: "block" }}>
             <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/data-import")}>
               <ListItemIcon sx={listItemIconStyle}>
@@ -767,6 +785,32 @@ const handleSignOut = useCallback(async () => {
                 <CloudUploadIcon />
               </ListItemIcon>
               <ListItemText primary="Sign-Off & Upload" sx={listItemTextStyle} />
+            </ListItemButton>
+          </ListItem>
+
+          {/* Planning Upload Section */}
+          <Divider sx={{ my: 1 }} />
+          {open && (
+            <ListItem disablePadding sx={{ display: "block" }}>
+              <ListItemText
+                primary="PLANNING UPLOAD"
+                sx={{
+                  px: 2.5,
+                  py: 1,
+                  color: 'text.secondary',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                }}
+              />
+            </ListItem>
+          )}
+
+          <ListItem key="BstImport" disablePadding sx={{ display: "block" }}>
+            <ListItemButton sx={listItemButtonStyle} onClick={() => navigate("/signed-in-landing/bst-import")}>
+              <ListItemIcon sx={listItemIconStyle}>
+                <CalendarMonthIcon />
+              </ListItemIcon>
+              <ListItemText primary="BST Import" sx={listItemTextStyle} />
             </ListItemButton>
           </ListItem>
 

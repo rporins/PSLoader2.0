@@ -29,6 +29,7 @@ import Settings from "./routes/nestedPages/settings";
 import HelpSupport from "./routes/nestedPages/helpSupport";
 import Home from "./routes/nestedPages/home";
 import SignOffUpload from "./routes/nestedPages/signOffUpload";
+import BstImport from "./routes/nestedPages/bstImport";
 import SummaryPL from "./routes/nestedPages/summaryPL";
 import F90PL from "./routes/nestedPages/f90PL";
 import RoomSegmentReview from "./routes/nestedPages/roomSegmentReview";
@@ -107,6 +108,11 @@ const router = createHashRouter([
         path: "sign-off-upload",
         element: <SignOffUpload />,
         handle: { title: "Sign-Off & Upload" },
+      },
+      {
+        path: "bst-import",
+        element: <BstImport />,
+        handle: { title: "BST Import" },
       },
       {
         path: "report",
