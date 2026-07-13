@@ -1,11 +1,15 @@
 /**
  * SessionGate — the app entry ("/").
  * -----------------------------------------------------------
- * By the time this renders, AppInitializer has kicked off the (background)
- * cold-start resume and the fast local `hasResumableSession` check has resolved.
- * We route accordingly — there is no blocking splash and no separate welcome
- * screen; a resumable session surfaces as the "Continue session" button on the
- * login page itself.
+ * The app always opens on the landing page unless the user is already fully
+ * signed in this run. AppInitializer has, by now, kicked off the (background)
+ * cold-start resume; the user reads the landing page and clicks "Sign In",
+ * giving that resume time to finish, and a resumable session then surfaces as
+ * the "Continue session" button on the login page itself.
+ *
+ * We deliberately do NOT redirect a resumable session straight to /login —
+ * that would skip the landing page for returning users and make the login
+ * page's "Back" button appear to do nothing (/ would just bounce back here).
  */
 
 import React from "react";
@@ -19,13 +23,8 @@ const SessionGate: React.FC = () => {
     return <Navigate to="/signed-in-landing/home" replace />;
   }
 
-  // A resumable session exists (or is still being checked in the background) ->
-  // land on the login page, where the "Continue session" button appears.
-  if (authService.hasResumableSession()) {
-    return <Navigate to="/login" replace />;
-  }
-
-  // Brand-new / signed-out user -> the marketing landing page.
+  // Everyone else (brand-new, signed-out, or resumable) -> the landing page.
+  // The background resume keeps running; "Continue session" appears on /login.
   return <Landing />;
 };
 

@@ -21,6 +21,7 @@ const ALLOWED_CHANNEL_PREFIXES = [
   "template:",
   "protea:",
   "app:",
+  "window:",
 ] as const;
 
 // Legacy channel names still used by some renderer call sites → canonical names.

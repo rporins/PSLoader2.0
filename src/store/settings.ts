@@ -1,11 +1,13 @@
 import { create } from "zustand";
 import { ThemeMode } from "../theme/settings";
-import { settingsService, SETTINGS_KEYS, AppSettings } from "../services/settingsService";
+import { settingsService, SETTINGS_KEYS, AppSettings, UiScaleMode } from "../services/settingsService";
 import backgroundSyncService from "../services/backgroundSync";
 
 type SettingsState = {
   // Settings values
   themeMode: ThemeMode;
+  uiScaleMode: UiScaleMode;
+  uiScale: number;
   selectedHotelOu: string | null;
   selectedDepartment: string | null;
   selectedAccount: string | null;
@@ -48,6 +50,9 @@ type SettingsState = {
   // Actions
   toggleTheme: () => Promise<void>;
   setThemeMode: (mode: ThemeMode) => Promise<void>;
+  setUiScale: (factor: number) => Promise<void>;
+  setUiScaleMode: (mode: UiScaleMode) => Promise<void>;
+  resetUiScaleToAuto: () => Promise<void>;
   setSelectedHotelOu: (ou: string | null) => Promise<void>;
   setSelectedDepartment: (dept: string | null) => Promise<void>;
   setSelectedAccount: (account: string | null) => Promise<void>;
@@ -93,6 +98,8 @@ type SettingsState = {
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   // Initial state - will be overwritten when settings are loaded
   themeMode: "light",
+  uiScaleMode: "auto",
+  uiScale: 1.0,
   selectedHotelOu: null,
   selectedDepartment: null,
   selectedAccount: null,
@@ -155,6 +162,48 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       console.error("Failed to save theme mode:", error);
       // Revert on error
       set({ themeMode: previous });
+    }
+  },
+
+  // UI scale: dragging the slider implies manual mode; persist both keys atomically
+  setUiScale: async (factor) => {
+    const prevMode = get().uiScaleMode;
+    const prevFactor = get().uiScale;
+    set({ uiScaleMode: "manual", uiScale: factor });
+
+    try {
+      await settingsService.setSettings({
+        [SETTINGS_KEYS.UI_SCALE_MODE]: "manual",
+        [SETTINGS_KEYS.UI_SCALE]: factor,
+      });
+    } catch (error) {
+      console.error("Failed to save UI scale:", error);
+      // Revert on error
+      set({ uiScaleMode: prevMode, uiScale: prevFactor });
+    }
+  },
+
+  setUiScaleMode: async (mode) => {
+    const previous = get().uiScaleMode;
+    set({ uiScaleMode: mode });
+
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.UI_SCALE_MODE, mode);
+    } catch (error) {
+      console.error("Failed to save UI scale mode:", error);
+      set({ uiScaleMode: previous });
+    }
+  },
+
+  resetUiScaleToAuto: async () => {
+    const previous = get().uiScaleMode;
+    set({ uiScaleMode: "auto" });
+
+    try {
+      await settingsService.setSetting(SETTINGS_KEYS.UI_SCALE_MODE, "auto");
+    } catch (error) {
+      console.error("Failed to reset UI scale to auto:", error);
+      set({ uiScaleMode: previous });
     }
   },
 
@@ -589,6 +638,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       // Update store with loaded settings
       set({
         themeMode: settings[SETTINGS_KEYS.THEME_MODE],
+        uiScaleMode: settings[SETTINGS_KEYS.UI_SCALE_MODE],
+        uiScale: settings[SETTINGS_KEYS.UI_SCALE],
         selectedHotelOu: settings[SETTINGS_KEYS.SELECTED_HOTEL_OU],
         selectedDepartment: settings[SETTINGS_KEYS.SELECTED_DEPARTMENT],
         selectedAccount: settings[SETTINGS_KEYS.SELECTED_ACCOUNT],
@@ -642,6 +693,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const state = get();
       const settings: AppSettings = {
         [SETTINGS_KEYS.THEME_MODE]: state.themeMode,
+        [SETTINGS_KEYS.UI_SCALE_MODE]: state.uiScaleMode,
+        [SETTINGS_KEYS.UI_SCALE]: state.uiScale,
         [SETTINGS_KEYS.SELECTED_HOTEL_OU]: state.selectedHotelOu,
         [SETTINGS_KEYS.SELECTED_DEPARTMENT]: state.selectedDepartment,
         [SETTINGS_KEYS.SELECTED_ACCOUNT]: state.selectedAccount,
@@ -680,6 +733,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       // Update store with defaults
       set({
         themeMode: settings[SETTINGS_KEYS.THEME_MODE],
+        uiScaleMode: settings[SETTINGS_KEYS.UI_SCALE_MODE],
+        uiScale: settings[SETTINGS_KEYS.UI_SCALE],
         selectedHotelOu: settings[SETTINGS_KEYS.SELECTED_HOTEL_OU],
         selectedDepartment: settings[SETTINGS_KEYS.SELECTED_DEPARTMENT],
         selectedAccount: settings[SETTINGS_KEYS.SELECTED_ACCOUNT],
@@ -708,6 +763,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
 // Export convenience hooks for specific settings
 export const useThemeMode = () => useSettingsStore((s) => s.themeMode);
+export const useUiScaleMode = () => useSettingsStore((s) => s.uiScaleMode);
+export const useUiScale = () => useSettingsStore((s) => s.uiScale);
 export const useSelectedHotel = () => useSettingsStore((s) => s.selectedHotelOu);
 export const useSelectedDepartment = () => useSettingsStore((s) => s.selectedDepartment);
 export const useSelectedAccount = () => useSettingsStore((s) => s.selectedAccount);

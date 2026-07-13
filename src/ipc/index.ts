@@ -4,7 +4,7 @@
  */
 
 import { ipcRegistry } from "./registry";
-import { createAuthHandlers, createDataHandlers, createDatabaseHandlers, createHardwareHandlers, createDataImportHandlers, createSettingsHandlers, createImportsHandlers, createValidationHandlers, createAppHandlers, createExcelExportHandlers, createTemplateExportHandlers, createProteaReportPackHandlers, createProteaBudgetPackHandlers, createBSTExtractHandlers } from "./handlers";
+import { createAuthHandlers, createDataHandlers, createDatabaseHandlers, createHardwareHandlers, createDataImportHandlers, createSettingsHandlers, createImportsHandlers, createValidationHandlers, createAppHandlers, createExcelExportHandlers, createTemplateExportHandlers, createProteaReportPackHandlers, createProteaBudgetPackHandlers, createBSTExtractHandlers, createWindowHandlers } from "./handlers";
 import {
   loggingMiddleware,
   errorHandlingMiddleware,
@@ -122,6 +122,12 @@ export function initializeIpc(deps: {
   // Register BST Extract handlers
   const bstExtractHandlers = createBSTExtractHandlers();
   Object.entries(bstExtractHandlers).forEach(([channel, handler]) => {
+    ipcRegistry.register(channel, handler);
+  });
+
+  // Register Window handlers (UI scaling / zoom)
+  const windowHandlers = createWindowHandlers();
+  Object.entries(windowHandlers).forEach(([channel, handler]) => {
     ipcRegistry.register(channel, handler);
   });
 

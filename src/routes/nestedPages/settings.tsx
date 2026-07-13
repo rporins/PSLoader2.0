@@ -17,6 +17,8 @@ import {
   CircularProgress,
   Button,
   Stack,
+  Slider,
+  Switch,
   Tooltip,
   IconButton,
   TextField,
@@ -52,6 +54,10 @@ declare global {
 export default function Settings() {
   const themeMode = useSettingsStore((s) => s.themeMode);
   const setThemeMode = useSettingsStore((s) => s.setThemeMode);
+  const uiScaleMode = useSettingsStore((s) => s.uiScaleMode);
+  const uiScale = useSettingsStore((s) => s.uiScale);
+  const setUiScale = useSettingsStore((s) => s.setUiScale);
+  const resetUiScaleToAuto = useSettingsStore((s) => s.resetUiScaleToAuto);
   const selectedHotelOu = useSettingsStore((s) => s.selectedHotelOu);
   const setSelectedHotelOu = useSettingsStore((s) => s.setSelectedHotelOu);
 
@@ -472,6 +478,62 @@ export default function Settings() {
                 }
               />
             </RadioGroup>
+          </FormControl>
+
+          <Divider sx={{ my: 3 }} />
+
+          <FormControl component="fieldset" sx={{ width: "100%" }}>
+            <FormLabel component="legend" sx={{ mb: 1 }}>
+              Display Scale
+            </FormLabel>
+            <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="space-between"
+              sx={{ mb: 1 }}
+            >
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={uiScaleMode === "auto"}
+                    onChange={(e) =>
+                      e.target.checked ? resetUiScaleToAuto() : setUiScale(uiScale || 1)
+                    }
+                  />
+                }
+                label="Auto (fit to window size)"
+              />
+              <Button
+                size="small"
+                onClick={() => resetUiScaleToAuto()}
+                disabled={uiScaleMode === "auto"}
+                sx={{ textTransform: "none" }}
+              >
+                Reset to Auto
+              </Button>
+            </Stack>
+            <Box sx={{ px: 1 }}>
+              <Slider
+                value={Math.round((uiScale || 1) * 100)}
+                min={50}
+                max={100}
+                step={5}
+                marks={[
+                  { value: 50, label: "50%" },
+                  { value: 75, label: "75%" },
+                  { value: 100, label: "100%" },
+                ]}
+                valueLabelDisplay="auto"
+                valueLabelFormat={(v) => `${v}%`}
+                disabled={uiScaleMode === "auto"}
+                onChange={(_, v) => setUiScale((v as number) / 100)}
+              />
+              <Typography variant="caption" color="text.secondary">
+                {uiScaleMode === "auto"
+                  ? "Automatically sized to the app window — larger windows show the UI at full size, smaller windows scale it down."
+                  : `Manual scale: ${Math.round((uiScale || 1) * 100)}%`}
+              </Typography>
+            </Box>
           </FormControl>
         </CardContent>
       </Card>

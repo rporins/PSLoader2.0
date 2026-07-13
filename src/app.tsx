@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import { createHashRouter, RouterProvider } from "react-router-dom";
 import AppThemeProvider from "./components/AppThemeProvider";
 import AppInitializer from "./components/AppInitializer";
+import UiScaleController from "./components/UiScaleController";
 
 //import routes
 import SessionGate from "./routes/sessionGate";
@@ -203,6 +204,7 @@ createRoot(document.getElementById("root")).render(
         also rendered with the user's light/dark MUI theme. */}
     <AppThemeProvider>
       <AppInitializer>
+        <UiScaleController />
         <RouterProvider router={router} />
       </AppInitializer>
     </AppThemeProvider>

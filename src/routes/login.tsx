@@ -342,15 +342,26 @@ const Login: React.FC = () => {
   const theme = useTheme();
   // Prefill with the last-used email (persisted locally; not a secret).
   const [email, setEmail] = useState(() => authService.getLastUserEmail() ?? '');
+  const [emailEdited, setEmailEdited] = useState(false);
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
   // Background cold-start resume state — drives the "Continue session" button.
   const { status: authStatus, resolving, resumable } = useAuthStatus();
-  // Show while the check runs OR when a live session is confirmed; hide once
-  // resolved with no session.
-  const showContinueSession = resumable && (resolving || authStatus.isActive);
+
+  // The remembered email can land AFTER first mount (the status is populated
+  // asynchronously), so a one-shot useState initializer isn't enough — keep the
+  // field in sync with the auth status until the user starts typing.
+  useEffect(() => {
+    if (!emailEdited && authStatus.lastUserEmail) {
+      setEmail(authStatus.lastUserEmail);
+    }
+  }, [authStatus.lastUserEmail, emailEdited]);
+
+  // Only show "Continue session" once a live session is actually confirmed —
+  // never a "Checking…" placeholder that could vanish if the resume fails.
+  const showContinueSession = resumable && !resolving && authStatus.isActive;
 
   const handleContinueSession = () => {
     // A restored session still needs the TOTP step-up before business access.
@@ -447,29 +458,15 @@ const Login: React.FC = () => {
 
             {showContinueSession && (
               <Box sx={{ mb: 3 }}>
-                <Button
+                <PremiumButton
                   fullWidth
-                  variant="outlined"
                   size="large"
-                  disabled={resolving || !authStatus.isActive}
                   onClick={handleContinueSession}
-                  startIcon={
-                    resolving ? (
-                      <CircularProgress size={16} color="inherit" />
-                    ) : (
-                      <ShieldRoundedIcon />
-                    )
-                  }
-                  sx={{
-                    borderRadius: 4,
-                    textTransform: 'none',
-                    fontWeight: 600,
-                    py: 1.2,
-                  }}
+                  startIcon={<ShieldRoundedIcon />}
                 >
-                  {resolving ? 'Checking for your session…' : 'Continue session'}
-                </Button>
-                {!resolving && authStatus.lastUserEmail && (
+                  Continue session
+                </PremiumButton>
+                {authStatus.lastUserEmail && (
                   <Typography
                     variant="caption"
                     sx={{
@@ -514,7 +511,10 @@ const Login: React.FC = () => {
                   label="Email"
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmailEdited(true);
+                    setEmail(e.target.value);
+                  }}
                   required
                   disabled={isLoading}
                   autoComplete="email"

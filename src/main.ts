@@ -12,6 +12,7 @@ import dotenv from "dotenv";
 import { initializeDatabase } from "./local_db";
 import { initializeIpc } from "./ipc";
 import { setupAutoUpdaterEvents } from "./ipc/handlers/app";
+import { attachUiScale } from "./ipc/handlers/window";
 import { createAuthStack } from "./main/auth";
 import { API_BASE_URL } from "./config";
 
@@ -119,6 +120,11 @@ function createMainWindow(): void {
       devTools: true, // Keep devTools available but don't open by default
     },
   });
+
+  // Apply default-auto UI scaling before any content loads, so the update-checker,
+  // loading and login screens are already sized to the window. The renderer will
+  // push the persisted policy (which may override to manual) once settings load.
+  attachUiScale(mainWindow);
 
   // Harden navigation: deny popups and block navigation away from app content.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
