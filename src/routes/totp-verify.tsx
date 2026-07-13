@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import authService from '../services/auth';
+import { useThemeMode } from '../store/settings';
 import '../styles/auth.css';
 
 const TOTPVerify: React.FC = () => {
   const navigate = useNavigate();
+  const isDark = useThemeMode() === 'dark';
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(true);
@@ -114,7 +116,7 @@ const TOTPVerify: React.FC = () => {
   };
 
   return (
-    <div className="auth-container">
+    <div className={`auth-container${isDark ? ' theme-dark' : ''}`}>
       <div className="auth-card totp-verify">
         <div className="auth-logo">
           <svg width="60" height="60" viewBox="0 0 60 60" fill="none">

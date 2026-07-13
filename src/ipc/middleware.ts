@@ -129,6 +129,28 @@ export const errorHandlingMiddleware = (logger?: any): IpcMiddleware => {
 };
 
 /**
+ * Sender validation middleware - rejects IPC from any frame that is not our own
+ * app content. Guards against a compromised/embedded frame invoking main-process
+ * handlers. Trusted senders are the packaged renderer (file://) and, in dev, the
+ * Vite dev-server origin.
+ */
+export const senderValidationMiddleware = (
+  allowedOrigins: string[]
+): IpcMiddleware => {
+  return async (event, channel, args, next) => {
+    const url = event.senderFrame?.url ?? "";
+    const trusted =
+      url.startsWith("file://") ||
+      allowedOrigins.some((origin) => origin && url.startsWith(origin));
+
+    if (!trusted) {
+      throw new Error(`Untrusted IPC sender rejected for ${channel}`);
+    }
+    return next();
+  };
+};
+
+/**
  * Security middleware - sanitizes potentially dangerous inputs
  */
 export const securityMiddleware = (): IpcMiddleware => {

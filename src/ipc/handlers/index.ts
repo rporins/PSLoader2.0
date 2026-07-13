@@ -4,6 +4,7 @@
  */
 
 export * from "./auth";
+export * from "./data";
 export * from "./database";
 export * from "./hardware";
 export * from "./dataImport";

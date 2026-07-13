@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import authService from '../services/auth';
+import { useThemeMode } from '../store/settings';
 import '../styles/auth.css';
 
 const DeviceVerify: React.FC = () => {
   const navigate = useNavigate();
+  const themeMode = useThemeMode();
+  const isDark = themeMode === 'dark';
   const [status, setStatus] = useState<'verifying' | 'registering' | 'pending' | 'error'>('verifying');
   const [message, setMessage] = useState('Verifying device security...');
   const [error, setError] = useState('');
@@ -36,7 +39,11 @@ const DeviceVerify: React.FC = () => {
     } catch (err: any) {
       clearInterval(progressInterval);
 
-      if (err.message === 'DEVICE_NOT_REGISTERED') {
+      if (
+        err.message === 'DEVICE_NOT_REGISTERED' ||
+        err.message === 'DEVICE_SECRET_INVALID'
+      ) {
+        // Not registered, or hardware changed (secret invalid) -> (re-)register.
         setStatus('registering');
         setMessage('Registering new device...');
         await registerDevice();
@@ -46,12 +53,7 @@ const DeviceVerify: React.FC = () => {
         setStatus('pending');
         setMessage('Device Registered - Awaiting Approval');
         setError('');
-        // Try to get device ID from local storage if available
-        const stored = localStorage.getItem('deviceCredentials');
-        if (stored) {
-          const creds = JSON.parse(stored);
-          setDeviceId(creds.deviceId);
-        }
+        setDeviceId(authService.getDeviceId());
       } else {
         setStatus('error');
         setError(err.message || 'Device verification failed');
@@ -73,7 +75,7 @@ const DeviceVerify: React.FC = () => {
       setProgress(100);
 
       // Store device ID for display
-      setDeviceId(result.device_id);
+      setDeviceId(result.deviceId);
 
       // After registration, immediately try to verify
       // If approved, verification will succeed
@@ -113,7 +115,7 @@ const DeviceVerify: React.FC = () => {
   };
 
   return (
-    <div className="auth-container">
+    <div className={`auth-container${isDark ? ' theme-dark' : ''}`}>
       <div className="auth-card device-verify">
         <div className={`device-icon ${status}`}>
           {status === 'error' ? (
@@ -200,7 +202,7 @@ const DeviceVerify: React.FC = () => {
                   alignItems: 'center',
                   gap: '8px',
                   padding: '12px',
-                  background: 'rgba(0,0,0,0.1)',
+                  background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.1)',
                   borderRadius: '8px',
                   fontFamily: 'monospace',
                   fontSize: '14px',

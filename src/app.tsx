@@ -8,7 +8,7 @@ import AppThemeProvider from "./components/AppThemeProvider";
 import AppInitializer from "./components/AppInitializer";
 
 //import routes
-import Landing from "./routes/landing";
+import SessionGate from "./routes/sessionGate";
 import Register from "./routes/register";
 import Login from "./routes/login";
 import DeviceVerify from "./routes/device-verify";
@@ -44,7 +44,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 const router = createHashRouter([
   {
     path: "/",
-    element: <Landing />,
+    element: <SessionGate />,
   },
   {
     path: "/register",
@@ -199,10 +199,12 @@ LicenseInfo.setLicenseKey("0170f20369e51857b2536db7dfa0f38eTz0xMTkzODcsRT0xNzkxO
 //root document
 createRoot(document.getElementById("root")).render(
   <StrictMode>
-    <AppInitializer>
-      <AppThemeProvider>
+    {/* Theme provider wraps AppInitializer so its splash/loading screens are
+        also rendered with the user's light/dark MUI theme. */}
+    <AppThemeProvider>
+      <AppInitializer>
         <RouterProvider router={router} />
-      </AppThemeProvider>
-    </AppInitializer>
+      </AppInitializer>
+    </AppThemeProvider>
   </StrictMode>
 );

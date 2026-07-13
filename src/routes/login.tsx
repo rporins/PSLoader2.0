@@ -1,6 +1,7 @@
 import React, { Suspense, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import authService from '../services/auth';
+import { useAuthStatus } from '../hooks/useAuthStatus';
 import {
   Alert,
   Box,
@@ -20,6 +21,7 @@ import { styled, useTheme, keyframes } from '@mui/material/styles';
 import LoginIcon from '@mui/icons-material/Login';
 import PersonAddAltRoundedIcon from '@mui/icons-material/PersonAddAltRounded';
 import LockRoundedIcon from '@mui/icons-material/LockRounded';
+import ShieldRoundedIcon from '@mui/icons-material/ShieldRounded';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import IconButton from '@mui/material/IconButton';
 import marriottLogo from '../images/marriott_logo.png';
@@ -338,10 +340,24 @@ const BackButton = styled(IconButton)(({ theme }) => ({
 const Login: React.FC = () => {
   const navigate = useNavigate();
   const theme = useTheme();
-  const [email, setEmail] = useState('');
+  // Prefill with the last-used email (persisted locally; not a secret).
+  const [email, setEmail] = useState(() => authService.getLastUserEmail() ?? '');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Background cold-start resume state — drives the "Continue session" button.
+  const { status: authStatus, resolving, resumable } = useAuthStatus();
+  // Show while the check runs OR when a live session is confirmed; hide once
+  // resolved with no session.
+  const showContinueSession = resumable && (resolving || authStatus.isActive);
+
+  const handleContinueSession = () => {
+    // A restored session still needs the TOTP step-up before business access.
+    navigate(authStatus.stepUpRequired ? '/auth/totp' : '/signed-in-landing/home', {
+      replace: true,
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -428,6 +444,49 @@ const Login: React.FC = () => {
                 Sign in to continue
               </Typography>
             </Box>
+
+            {showContinueSession && (
+              <Box sx={{ mb: 3 }}>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  size="large"
+                  disabled={resolving || !authStatus.isActive}
+                  onClick={handleContinueSession}
+                  startIcon={
+                    resolving ? (
+                      <CircularProgress size={16} color="inherit" />
+                    ) : (
+                      <ShieldRoundedIcon />
+                    )
+                  }
+                  sx={{
+                    borderRadius: 4,
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    py: 1.2,
+                  }}
+                >
+                  {resolving ? 'Checking for your session…' : 'Continue session'}
+                </Button>
+                {!resolving && authStatus.lastUserEmail && (
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      display: 'block',
+                      textAlign: 'center',
+                      mt: 1,
+                      color: theme.palette.text.secondary,
+                    }}
+                  >
+                    Resume as {authStatus.lastUserEmail}
+                  </Typography>
+                )}
+                <Divider sx={{ my: 2, fontSize: '0.8rem', color: theme.palette.text.secondary }}>
+                  or sign in
+                </Divider>
+              </Box>
+            )}
 
             {error && (
               <Alert

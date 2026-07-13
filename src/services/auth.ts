@@ -1,39 +1,50 @@
-// Using Web Crypto API instead of Node.js crypto
-const crypto = window.crypto;
+/**
+ * Renderer auth client (thin facade over the main-process auth domain).
+ * -----------------------------------------------------------
+ * The renderer holds NO token and performs NO device/crypto work — all of that
+ * now lives in the Node main process. This client:
+ *   - delegates auth actions to window.authApi (login / verify / TOTP / logout);
+ *   - keeps a CACHED projection of the public session status so that
+ *     ProtectedRoute and other callers can read securityLevel synchronously;
+ *   - exposes a few business reads (hotels / me / OU access) that route through
+ *     the main-process authenticated transport via the `api` seam.
+ *
+ * The public method names match the previous renderer AuthService so existing
+ * screens (login, device-verify, totp, password reset, profile) keep working.
+ */
 
-import { API_BASE_URL } from '../config';
+import api from "./api";
 
+// ── Public status projected from main (never contains a token) ──
+export interface PublicAuthStatus {
+  securityLevel: number; // 0 none, 1 login, 2 device-verified, 3 TOTP
+  isActive: boolean;
+  deviceId: string | null;
+  devicePending: boolean;
+  encryptionAvailable: boolean;
+  lastUserEmail: string | null;
+  stepUpRequired: boolean;
+}
+
+// ── Domain types re-exported for consumers (unchanged shapes) ──
 export interface AuthTokenResponse {
-  access_token: string;
-  token_type: string;
-  settings: {
-    theme: string;
-    notifications: boolean;
-  };
+  access_token?: string;
+  token_type?: string;
+  settings: unknown;
 }
 
 export interface DeviceVerifyResponse {
-  message: string;
-  device_id: string;
-  device_info: {
-    device_name: string;
-    os_version: string;
-    hostname: string;
-  };
-  last_used_at: string;
-  security_level: number;
-  security_level_expires_at: string;
+  deviceId: string;
+  securityLevel: number;
 }
 
 export interface TOTPGenerateResponse {
   message: string;
-  expires_in_minutes: number;
+  expiresInMinutes: number;
 }
 
 export interface TOTPVerifyResponse {
-  message: string;
-  security_level: number;
-  security_level_expires_at: string;
+  securityLevel: number;
 }
 
 export interface UserInfo {
@@ -65,9 +76,8 @@ export interface Hotel {
 }
 
 export interface DeviceRegisterResponse {
-  message: string;
-  device_id: string;
-  status: 'pending' | 'approved';
+  status: string;
+  deviceId: string;
 }
 
 export interface PasswordResetRequestResponse {
@@ -78,495 +88,290 @@ export interface PasswordResetConfirmResponse {
   message: string;
 }
 
-class AuthService {
-  private accessToken: string | null = null;
-  private securityLevel: number = 0;
-  private deviceId: string | null = null;
-  private deviceSecret: string | null = null;
+// ── Window augmentation for the typed auth bridge ──
+import type { AuthApi } from "../preload";
+declare global {
+  interface Window {
+    authApi?: AuthApi;
+  }
+}
+
+const EMPTY_STATUS: PublicAuthStatus = {
+  securityLevel: 0,
+  isActive: false,
+  deviceId: null,
+  devicePending: false,
+  encryptionAvailable: false,
+  lastUserEmail: null,
+  stepUpRequired: false,
+};
+
+class AuthClient {
+  private status: PublicAuthStatus = { ...EMPTY_STATUS };
+  private bootstrapped: Promise<void> | null = null;
+
+  // Background cold-start resume state (drives the login "Continue session" UI).
+  private resumable = false; // a token worth trying exists (fast local check)
+  private resolving = false; // the background /auth/refresh is still in flight
+  private resolved = false; // the resume attempt has completed
+
+  private listeners = new Set<() => void>();
 
   constructor() {
-    this.initializeDevice();
-  }
-
-  private async initializeDevice() {
-    // Ensure permanent salt exists in database (create if needed)
-    // This must happen before any credentials are generated or used
-    try {
-      await this.getOrCreatePermanentSalt();
-    } catch (error) {
-      console.error('Failed to initialize permanent salt:', error);
-    }
-
-    // Always generate device credentials dynamically from hardware fingerprint
-    // Never store them - only the permanent salt is stored in SQLite
-    await this.generateDeviceCredentials();
-  }
-
-  private async getOrCreatePermanentSalt(): Promise<string> {
-    try {
-      // Get permanent salt from Electron main process (stored in userData directory)
-      const permanentSalt = await window.ipcApi.getPermanentSalt();
-      return permanentSalt;
-    } catch (error) {
-      console.error('Failed to get permanent salt from main process:', error);
-      throw new Error('Could not retrieve device permanent salt');
+    // Keep the cached status in sync with main-pushed changes (e.g. proactive
+    // refresh level changes, session expiry).
+    if (typeof window !== "undefined" && window.authApi) {
+      window.authApi.onAuthStatusChanged((status) => {
+        this.status = status;
+        this.notify();
+      });
     }
   }
 
-  private async generateDeviceCredentials() {
-    // Get permanent salt from database (created once, never changes)
-    const permanentSalt = await this.getOrCreatePermanentSalt();
-
-    // Check if device ID already exists in database
-    let storedDeviceId: string | null = null;
-    try {
-      const result = await window.ipcApi.sendIpcRequest('settings-get-single', { key: 'deviceId' });
-      if (result.success && result.data) {
-        storedDeviceId = result.data;
-      }
-    } catch (error) {
-      // No existing device ID found, generating new one
-    }
-
-    // If device ID exists, use it; otherwise generate and store it
-    if (storedDeviceId) {
-      this.deviceId = storedDeviceId;
-    } else {
-      // Generate a random UUID-style device ID (just an identifier, not a security hash)
-      // Use timestamp + random values + username as seed for uniqueness
-      const hardwareInfo = await window.ipcApi.getHardwareInfo().catch(() => null);
-      const username = hardwareInfo?.username || 'UNKNOWN';
-      const timestamp = Date.now();
-      const randomInt = Math.floor(Math.random() * 1000000);
-
-      // Create UUID seed from timestamp, random int, and username
-      const uuidSeed = `${timestamp}-${randomInt}-${username}`;
-      const encoder = new TextEncoder();
-      const uuidData = encoder.encode(uuidSeed);
-      const uuidHash = await crypto.subtle.digest('SHA-256', uuidData);
-      const uuidArray = Array.from(new Uint8Array(uuidHash));
-
-      // Format as UUID-like string (8-4-4-4-12)
-      const hexString = uuidArray.map(b => b.toString(16).padStart(2, '0')).join('');
-      this.deviceId = `${hexString.substr(0, 8)}-${hexString.substr(8, 4)}-${hexString.substr(12, 4)}-${hexString.substr(16, 4)}-${hexString.substr(20, 12)}`;
-
-      // Store device ID in database - ONLY ONCE
-      try {
-        await window.ipcApi.sendIpcRequest('settings-set-single', {
-          key: 'deviceId',
-          value: this.deviceId
-        });
-      } catch (error) {
-        console.error('Failed to store device ID:', error);
-      }
-    }
-
-    // Always generate device secret from stable hardware identifiers + permanent salt
-    // This is a hash, not stored, regenerated each time from hardware
-    // Get fresh hardware info for device secret generation
-    const platform = navigator.platform;
-    let hardwareInfo = null;
-    try {
-      hardwareInfo = await window.ipcApi.getHardwareInfo();
-    } catch (error) {
-      // console.warn('Failed to get hardware info for device secret:', error);
-    }
-
-    // Device secret uses ONLY stable hardware identifiers
-    // Excludes: macAddresses (docking stations), cpuInfo.cores (BIOS settings),
-    //           memoryTotal (upgrades), hostname (renames), username (account switching)
-    const encoder = new TextEncoder();
-    const deviceSecretComponents = [
-      platform,
-      permanentSalt,
-      hardwareInfo?.machineId || 'UNKNOWN',
-      hardwareInfo?.biosSerial || 'UNKNOWN',
-      hardwareInfo?.motherboardSerial || 'UNKNOWN',
-      hardwareInfo?.diskSerial || 'UNKNOWN',
-      hardwareInfo?.cpuInfo.model || 'UNKNOWN'  // Model name only, not core count
-    ];
-    const deviceSecretData = encoder.encode(deviceSecretComponents.join('||'));
-    const deviceSecretHash = await crypto.subtle.digest('SHA-256', deviceSecretData);
-    const deviceSecretArray = Array.from(new Uint8Array(deviceSecretHash));
-    this.deviceSecret = deviceSecretArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
+  /** Subscribe to status/resume-state changes (for reactive components). */
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
-  // Stage 1: User Login
-  async login(email: string, password: string): Promise<AuthTokenResponse> {
-    const formData = new URLSearchParams();
-    formData.append('username', email);
-    formData.append('password', password);
-
-    const response = await fetch(`${API_BASE_URL}/auth/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: formData
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Login failed');
-    }
-
-    const data = await response.json();
-    this.accessToken = data.access_token;
-    this.securityLevel = 1;
-
-    // Store token securely
-    sessionStorage.setItem('authToken', data.access_token);
-
-    return data;
+  private notify(): void {
+    this.listeners.forEach((fn) => fn());
   }
 
-  // Stage 2: Device Verification
-  async verifyDevice(): Promise<DeviceVerifyResponse> {
-    if (!this.accessToken) {
-      throw new Error('No access token available');
+  /**
+   * Load the initial status and kick off the cold-start resume in the
+   * BACKGROUND (non-blocking). Returns as soon as the fast local checks are
+   * done, so the app renders immediately (no splash). The actual /auth/refresh
+   * resolves later and updates the cached status + notifies subscribers, which
+   * drives the login page's "Continue session" affordance.
+   */
+  bootstrap(): Promise<void> {
+    if (!this.bootstrapped) {
+      this.bootstrapped = (async () => {
+        try {
+          if (!window.authApi) {
+            this.resolved = true;
+            return;
+          }
+          this.status = await window.authApi.getStatus(); // pure read, no network
+          this.resumable = await window.authApi.hasResumableSession(); // fast, local
+
+          if (this.resumable) {
+            this.resolving = true;
+            this.notify();
+            // Fire the real resume without awaiting — the app renders now.
+            window.authApi
+              .resume()
+              .then((status) => {
+                this.status = status;
+              })
+              .catch((error) => {
+                console.error("[auth] Background resume failed:", error);
+              })
+              .finally(() => {
+                this.resolving = false;
+                this.resolved = true;
+                this.notify();
+              });
+          } else {
+            this.resolved = true;
+          }
+        } catch (error) {
+          console.error("[auth] Failed to bootstrap auth status:", error);
+          this.resolved = true;
+        } finally {
+          this.notify();
+        }
+      })();
     }
-
-    const response = await fetch(`${API_BASE_URL}/devices/verify`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.accessToken}`
-      },
-      body: JSON.stringify({
-        device_id: this.deviceId,
-        device_secret: this.deviceSecret
-      })
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-
-      // Check if device needs registration (404 = not found)
-      if (response.status === 404 || error.detail?.includes('not found')) {
-        throw new Error('DEVICE_NOT_REGISTERED');
-      }
-
-      // Preserve the actual error message (e.g., pending approval)
-      throw new Error(error.detail || 'Device verification failed');
-    }
-
-    const data = await response.json();
-    this.securityLevel = 2;
-    return data;
+    return this.bootstrapped;
   }
 
-  // Register new device
-  async registerDevice(): Promise<DeviceRegisterResponse> {
-    if (!this.accessToken) {
-      throw new Error('No access token available');
-    }
-
-    // Get user email for cross-referencing
-    let userEmail = 'Unknown';
-    try {
-      const userInfo = await this.getCurrentUser();
-      userEmail = userInfo.email;
-    } catch (error) {
-      // console.warn('Failed to get user email:', error);
-    }
-
-    // Get stable browser info
-    const userAgent = navigator.userAgent;
-    const platform = navigator.platform;
-    const vendor = navigator.vendor || 'Unknown';
-
-    // Get real hardware info from Electron main process
-    let realHardwareInfo = null;
-    try {
-      realHardwareInfo = await window.ipcApi.getHardwareInfo();
-    } catch (error) {
-      // console.warn('Failed to get hardware info from main process:', error);
-    }
-
-    // Use real hardware serials or fallback to 'UNKNOWN'
-    // Only include stable hardware identifiers (no MAC addresses)
-    const hardwareInfo = {
-      machine_id: realHardwareInfo?.machineId || 'UNKNOWN',
-      processor_id: realHardwareInfo?.cpuInfo.model || 'UNKNOWN',
-      bios_serial: realHardwareInfo?.biosSerial || 'UNKNOWN',
-      motherboard_serial: realHardwareInfo?.motherboardSerial || 'UNKNOWN',
-      disk_serial: realHardwareInfo?.diskSerial || 'UNKNOWN'
-    };
-
-    // Get system info for identification (NOT used in hash - can change)
-    const hostname = realHardwareInfo?.hostname || window.location.hostname || 'localhost';
-    const username = realHardwareInfo?.username || 'Unknown User';
-    const osVersion = userAgent.match(/\(([^)]+)\)/)?.[1] || 'Unknown OS';
-
-    // Get the permanent salt to include in device details
-    const permanentSalt = await this.getOrCreatePermanentSalt();
-
-    const deviceInfo = {
-      device_name: `${userEmail} | ${hostname} | ${username} | ${osVersion}`,
-      os_version: osVersion,
-      hostname: hostname,
-      user_agent: userAgent,
-      username: username,
-      details: `${userEmail}, ${hostname}, ${username}, Salt:${permanentSalt.substring(0, 8)}...` // Email first for easy cross-reference
-    };
-
-    const response = await fetch(`${API_BASE_URL}/devices/register`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.accessToken}`
-      },
-      body: JSON.stringify({
-        device_id: this.deviceId,
-        device_secret: this.deviceSecret,
-        hardware_info: hardwareInfo,
-        device_info: deviceInfo
-      })
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Device registration failed');
-    }
-
-    return await response.json();
+  /** True while the background resume is still checking the token. */
+  isResolving(): boolean {
+    return this.resolving;
   }
 
-  // Stage 3A: Generate TOTP
-  async generateTOTP(): Promise<TOTPGenerateResponse> {
-    if (!this.accessToken) {
-      throw new Error('No access token available');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/auth/totp/generate`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.accessToken}`
-      }
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'TOTP generation failed');
-    }
-
-    return await response.json();
+  /** True when a token worth resuming exists (fast local pre-check passed). */
+  hasResumableSession(): boolean {
+    return this.resumable;
   }
 
-  // Stage 3B: Verify TOTP
-  async verifyTOTP(code: string): Promise<TOTPVerifyResponse> {
-    if (!this.accessToken) {
-      throw new Error('No access token available');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/auth/totp/verify`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.accessToken}`
-      },
-      body: JSON.stringify({
-        totp_code: code
-      })
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'TOTP verification failed');
-    }
-
-    const data = await response.json();
-    this.securityLevel = 3;
-    return data;
+  /** True once the resume attempt has completed (success or failure). */
+  isResumeResolved(): boolean {
+    return this.resolved;
   }
 
-  // Utility methods
-  getAccessToken(): string | null {
-    return this.accessToken;
-  }
-
+  // ── Synchronous cached reads (used by route guards / UI) ──
   getSecurityLevel(): number {
-    return this.securityLevel;
-  }
-
-  clearAuth(): void {
-    this.accessToken = null;
-    this.securityLevel = 0;
-    sessionStorage.removeItem('authToken');
+    return this.status.securityLevel;
   }
 
   isAuthenticated(): boolean {
-    return this.accessToken !== null && this.securityLevel >= 3;
+    return this.status.securityLevel >= 3;
   }
 
-  // Development bypass - only use during development!
-  devBypass(): void {
-    this.accessToken = 'dev-bypass-token';
-    this.securityLevel = 3;
-    sessionStorage.setItem('authToken', 'dev-bypass-token');
+  getDeviceId(): string | null {
+    return this.status.deviceId;
   }
 
-  // Handle 401 errors by clearing auth and redirecting to login
-  private handleAuthError(): void {
-    this.clearAuth();
-    window.location.hash = '#/login';
+  /** Remembered email from a previous login, for prefilling the login form. */
+  getLastUserEmail(): string | null {
+    return this.status.lastUserEmail;
   }
 
-  // Get current user info
-  async getCurrentUser(): Promise<UserInfo> {
-    if (!this.accessToken) {
-      throw new Error('No access token available');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/auth/me`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${this.accessToken}`
-      }
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.handleAuthError();
-        throw new Error('Session expired. Please log in again.');
-      }
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to get user info');
-    }
-
-    return await response.json();
+  /** True when a cold-start resume still needs a fresh TOTP before data access. */
+  isStepUpRequired(): boolean {
+    return this.status.stepUpRequired;
   }
 
-  // Get user's OU access
-  async getUserOUAccess(): Promise<OUAccess[]> {
-    if (!this.accessToken) {
-      throw new Error('No access token available');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/users/ou-access/my-access`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${this.accessToken}`
-      }
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.handleAuthError();
-        throw new Error('Session expired. Please log in again.');
-      }
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to get OU access');
-    }
-
-    return await response.json();
+  getStatusSnapshot(): PublicAuthStatus {
+    return this.status;
   }
 
-  // Get all hotels
-  async getHotels(): Promise<Hotel[]> {
-    if (!this.accessToken) {
-      throw new Error('No access token available');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/hotels/`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${this.accessToken}`
-      }
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.handleAuthError();
-        throw new Error('Session expired. Please log in again.');
-      }
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to get hotels');
-    }
-
-    const hotels = await response.json();
-
-    // Try to cache the hotels data using IPC if available
-    if (typeof window !== 'undefined' && window.ipcApi) {
-      try {
-        await window.ipcApi.sendIpcRequest('db:cache-hotels', hotels);
-      } catch (cacheError) {
-        // console.warn('Failed to cache hotels:', cacheError);
-      }
-    }
-
-    return hotels;
+  onSessionExpired(cb: () => void): void {
+    window.authApi?.onSessionExpired(cb);
   }
 
-  // Force refresh hotels cache
-  async refreshHotelsCache(): Promise<Hotel[]> {
-    if (typeof window !== 'undefined' && window.ipcApi) {
-      try {
-        // Clear existing cache first
-        await window.ipcApi.sendIpcRequest('db:clear-hotels-cache');
-      } catch (error) {
-        // console.warn('Failed to clear hotels cache:', error);
-      }
-    }
-
-    // Fetch and cache new data
-    return this.getHotels();
+  offSessionExpired(cb: () => void): void {
+    window.authApi?.offSessionExpired(cb);
   }
 
-  // Password Reset: Request reset token
+  private setLevel(securityLevel: number): void {
+    // Any explicit auth transition (login / verify / TOTP) also resolves a
+    // pending cold-start step-up.
+    this.status = {
+      ...this.status,
+      securityLevel,
+      isActive: securityLevel >= 2,
+      stepUpRequired: false,
+    };
+    this.notify();
+  }
+
+  // ── Auth handshake (delegates to main; updates cached status from results) ──
+  async login(email: string, password: string): Promise<AuthTokenResponse> {
+    const result = await this.requireAuthApi().login({ email, password });
+    this.setLevel(1);
+    return { settings: (result as any)?.settings ?? null };
+  }
+
+  async verifyDevice(): Promise<DeviceVerifyResponse> {
+    const result = await this.requireAuthApi().verifyDevice();
+    this.setLevel(result.securityLevel);
+    this.status = { ...this.status, deviceId: result.deviceId, devicePending: false };
+    this.notify();
+    return result;
+  }
+
+  async registerDevice(): Promise<DeviceRegisterResponse> {
+    const result = await this.requireAuthApi().registerDevice();
+    this.status = { ...this.status, deviceId: result.deviceId, devicePending: true };
+    this.notify();
+    return result;
+  }
+
+  async generateTOTP(): Promise<TOTPGenerateResponse> {
+    return this.requireAuthApi().generateTotp();
+  }
+
+  async verifyTOTP(code: string): Promise<TOTPVerifyResponse> {
+    const result = await this.requireAuthApi().submitTotp({ code });
+    this.setLevel(result.securityLevel);
+    return result;
+  }
+
+  async logout(): Promise<void> {
+    try {
+      await this.requireAuthApi().logout();
+    } finally {
+      // Keep non-secret hints (encryption availability, remembered email) so the
+      // next login can still prefill; only the session/level is cleared.
+      this.status = {
+        ...EMPTY_STATUS,
+        encryptionAvailable: this.status.encryptionAvailable,
+        lastUserEmail: this.status.lastUserEmail,
+        deviceId: this.status.deviceId,
+      };
+      // Signing out removes the on-disk token, so there's nothing to resume.
+      this.resumable = false;
+      this.resolving = false;
+      this.resolved = true;
+      this.notify();
+    }
+  }
+
+  /** Local-only reset (main owns real teardown; kept for legacy call sites). */
+  clearAuth(): void {
+    this.setLevel(0);
+  }
+
   async requestPasswordReset(email: string): Promise<PasswordResetRequestResponse> {
-    const response = await fetch(`${API_BASE_URL}/auth/password-reset/request`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ email })
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Password reset request failed');
-    }
-
-    return await response.json();
+    return this.requireAuthApi().requestPasswordReset({ email });
   }
 
-  // Password Reset: Confirm with token and new password
   async confirmPasswordReset(
     token: string,
     newPassword: string
   ): Promise<PasswordResetConfirmResponse> {
-    // Get device credentials from memory (already generated in constructor)
-    if (!this.deviceId || !this.deviceSecret) {
-      throw new Error('No registered device found. Password reset requires a registered device.');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/auth/password-reset/confirm`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        token,
-        new_password: newPassword,
-        device_id: this.deviceId,
-        device_secret: this.deviceSecret
-      })
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Password reset confirmation failed');
-    }
-
-    return await response.json();
+    return this.requireAuthApi().confirmPasswordReset({ token, newPassword });
   }
 
-  // Get device ID (for display purposes)
-  getDeviceId(): string | null {
-    return this.deviceId;
+  // ── Business reads (routed through the main-process authed transport) ──
+  async getCurrentUser(): Promise<UserInfo> {
+    const response = await api.get("/auth/me");
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || "Failed to get user info");
+    }
+    return response.json();
+  }
+
+  async getUserOUAccess(): Promise<OUAccess[]> {
+    const response = await api.get("/users/ou-access/my-access");
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || "Failed to get OU access");
+    }
+    return response.json();
+  }
+
+  async getHotels(): Promise<Hotel[]> {
+    const response = await api.get("/hotels/");
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || "Failed to get hotels");
+    }
+    const hotels = await response.json();
+
+    // Cache locally (fetch + cache remain a single logical read for the UI).
+    if (typeof window !== "undefined" && window.ipcApi) {
+      try {
+        await window.ipcApi.sendIpcRequest("db:cache-hotels", hotels);
+      } catch {
+        // Non-fatal cache failure.
+      }
+    }
+    return hotels;
+  }
+
+  async refreshHotelsCache(): Promise<Hotel[]> {
+    if (typeof window !== "undefined" && window.ipcApi) {
+      try {
+        await window.ipcApi.sendIpcRequest("db:clear-hotels-cache");
+      } catch {
+        // Non-fatal.
+      }
+    }
+    return this.getHotels();
+  }
+
+  private requireAuthApi(): AuthApi {
+    if (typeof window === "undefined" || !window.authApi) {
+      throw new Error("Auth bridge unavailable");
+    }
+    return window.authApi;
   }
 }
 
-export default new AuthService();
+export default new AuthClient();

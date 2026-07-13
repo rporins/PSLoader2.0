@@ -31,25 +31,8 @@ import * as THREE from "three";
 const REDIRECT_AFTER_LOGIN = "/signed-in-landing/home";
 const SUPPORT_EMAIL = "EMEAReportingSupport@marriott.com";
 
-// ────────────────────────────────────────────────────────────
-/** 1) IPC TYPES + GLOBAL AUGMENTATION */
-// ────────────────────────────────────────────────────────────
-
-interface IpcApi {
-  sendIpcRequest: (channel: string, ...args: any[]) => Promise<any>;
-  onAuthSuccess: (cb: (event: any, data: any) => void) => void;
-  onAuthError: (cb: (event: any, message: string) => void) => void;
-  onAuthLogout: (cb: (event: any) => void) => void;
-  offAuthSuccess?: (cb: (event: any, data: any) => void) => void;
-  offAuthError?: (cb: (event: any, message: string) => void) => void;
-  offAuthLogout?: (cb: (event: any) => void) => void;
-}
-
-declare global {
-  interface Window {
-    ipcApi?: IpcApi;
-  }
-}
+// window.ipcApi / window.authApi are typed globally (src/renderer.ts,
+// src/services/auth.ts) — no local augmentation needed here.
 
 // ────────────────────────────────────────────────────────────
 /** 2) PREMIUM ANIMATIONS */
@@ -495,74 +478,31 @@ function useIpcAuth() {
     error: null,
   });
 
-  const onSuccess = useCallback((_e: any, data: any) => {
-    setState((s) => ({
-      ...s,
-      isAuthenticated: true,
-      user: data?.user ?? null,
-      loading: false,
-      error: null,
-      initialized: true,
-    }));
-  }, []);
-
-  const onError = useCallback((_e: any, message: string) => {
-    setState((s) => ({
-      ...s,
-      isAuthenticated: false,
-      user: null,
-      loading: false,
-      error: message || "Authentication failed.",
-      initialized: true,
-    }));
-  }, []);
-
-  const onLogout = useCallback((_e: any) => {
-    setState((s) => ({
-      ...s,
-      isAuthenticated: false,
-      user: null,
-      error: null,
-      loading: false,
-      initialized: true,
-    }));
-  }, []);
-
   useEffect(() => {
     let mounted = true;
 
-    const wireEvents = () => {
-      if (!window.ipcApi) return;
-      window.ipcApi.onAuthSuccess(onSuccess);
-      window.ipcApi.onAuthError(onError);
-      window.ipcApi.onAuthLogout(onLogout);
-    };
-
-    const unwireEvents = () => {
-      if (!window.ipcApi) return;
-      window.ipcApi.offAuthSuccess?.(onSuccess);
-      window.ipcApi.offAuthError?.(onError);
-      window.ipcApi.offAuthLogout?.(onLogout);
-    };
-
+    // Read the real session status from main (this also drives cold-start
+    // resume). A live Level-3 session lets the component redirect straight to
+    // the dashboard; otherwise the landing page is shown.
     const check = async () => {
       try {
-        if (!window.ipcApi) {
+        if (!window.authApi) {
           if (mounted) {
             setState((s) => ({
               ...s,
               initialized: true,
-              error: s.error ?? "IPC bridge unavailable. Please ensure preload exposes window.ipcApi.",
+              error: s.error ?? "Auth bridge unavailable. Please ensure preload exposes window.authApi.",
             }));
           }
           return;
         }
-        const authState: any = await window.ipcApi.sendIpcRequest("auth-check");
+        const status = await window.authApi.getStatus();
         if (!mounted) return;
+        const authed = status.securityLevel >= 3;
         setState((s) => ({
           ...s,
-          isAuthenticated: !!authState?.isAuthenticated && !!authState?.user,
-          user: authState?.user ?? null,
+          isAuthenticated: authed,
+          user: authed ? { securityLevel: status.securityLevel } : null,
           initialized: true,
         }));
       } catch {
@@ -576,27 +516,11 @@ function useIpcAuth() {
       }
     };
 
-    wireEvents();
     void check();
 
     return () => {
       mounted = false;
-      unwireEvents();
     };
-  }, [onError, onLogout, onSuccess]);
-
-  const login = useCallback(async () => {
-    setState((s) => ({ ...s, error: null, loading: true }));
-    try {
-      if (!window.ipcApi) throw new Error("IPC bridge unavailable.");
-      await window.ipcApi.sendIpcRequest("auth-login");
-    } catch {
-      setState((s) => ({
-        ...s,
-        loading: false,
-        error: "Failed to start login process.",
-      }));
-    }
   }, []);
 
   const clearError = useCallback(() => {
@@ -607,7 +531,7 @@ function useIpcAuth() {
     setState((s) => ({ ...s, loading: false, error: null }));
   }, []);
 
-  return { ...state, login, clearError, cancelLogin };
+  return { ...state, clearError, cancelLogin };
 }
 
 // ────────────────────────────────────────────────────────────

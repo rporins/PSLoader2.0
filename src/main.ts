@@ -3,7 +3,7 @@
  * -----------------------------------------------------------
  */
 
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, session, shell } from "electron";
 import { autoUpdater } from "electron";
 import { updateElectronApp } from "update-electron-app";
 import log from "electron-log";
@@ -12,6 +12,8 @@ import dotenv from "dotenv";
 import { initializeDatabase } from "./local_db";
 import { initializeIpc } from "./ipc";
 import { setupAutoUpdaterEvents } from "./ipc/handlers/app";
+import { createAuthStack } from "./main/auth";
+import { API_BASE_URL } from "./config";
 
 // ────────────────────────────────────────────────────────────
 // 0) ENV + GLOBAL DECLS (Vite globals, .env loading)
@@ -112,9 +114,26 @@ function createMainWindow(): void {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
       contextIsolation: true, // critical for security
-      webSecurity: false, // Disable CORS for desktop app - allows API requests to any origin
+      sandbox: true, // renderer runs sandboxed; preload only uses ipcRenderer/contextBridge
+      webSecurity: true, // renderer no longer calls the API directly (main owns all network)
       devTools: true, // Keep devTools available but don't open by default
     },
+  });
+
+  // Harden navigation: deny popups and block navigation away from app content.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Open any external link in the user's browser, never a new Electron window.
+    if (/^https?:\/\//i.test(url)) {
+      void shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
+  mainWindow.webContents.on("will-navigate", (event, navigationUrl) => {
+    const current = mainWindow?.webContents.getURL() ?? "";
+    // Allow in-app navigation (hash router / same document); block everything else.
+    if (navigationUrl.split("#")[0] !== current.split("#")[0]) {
+      event.preventDefault();
+    }
   });
 
   // Load the UI (Vite dev or production file).
@@ -166,19 +185,46 @@ function sendToRenderer(channel: string, payload?: unknown): void {
 // initialized through the registry system. See src/ipc/ for details.
 
 /**
- * Stub auth service for main process
- * TODO: Replace with actual main-process auth service
+ * Apply a Content-Security-Policy to all renderer responses. The renderer loads
+ * only local content and talks to main over IPC (never the network), so the
+ * policy can be strict. In dev we relax it for the Vite dev server (HMR needs
+ * inline/eval scripts and a websocket connection).
  */
-const stubAuthService = {
-  startLogin: async (): Promise<void> => {
-    logger.debug("Auth: startLogin called (stub)");
-  },
-  logout: (): void => {
-    logger.debug("Auth: logout called (stub)");
-  },
-  isAuthenticated: (): boolean => false,
-  getTokenSet: (): null => null,
-};
+function setupContentSecurityPolicy(devServerUrl?: string): void {
+  const isDev = Boolean(devServerUrl);
+  const policy = isDev
+    ? [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        "font-src 'self' data:",
+        "connect-src 'self' ws: http://localhost:* http://127.0.0.1:*",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "frame-ancestors 'none'",
+      ].join("; ")
+    : [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'", // MUI/Emotion inject inline styles
+        "img-src 'self' data:",
+        "font-src 'self' data:",
+        "connect-src 'self'", // renderer makes no direct network calls
+        "object-src 'none'",
+        "base-uri 'self'",
+        "frame-ancestors 'none'",
+      ].join("; ");
+
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        "Content-Security-Policy": [policy],
+      },
+    });
+  });
+}
 
 // ────────────────────────────────────────────────────────────
 // 5) AUTO-UPDATER CONFIGURATION
@@ -241,11 +287,28 @@ function initializeAutoUpdater(): void {
 
 app.on("ready", async () => {
   try {
-    // Initialize the new modular IPC system
-    initializeIpc(stubAuthService, sendToRenderer, logger);
-
-    // Initialize local database before UI interaction.
+    // Initialize local database before anything that reads it (auth stack, IPC).
     await initializeDatabase();
+
+    // Build the main-process auth stack (owns tokens, refresh loop, device secret).
+    // Must come after DB init (reads permanent salt / device id) and after `ready`
+    // (safeStorage requires the app to be ready).
+    const { authController, apiClient } = await createAuthStack({
+      baseUrl: API_BASE_URL,
+      sendToRenderer,
+    });
+
+    // Apply CSP to renderer responses (strict in prod, relaxed for Vite in dev).
+    setupContentSecurityPolicy(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+
+    // Initialize the modular IPC system with the auth stack.
+    initializeIpc({
+      authController,
+      apiClient,
+      sendToRenderer,
+      logger,
+      devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL ?? null,
+    });
 
     createMainWindow();
 

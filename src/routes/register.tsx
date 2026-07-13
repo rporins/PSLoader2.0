@@ -5,7 +5,6 @@
 
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { API_BASE_URL } from "../config";
 import {
   Alert,
   Box,
@@ -339,29 +338,16 @@ export default function Register() {
     setError(null);
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/auth/register`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email: formData.email,
-            password: formData.password,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = (await response.json()) as ApiError;
-        throw new Error(
-          errorData.detail || errorData.message || "Registration failed"
-        );
+      // Account signup is routed through the main process (renderer makes no
+      // direct network calls). The main process throws on non-2xx with the
+      // server's `detail` message.
+      if (!window.authApi) {
+        throw new Error("Auth bridge unavailable");
       }
-
-      const userData = await response.json();
-      // console.log("Registration successful:", userData);
+      await window.authApi.register({
+        email: formData.email,
+        password: formData.password,
+      });
       setSuccess(true);
 
       // Redirect to login page after 2 seconds

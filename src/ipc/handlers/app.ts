@@ -3,10 +3,9 @@
  * Handles app-level operations like version checks and updates
  */
 
-import { autoUpdater } from 'electron';
+import { autoUpdater, net } from 'electron';
 import { BrowserWindow, app } from 'electron';
 import type { IpcHandler } from '../types';
-import https from 'https';
 
 // Use app.isPackaged to properly detect production vs development
 // app.isPackaged is true when running from a built/installed app
@@ -20,55 +19,33 @@ let latestReleaseInfo: { version: string; releaseNotes: string } | null = null;
  * Fetch latest release info from GitHub
  */
 async function fetchLatestRelease(): Promise<{ version: string; releaseNotes: string } | null> {
-  return new Promise((resolve) => {
-    const options = {
-      hostname: 'api.github.com',
-      path: '/repos/rporins/PSLoader2.0/releases/latest',
-      method: 'GET',
-      headers: {
-        'User-Agent': 'PSLoader-Update-Checker',
-      },
+  try {
+    // Use Electron's net.fetch (Chromium stack) so this honours the system
+    // certificate store / proxy — same reasoning as the auth transport. Node's
+    // https module would reject a corporate SSL-inspection cert.
+    const response = await net.fetch(
+      'https://api.github.com/repos/rporins/PSLoader2.0/releases/latest',
+      {
+        method: 'GET',
+        headers: { 'User-Agent': 'PSLoader-Update-Checker' },
+        signal: AbortSignal.timeout(5000),
+      }
+    );
+
+    if (!response.ok) {
+      // console.log('[AppHandlers] Failed to fetch release info:', response.status);
+      return null;
+    }
+
+    const release = await response.json();
+    return {
+      version: release.tag_name?.replace(/^v/, '') || release.name || 'Unknown',
+      releaseNotes: release.body || '',
     };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-
-      res.on('data', (chunk) => {
-        data += chunk;
-      });
-
-      res.on('end', () => {
-        try {
-          if (res.statusCode === 200) {
-            const release = JSON.parse(data);
-            resolve({
-              version: release.tag_name?.replace(/^v/, '') || release.name || 'Unknown',
-              releaseNotes: release.body || '',
-            });
-          } else {
-            // console.log('[AppHandlers] Failed to fetch release info:', res.statusCode);
-            resolve(null);
-          }
-        } catch (err) {
-          console.error('[AppHandlers] Error parsing release info:', err);
-          resolve(null);
-        }
-      });
-    });
-
-    req.on('error', (err) => {
-      console.error('[AppHandlers] Error fetching release info:', err);
-      resolve(null);
-    });
-
-    req.setTimeout(5000, () => {
-      req.destroy();
-      // console.log('[AppHandlers] Release fetch timed out');
-      resolve(null);
-    });
-
-    req.end();
-  });
+  } catch (err) {
+    console.error('[AppHandlers] Error fetching release info:', err);
+    return null;
+  }
 }
 
 /**

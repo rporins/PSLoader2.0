@@ -86,10 +86,11 @@ class BackgroundSyncService {
       return;
     }
 
-    // Check if user is authenticated
-    const token = authService.getAccessToken();
-    if (!token) {
-      // console.log('[BackgroundSync] No access token, skipping sync');
+    // Check if user has an active (device-verified) session. The token lives in
+    // the main process now; we gate on the cached security level instead. Also
+    // skip while a cold-start TOTP step-up is pending (data access is blocked).
+    if (authService.getSecurityLevel() < 2 || authService.isStepUpRequired()) {
+      // console.log('[BackgroundSync] No active session / step-up pending, skipping sync');
       return;
     }
 

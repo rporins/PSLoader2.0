@@ -12,6 +12,12 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requireLevel 
   const isAuthenticated = authService.isAuthenticated();
   const securityLevel = authService.getSecurityLevel();
 
+  // A cold-start resume grants the level but still requires a fresh TOTP before
+  // business access — send the user to the TOTP step-up first.
+  if (authService.isStepUpRequired()) {
+    return <Navigate to="/auth/totp" state={{ from: location }} replace />;
+  }
+
   // Check if user has required security level
   if (!isAuthenticated || securityLevel < requireLevel) {
     // Redirect to login with return path

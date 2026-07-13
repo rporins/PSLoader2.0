@@ -109,9 +109,10 @@ class DailyFinancialSyncService {
     try {
       this.checkInProgress.set(ou, true);
 
-      // Check if authenticated
-      const token = authService.getAccessToken();
-      if (!token) {
+      // Check for an active (device-verified) session. The token is owned by the
+      // main process now; gate on the cached security level instead. Also skip
+      // while a cold-start TOTP step-up is pending (data access is blocked).
+      if (authService.getSecurityLevel() < 2 || authService.isStepUpRequired()) {
         return {
           checked: false,
           hasUpdates: false,
