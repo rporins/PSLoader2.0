@@ -23,6 +23,13 @@ let policy: { mode: ScaleMode; factor: number } = { mode: "auto", factor: 1 };
 
 // Windows we've already wired resize/load listeners onto.
 const wired = new WeakSet<BrowserWindow>();
+// Last factor actually pushed to each window, so we can skip redundant relayouts.
+const lastApplied = new WeakMap<BrowserWindow, number>();
+
+// Debounce window for the auto-mode resize recompute (ms). Dragging a window edge
+// fires many resize events/sec; each setZoomFactor triggers a relayout, so we only
+// re-zoom once the drag settles.
+const RESIZE_DEBOUNCE_MS = 120;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -33,12 +40,20 @@ function computeAutoFactor(win: BrowserWindow): number {
   return clamp(Math.round(raw * 100) / 100, MIN_ZOOM, MAX_ZOOM);
 }
 
-/** Apply the effective factor to a window and return it. */
-function applyToWindow(win: BrowserWindow): number {
+/**
+ * Apply the effective factor to a window and return it. Pass force=true after a
+ * page load, where Chromium may have reset the webContents zoom back to 1 even
+ * though our cached value is unchanged — the change-guard must be bypassed.
+ */
+function applyToWindow(win: BrowserWindow, force = false): number {
   if (win.isDestroyed()) return 1;
   const factor =
     policy.mode === "auto" ? computeAutoFactor(win) : clamp(policy.factor, MIN_ZOOM, MAX_ZOOM);
-  win.webContents.setZoomFactor(factor);
+  // Skip the relayout entirely if the factor hasn't changed since last apply.
+  if (force || lastApplied.get(win) !== factor) {
+    win.webContents.setZoomFactor(factor);
+    lastApplied.set(win, factor);
+  }
   // Disable pinch / ctrl-scroll visual zoom so the factor stays authoritative.
   win.webContents.setVisualZoomLevelLimits(1, 1);
   return factor;
@@ -54,11 +69,20 @@ export function attachUiScale(win: BrowserWindow): void {
   if (wired.has(win)) return;
   wired.add(win);
 
+  // Debounced auto recompute — coalesces the burst of resize events from an
+  // interactive drag into a single re-zoom once the size settles.
+  let resizeTimer: NodeJS.Timeout | null = null;
   const recompute = () => {
-    if (policy.mode === "auto") applyToWindow(win);
+    if (policy.mode !== "auto") return;
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      resizeTimer = null;
+      applyToWindow(win);
+    }, RESIZE_DEBOUNCE_MS);
   };
   win.on("resize", recompute);
-  win.webContents.on("did-finish-load", () => applyToWindow(win));
+  // A finished load may have reset the zoom to 1 — force reassert it.
+  win.webContents.on("did-finish-load", () => applyToWindow(win, true));
 
   // Apply immediately for the current content (login / loading screens).
   applyToWindow(win);
