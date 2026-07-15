@@ -98,7 +98,7 @@ type SettingsState = {
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   // Initial state - will be overwritten when settings are loaded
   themeMode: "light",
-  uiScaleMode: "auto",
+  uiScaleMode: "manual",
   uiScale: 1.0,
   selectedHotelOu: null,
   selectedDepartment: null,

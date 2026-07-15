@@ -14,22 +14,39 @@ import { SessionManager } from "./sessionManager";
 import { DeviceIdentity } from "./deviceIdentity";
 import { SecureStore } from "./secureStore";
 import { ApiClient, ApiError, extractDetail } from "./apiClient";
+import { MsBroker, BrokerError } from "./msBroker";
 import { gatherHardwareInfo } from "../system/hardwareInfo";
 
 /** user_settings key holding the last-used login email (not a secret). */
 const LAST_USER_EMAIL_KEY = "last_user_email";
-/** user_settings key toggling the cold-start TOTP step-up (default on). */
-const REQUIRE_TOTP_ON_LAUNCH_KEY = "require_totp_on_launch";
+
+/**
+ * Re-mint the broker token when the held one is older than this. The token lives
+ * ~5 min; refreshing at 4 min keeps a safety margin (plus ≤30s server skew).
+ */
+const BROKER_TOKEN_MAX_AGE_MS = 4 * 60 * 1000;
+
+/** Decode the `email` claim from a broker JWT — DISPLAY / form-fill only, never a
+ *  trust decision (FastAPI re-verifies the token and uses its own email). */
+function decodeJwtEmail(token: string): string {
+  try {
+    const payload = token.split(".")[1];
+    const b64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const claims = JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
+    return typeof claims.email === "string" ? claims.email.toLowerCase() : "";
+  } catch {
+    return "";
+  }
+}
 
 /** Token-free session status pushed to / polled by the renderer. */
 export interface PublicAuthStatus {
-  securityLevel: number; // 0 none, 1 login, 2 device-verified, 3 TOTP
+  securityLevel: number; // 0 none, 1 login, 2 device-verified (full access)
   isActive: boolean; // refresh-backed session at Level 2+
   deviceId: string | null;
   devicePending: boolean; // device awaiting admin approval
   encryptionAvailable: boolean; // safeStorage/DPAPI usable -> resume across restarts
   lastUserEmail: string | null; // remembered for login prefill (not a secret)
-  stepUpRequired: boolean; // cold-start resume needs a fresh TOTP before data access
 }
 
 /** Sentinels the renderer routes branch on (kept identical to the old flow). */
@@ -41,6 +58,7 @@ export interface AuthControllerDeps {
   deviceIdentity: DeviceIdentity;
   secureStore: SecureStore;
   apiClient: ApiClient;
+  msBroker: MsBroker;
   sendToRenderer: (channel: string, payload?: unknown) => void;
 }
 
@@ -48,6 +66,14 @@ export class AuthController {
   private deviceId: string | null = null;
   private devicePending = false;
   private lastUserEmail: string | null = null;
+
+  /**
+   * Transient Microsoft handshake state: the freshly minted broker JWT + the
+   * verified email. Held IN MEMORY ONLY for the brief login/register handshake,
+   * never persisted, never sent to the renderer. Cleared once consumed.
+   */
+  private msSession: { token: string; email: string; mintedAt: number } | null =
+    null;
 
   constructor(private deps: AuthControllerDeps) {}
 
@@ -61,7 +87,6 @@ export class AuthController {
       this.deps.sendToRenderer("auth:session-expired");
     this.deviceId = await this.deps.deviceIdentity.getDeviceId();
     this.lastUserEmail = await this.loadLastUserEmail();
-    this.deps.sessionManager.requireStepUpOnResume = await this.loadRequireTotpOnLaunch();
   }
 
   private async loadLastUserEmail(): Promise<string | null> {
@@ -73,50 +98,137 @@ export class AuthController {
     }
   }
 
-  /** Cold-start TOTP step-up is ON unless the user has explicitly disabled it. */
-  private async loadRequireTotpOnLaunch(): Promise<boolean> {
-    try {
-      const raw = await db.getUserSettings(REQUIRE_TOTP_ON_LAUNCH_KEY);
-      return raw === false ? false : true; // default on
-    } catch {
-      return true;
-    }
+  // ── Microsoft/Entra broker sign-in (identity gate) ──────────────
+
+  /**
+   * Open the SWA auth window, mint a broker token, and exchange it at
+   * /auth/ms-exchange for the SERVER-VERIFIED company email. The token is held
+   * transiently in main (never returned); the renderer only gets `{ email }` to
+   * show in a locked field. `silent` skips showing the Microsoft window (used for
+   * on-demand re-mints when the SWA cookie is expected to still be valid).
+   */
+  async beginMicrosoftSignIn(
+    options: { silent?: boolean } = {}
+  ): Promise<{ email: string }> {
+    const token = await this.deps.msBroker.mintToken({ silent: options.silent });
+    const email = await this.exchangeForEmail(token);
+    this.msSession = { token, email, mintedAt: Date.now() };
+    return { email };
   }
 
-  // ── Account signup (unauthenticated) ────────────────────────────
+  /** Sign out of the SWA (switch-account) and drop any held handshake state. */
+  async microsoftSignOut(): Promise<{ success: true }> {
+    this.msSession = null;
+    await this.deps.msBroker.signOut();
+    return { success: true };
+  }
 
-  async register(email: string, password: string): Promise<unknown> {
-    const response = await this.deps.apiClient.rawFetch("/auth/register", {
+  /** POST the broker token to /auth/ms-exchange; return the verified email. */
+  private async exchangeForEmail(token: string): Promise<string> {
+    const response = await this.deps.apiClient.rawFetch("/auth/ms-exchange", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      headers: { Authorization: `Bearer ${token}` },
     });
     if (!response.ok) {
-      throw new Error(await extractDetail(response));
+      await this.throwFromResponse(response);
+    }
+    const data = await response.json();
+    return typeof data.email === "string" ? data.email : decodeJwtEmail(token);
+  }
+
+  /**
+   * Return a fresh broker JWT for an entrance call, re-minting if the held token
+   * is stale/absent. Keeps `msSession.email` in sync with the token's email.
+   *
+   * NOTE: one broker token is currently reused across the entrance calls
+   * (ms-exchange + login, and login -> auto-register on "not registered"). The
+   * backend does not yet enforce single-use/jti replay protection. If that is
+   * turned on later, each call will need a freshly minted token — mint per call
+   * here instead of reusing the cached one within BROKER_TOKEN_MAX_AGE_MS.
+   */
+  private async ensureFreshBrokerToken(silent: boolean): Promise<string> {
+    if (
+      this.msSession &&
+      Date.now() - this.msSession.mintedAt < BROKER_TOKEN_MAX_AGE_MS
+    ) {
+      return this.msSession.token;
+    }
+    const token = await this.deps.msBroker.mintToken({ silent });
+    this.msSession = { token, email: decodeJwtEmail(token), mintedAt: Date.now() };
+    return token;
+  }
+
+  /**
+   * Throw the right error type from a failed entrance response: a `BrokerError`
+   * (message `MS_BROKER:<code>`) for the broker `{error}` shape, or a plain
+   * `Error(detail)` for the normal app `{detail}` shape — so the renderer can branch.
+   */
+  private async throwFromResponse(response: Response): Promise<never> {
+    let body: { error?: string; detail?: string } | null = null;
+    const text = await response.text();
+    try {
+      body = JSON.parse(text);
+    } catch {
+      /* non-JSON body */
+    }
+    if (body && typeof body.error === "string") {
+      throw new BrokerError(body.error);
+    }
+    if (body && typeof body.detail === "string") {
+      throw new Error(body.detail);
+    }
+    throw new Error(text || `Request failed with status ${response.status}`);
+  }
+
+  // ── Account signup (broker-gated) ───────────────────────────────
+
+  async register(_clientEmail: string): Promise<unknown> {
+    // Identity comes from the verified broker token, NOT the client-supplied email.
+    // Passwordless: no password field — the broker token is the credential.
+    const token = await this.ensureFreshBrokerToken(false);
+    const email = this.msSession?.email || decodeJwtEmail(token);
+
+    const response = await this.deps.apiClient.rawFetch("/auth/register", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ email }),
+    });
+    if (!response.ok) {
+      await this.throwFromResponse(response);
     }
     return response.json();
   }
 
   // ── Step 1: Login (Level 1) ─────────────────────────────────────
 
-  async login(email: string, password: string): Promise<{ settings: unknown }> {
-    const form = new URLSearchParams();
-    form.append("username", email);
-    form.append("password", password);
+  async login(_clientEmail: string): Promise<{ settings: unknown }> {
+    // Passwordless: identity comes entirely from the verified broker token. The
+    // request carries the Bearer token only — no body. FastAPI reads the email
+    // from the token itself.
+    const token = await this.ensureFreshBrokerToken(false);
+    const email = this.msSession?.email || decodeJwtEmail(token);
 
     const response = await this.deps.apiClient.rawFetch("/auth/login", {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: form,
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
     });
 
     if (!response.ok) {
-      throw new Error(await extractDetail(response)); // wrong creds / pending approval
+      // BrokerError (bad/expired token, wrong domain) vs app error (not a
+      // registered user / pending approval) — thrown as distinguishable types.
+      // The renderer branches on the app-error detail string.
+      await this.throwFromResponse(response);
     }
 
     const data = await response.json(); // { access_token, token_type, settings }
     this.devicePending = false;
     this.deps.sessionManager.setLoginToken(data.access_token);
+    this.msSession = null; // one-time handshake consumed
 
     // Remember the email for prefill on next launch (not a secret). Persisted
     // best-effort; the local SQLite DB already lives under the user's Documents.
@@ -128,7 +240,7 @@ export class AuthController {
     return { settings: data.settings ?? null };
   }
 
-  // ── Step 2: Device verify (Level 1 -> 2, mints the session) ─────
+  // ── Step 2: Device verify (Level 1 -> 2, mints the session — the finish line) ─────
 
   async verifyDevice(): Promise<{ deviceId: string; securityLevel: number }> {
     const { deviceId, deviceSecret } =
@@ -158,10 +270,12 @@ export class AuthController {
 
     const data = await response.json();
     // CRITICAL: adopt the NEW sid-bearing token and persist the refresh token.
+    // Device verification is the finish line: full access at Level 2. The server
+    // no longer returns security_level, so we set it explicitly.
     await this.deps.sessionManager.establishSession({
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
-      securityLevel: data.security_level ?? 2,
+      securityLevel: 2,
     });
     this.devicePending = false;
     return { deviceId, securityLevel: this.deps.sessionManager.getSecurityLevel() };
@@ -221,33 +335,6 @@ export class AuthController {
     return { status: data.approval_status ?? data.status ?? "pending", deviceId };
   }
 
-  // ── Step 3: Email TOTP (Level 2 -> 3) ───────────────────────────
-
-  async generateTotp(): Promise<{ message: string; expiresInMinutes: number }> {
-    const response = await this.deps.apiClient.fetchOnce("/auth/totp/generate", {
-      method: "POST",
-    });
-    if (!response.ok) {
-      throw new Error(await extractDetail(response));
-    }
-    const data = await response.json();
-    return { message: data.message, expiresInMinutes: data.expires_in_minutes };
-  }
-
-  async submitTotp(code: string): Promise<{ securityLevel: number }> {
-    const response = await this.deps.apiClient.fetchOnce("/auth/totp/verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ totp_code: code }),
-    });
-    if (!response.ok) {
-      throw new Error(await extractDetail(response));
-    }
-    const data = await response.json(); // { security_level: 3, security_level_expires_at }
-    this.deps.sessionManager.elevateTo(data.security_level ?? 3);
-    return { securityLevel: this.deps.sessionManager.getSecurityLevel() };
-  }
-
   // ── Logout ──────────────────────────────────────────────────────
 
   async logout(): Promise<{ success: true }> {
@@ -260,43 +347,6 @@ export class AuthController {
     this.devicePending = false;
     await this.deps.sessionManager.clear();
     return { success: true };
-  }
-
-  // ── Password reset (device-bound) ───────────────────────────────
-
-  async requestPasswordReset(email: string): Promise<{ message: string }> {
-    const response = await this.deps.apiClient.rawFetch("/auth/password-reset/request", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
-    if (!response.ok) {
-      throw new Error(await extractDetail(response));
-    }
-    return response.json();
-  }
-
-  async confirmPasswordReset(
-    token: string,
-    newPassword: string
-  ): Promise<{ message: string }> {
-    const { deviceId, deviceSecret } =
-      await this.deps.deviceIdentity.getCredentials();
-
-    const response = await this.deps.apiClient.rawFetch("/auth/password-reset/confirm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        token,
-        new_password: newPassword,
-        device_id: deviceId,
-        device_secret: deviceSecret,
-      }),
-    });
-    if (!response.ok) {
-      throw new Error(await extractDetail(response));
-    }
-    return response.json();
   }
 
   // ── Status / resume ─────────────────────────────────────────────
@@ -328,7 +378,6 @@ export class AuthController {
       devicePending: this.devicePending,
       encryptionAvailable: this.deps.secureStore.isAvailable(),
       lastUserEmail: this.lastUserEmail,
-      stepUpRequired: this.deps.sessionManager.isStepUpRequired(),
     };
   }
 

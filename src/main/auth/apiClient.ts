@@ -4,11 +4,11 @@
  * Every request to the API goes through here so that Bearer attachment and the
  * refresh-on-401 policy live in exactly one place (no per-endpoint copy-paste).
  *
- *   - rawFetch:    no Authorization header (login, password-reset, ...).
+ *   - rawFetch:    no app Authorization header (ms-exchange, login, register —
+ *                  these carry the broker token, set by the caller).
  *   - fetchOnce:   attach the current access token; no refresh (auth handshake:
- *                  register / verify / totp / logout — there is nothing to
- *                  refresh before the session exists, and the handshake is
- *                  explicitly ordered).
+ *                  verify / logout — there is nothing to refresh before the
+ *                  session exists, and the handshake is explicitly ordered).
  *   - authedFetch: attach the access token AND, on 401, run ONE single-flight
  *                  refresh and retry the request once (steady-state business
  *                  calls). /auth/refresh itself is owned by SessionManager.
@@ -69,13 +69,6 @@ export class ApiClient {
    * throws SessionExpiredError (already cleared + emitted expiry) and it bubbles.
    */
   async authedFetch(path: string, options: RequestInit = {}): Promise<Response> {
-    // Block business data while a cold-start step-up (fresh TOTP) is pending.
-    // This is the enforcement point — the renderer cannot bypass it. The auth
-    // handshake (generate/submit TOTP, logout) uses fetchOnce and is NOT gated.
-    if (this.deps.sessionManager.isStepUpRequired()) {
-      throw new ApiError(403, "STEP_UP_REQUIRED");
-    }
-
     let response = await this.fetchOnce(path, options);
     if (response.status === 401) {
       await this.deps.sessionManager.refresh(); // single-flight; throws if dead

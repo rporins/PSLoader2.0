@@ -15,7 +15,7 @@
  *     storage BEFORE swapping in the new access token, so a crash mid-rotation
  *     cannot strand the session.
  *   - COLD-START RESUME: on launch, silently refresh from the stored refresh
- *     token to restore Level 2/3 without re-entering TOTP.
+ *     token to restore the device-verified session (Level 2) — no prompts.
  *
  * Transport note: /auth/refresh is the one call that must NOT carry an
  * Authorization header — the refresh token itself is the credential.
@@ -34,7 +34,7 @@ const IDLE_TIMEOUT_MS = 60 * 60 * 1000;
 /** Server absolute cap: session dies 8 h after it was created. */
 const ABSOLUTE_SESSION_MS = 8 * 60 * 60 * 1000;
 
-/** Thrown when the session is dead and full re-login (+ TOTP) is required. */
+/** Thrown when the session is dead and a full re-login (SSO) is required. */
 export class SessionExpiredError extends Error {
   constructor(reason: string) {
     super(`Session expired: ${reason}`);
@@ -46,7 +46,6 @@ interface RefreshResponse {
   access_token: string;
   token_type: string;
   refresh_token: string;
-  security_level: number;
 }
 
 export interface SessionManagerDeps {
@@ -63,16 +62,6 @@ export class SessionManager {
   private refreshInFlight: Promise<void> | null = null;
   private proactiveTimer: ReturnType<typeof setTimeout> | null = null;
   private resumeAttempted = false;
-
-  /**
-   * Step-up gate: when a session is silently resumed on cold start we require a
-   * fresh TOTP before business data is accessible again — even though the
-   * resumed token already grants its level. Enforced in main (ApiClient), so it
-   * cannot be bypassed from the renderer. Cleared once TOTP is re-verified.
-   */
-  private stepUpRequired = false;
-  /** Whether cold-start resume should demand a fresh TOTP (setting-driven). */
-  requireStepUpOnResume = true;
 
   /** Set by AuthController to project status to the renderer. */
   onChange: (() => void) | null = null;
@@ -94,11 +83,6 @@ export class SessionManager {
   /** True once a refresh-backed (sid) session exists at Level 2+. */
   isActive(): boolean {
     return this.accessToken !== null && this.securityLevel >= 2;
-  }
-
-  /** True when business access is blocked pending a fresh TOTP (cold start). */
-  isStepUpRequired(): boolean {
-    return this.stepUpRequired;
   }
 
   /**
@@ -130,7 +114,6 @@ export class SessionManager {
     this.accessToken = accessToken;
     this.securityLevel = 1;
     this.tokenReceivedAt = Date.now();
-    this.stepUpRequired = false; // fresh login flow does its own TOTP
     this.notifyChange();
   }
 
@@ -138,6 +121,7 @@ export class SessionManager {
    * Establish the real session from /devices/verify: swap to the sid-bearing
    * access token and persist the refresh token. Persist-before-discard: the
    * refresh token hits encrypted storage BEFORE we adopt the new access token.
+   * Device verification is now the finish line — this grants full access (Level 2).
    */
   async establishSession(session: {
     accessToken: string;
@@ -152,19 +136,7 @@ export class SessionManager {
     this.accessToken = session.accessToken;
     this.securityLevel = session.securityLevel;
     this.tokenReceivedAt = now;
-    this.stepUpRequired = false; // fresh device verify -> TOTP follows
     this.scheduleProactiveRefresh();
-    this.notifyChange();
-  }
-
-  /**
-   * Raise the recorded security level (e.g. TOTP -> Level 3). The access token
-   * is unchanged; the server reads the elevated level from the session via sid.
-   */
-  elevateTo(securityLevel: number): void {
-    this.securityLevel = securityLevel;
-    // A successful TOTP satisfies any pending cold-start step-up.
-    this.stepUpRequired = false;
     this.notifyChange();
   }
 
@@ -222,7 +194,9 @@ export class SessionManager {
     await this.deps.secureStore.setRefreshToken(data.refresh_token);
     await this.deps.secureStore.touchRefreshUsed(now); // resets the idle window
     this.accessToken = data.access_token;
-    this.securityLevel = data.security_level;
+    // A refresh-backed session is device-verified: full access (Level 2). The
+    // server no longer returns security_level, so we set it here.
+    this.securityLevel = 2;
     this.tokenReceivedAt = now;
     this.scheduleProactiveRefresh();
     this.notifyChange();
@@ -230,7 +204,7 @@ export class SessionManager {
 
   /**
    * Cold-start resume: attempt a silent refresh from the stored refresh token.
-   * Runs at most once per launch. Restores Level 2/3 with no TOTP when the
+   * Runs at most once per launch. Restores the Level-2 session when the
    * session is still within the idle + 8h windows; a 401 clears everything.
    */
   async resume(): Promise<void> {
@@ -254,14 +228,9 @@ export class SessionManager {
     }
 
     try {
+      // Silent resume: a successful refresh restores full access (Level 2) with
+      // no further prompts — device verification already happened on this machine.
       await this.refresh();
-      // Silent resume succeeded. Require a fresh TOTP before business access,
-      // so a cold start can't grant a full session without proving email
-      // possession (defends the "someone opens the app" case).
-      if (this.requireStepUpOnResume && this.isActive()) {
-        this.stepUpRequired = true;
-        this.notifyChange();
-      }
     } catch (error) {
       // On 401, refresh() already cleared + emitted expiry. On transient errors
       // we stay unauthenticated for this launch; the user can log in normally.
@@ -280,7 +249,6 @@ export class SessionManager {
     this.accessToken = null;
     this.securityLevel = 0;
     this.tokenReceivedAt = null;
-    this.stepUpRequired = false;
     await this.deps.secureStore.clear();
     this.notifyChange();
   }

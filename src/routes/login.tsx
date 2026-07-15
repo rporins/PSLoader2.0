@@ -1,6 +1,6 @@
-import React, { Suspense, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import authService from '../services/auth';
+import React, { Suspense, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import authService, { brokerErrorCode, describeBrokerError } from '../services/auth';
 import { useAuthStatus } from '../hooks/useAuthStatus';
 import {
   Alert,
@@ -22,7 +22,10 @@ import LoginIcon from '@mui/icons-material/Login';
 import PersonAddAltRoundedIcon from '@mui/icons-material/PersonAddAltRounded';
 import LockRoundedIcon from '@mui/icons-material/LockRounded';
 import ShieldRoundedIcon from '@mui/icons-material/ShieldRounded';
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
+import HourglassTopRoundedIcon from '@mui/icons-material/HourglassTopRounded';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import InputAdornment from '@mui/material/InputAdornment';
 import IconButton from '@mui/material/IconButton';
 import marriottLogo from '../images/marriott_logo.png';
 
@@ -339,55 +342,126 @@ const BackButton = styled(IconButton)(({ theme }) => ({
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const theme = useTheme();
-  // Prefill with the last-used email (persisted locally; not a secret).
-  const [email, setEmail] = useState(() => authService.getLastUserEmail() ?? '');
-  const [emailEdited, setEmailEdited] = useState(false);
-  const [password, setPassword] = useState('');
+
+  // The verified company email arrives from the Microsoft entrance on the landing
+  // page (router state). If we're here without it (deep link / browser back), we
+  // fall back to an in-place "Sign in with Microsoft" button before the password.
+  const verifiedEmail = (location.state as { msEmail?: string } | null)?.msEmail;
+  const [email, setEmail] = useState(verifiedEmail ?? '');
+  const [msVerified, setMsVerified] = useState(!!verifiedEmail);
+  const [msVerifying, setMsVerifying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [info, setInfo] = useState(''); // non-error notices
+  // Terminal "waiting for admin approval" message (account requested / pending).
+  const [pendingMsg, setPendingMsg] = useState('');
 
   // Background cold-start resume state — drives the "Continue session" button.
   const { status: authStatus, resolving, resumable } = useAuthStatus();
 
-  // The remembered email can land AFTER first mount (the status is populated
-  // asynchronously), so a one-shot useState initializer isn't enough — keep the
-  // field in sync with the auth status until the user starts typing.
-  useEffect(() => {
-    if (!emailEdited && authStatus.lastUserEmail) {
-      setEmail(authStatus.lastUserEmail);
+  // In-place Microsoft verification (fallback when landed here without an email).
+  const handleMicrosoftVerify = async () => {
+    if (!window.authApi) {
+      setError('Auth bridge unavailable. Please restart the app.');
+      return;
     }
-  }, [authStatus.lastUserEmail, emailEdited]);
+    setError('');
+    setInfo('');
+    setMsVerifying(true);
+    try {
+      const result = await window.authApi.beginMicrosoftSignIn();
+      setEmail(result.email);
+      setMsVerified(true);
+    } catch (err) {
+      const code = brokerErrorCode(err);
+      if (code !== 'cancelled') {
+        setError(
+          code
+            ? describeBrokerError(code)
+            : err instanceof Error
+            ? err.message
+            : 'Marriott SSO sign-in failed.'
+        );
+      }
+    } finally {
+      setMsVerifying(false);
+    }
+  };
+
+  // Switch account: clear the SWA session (cookies) so a different Microsoft
+  // account can sign in, then return to the Welcome page to start over.
+  const handleUseDifferentAccount = async () => {
+    setError('');
+    setInfo('');
+    setMsVerified(false);
+    setEmail('');
+    try {
+      await authService.microsoftSignOut();
+    } catch {
+      /* best-effort */
+    }
+    navigate('/');
+  };
 
   // Only show "Continue session" once a live session is actually confirmed —
   // never a "Checking…" placeholder that could vanish if the resume fails.
   const showContinueSession = resumable && !resolving && authStatus.isActive;
 
   const handleContinueSession = () => {
-    // A restored session still needs the TOTP step-up before business access.
-    navigate(authStatus.stepUpRequired ? '/auth/totp' : '/signed-in-landing/home', {
-      replace: true,
-    });
+    // A restored session grants full access (device already verified) — go in.
+    navigate('/signed-in-landing/home', { replace: true });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setInfo('');
     setIsLoading(true);
 
     try {
-      await authService.login(email, password);
+      // Passwordless: the broker token (held in main) is the credential.
+      await authService.login(email);
       navigate('/auth/device-verify');
     } catch (err: any) {
       console.error('Login error:', err);
 
-      // Better error handling for CORS issues
-      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        setError('Cannot connect to server. Please ensure the backend server is running and CORS is properly configured.');
-      } else if (err.message.includes('CORS')) {
-        setError('Server connection blocked by CORS policy. Please contact your system administrator.');
+      const code = brokerErrorCode(err);
+      if (code) {
+        // Broker-gate failure — the Microsoft identity step must be redone.
+        setError(describeBrokerError(code));
+        if (code === 'domain_not_allowed' || code === 'no_principal') {
+          setMsVerified(false);
+          setEmail('');
+        }
+        setIsLoading(false);
+        return;
+      }
+
+      const msg: string = err?.message ?? '';
+      if (/not a registered user|not registered/i.test(msg)) {
+        // First-time user: request an account with the same broker token, then
+        // show the terminal "waiting for approval" screen.
+        try {
+          await authService.register(email);
+          setPendingMsg(
+            'Your account has been requested. An administrator must approve it before you can sign in.'
+          );
+        } catch (regErr: any) {
+          const regMsg: string = regErr?.message ?? '';
+          if (/pending approval/i.test(regMsg)) {
+            setPendingMsg('Your account is pending administrator approval.');
+          } else {
+            setError(regMsg || 'Could not request an account. Please try again.');
+          }
+        }
+      } else if (/pending approval/i.test(msg)) {
+        setPendingMsg('Your account is pending administrator approval.');
+      } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+        setError('Cannot connect to server. Please check your connection and try again.');
       } else {
-        setError(err.message || 'Invalid email or password');
+        setError(msg || 'Sign-in failed. Please try again.');
       }
 
       setIsLoading(false);
@@ -504,78 +578,143 @@ const Login: React.FC = () => {
               </Alert>
             )}
 
-            <form onSubmit={handleSubmit}>
-              <Stack spacing={3}>
-                <StyledTextField
-                  fullWidth
-                  label="Email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmailEdited(true);
-                    setEmail(e.target.value);
+            {info && (
+              <Alert
+                severity="info"
+                sx={{ mb: 3, borderRadius: 4, backdropFilter: 'blur(10px)' }}
+                onClose={() => setInfo('')}
+              >
+                {info}
+              </Alert>
+            )}
+
+            {pendingMsg ? (
+              // Terminal state: account requested / pending admin approval. The
+              // approval is out-of-band, so this is a clear "wait" screen — no spinner.
+              <Stack spacing={3} alignItems="center">
+                <Box
+                  sx={{
+                    width: 64,
+                    height: 64,
+                    borderRadius: '50%',
+                    background: `linear-gradient(135deg, #f59e0b, #f97316)`,
+                    boxShadow: `0 20px 40px rgba(245,158,11,0.35)`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
-                  required
-                  disabled={isLoading}
-                  autoComplete="email"
-                />
-
-                <StyledTextField
-                  fullWidth
-                  label="Password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  disabled={isLoading}
-                  autoComplete="current-password"
-                />
-
-                <Box sx={{ textAlign: 'right' }}>
-                  <Link
-                    component="button"
-                    type="button"
-                    variant="body2"
-                    onClick={() => navigate('/auth/password-reset/request')}
-                    disabled={isLoading}
-                    sx={{
-                      color: theme.palette.primary.main,
-                      textDecoration: 'none',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      opacity: isLoading ? 0.5 : 1,
-                      transition: 'all 0.2s',
-                      '&:hover': {
-                        textDecoration: 'underline',
-                        opacity: 0.8,
-                      },
-                    }}
-                  >
-                    Forgot Password?
-                  </Link>
+                >
+                  <HourglassTopRoundedIcon sx={{ color: '#ffffff', fontSize: 32 }} />
                 </Box>
-
+                <Typography variant="h6" sx={{ fontWeight: 700, textAlign: 'center' }}>
+                  Awaiting approval
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{ textAlign: 'center', color: theme.palette.text.secondary }}
+                >
+                  {pendingMsg}
+                </Typography>
+                <PremiumButton fullWidth size="large" onClick={() => navigate('/')}>
+                  Back to Welcome
+                </PremiumButton>
+              </Stack>
+            ) : !msVerified ? (
+              // Fallback entrance: reached /login without a verified email (deep
+              // link / back). Verify the company Microsoft account in place first.
+              <Stack spacing={3}>
+                <Typography
+                  variant="body2"
+                  sx={{ textAlign: 'center', color: theme.palette.text.secondary }}
+                >
+                  Verify your company Marriott SSO account to continue.
+                </Typography>
                 <PremiumButton
                   fullWidth
                   size="large"
-                  type="submit"
-                  startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <LoginIcon />}
-                  disabled={isLoading}
+                  onClick={handleMicrosoftVerify}
+                  disabled={msVerifying}
+                  startIcon={
+                    msVerifying ? (
+                      <CircularProgress size={20} color="inherit" />
+                    ) : (
+                      <LoginIcon />
+                    )
+                  }
                 >
-                  {isLoading ? 'Signing In...' : 'Sign In'}
+                  {msVerifying ? 'Verifying with Marriott SSO…' : 'Sign in with Marriott SSO'}
                 </PremiumButton>
-
                 <SecondaryButton
                   fullWidth
                   size="large"
                   startIcon={<PersonAddAltRoundedIcon />}
                   onClick={() => navigate('/register')}
-                  disabled={isLoading}
+                  disabled={msVerifying}
                 >
                   Request New Account
                 </SecondaryButton>
               </Stack>
-            </form>
+            ) : (
+              <form onSubmit={handleSubmit}>
+                <Stack spacing={3}>
+                  <StyledTextField
+                    fullWidth
+                    label="Email"
+                    type="email"
+                    value={email}
+                    InputProps={{
+                      readOnly: true,
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <CheckCircleRoundedIcon
+                            fontSize="small"
+                            sx={{ color: '#10b981' }}
+                          />
+                        </InputAdornment>
+                      ),
+                    }}
+                    helperText="Verified via Marriott SSO"
+                    autoComplete="email"
+                  />
+
+                  <Box sx={{ textAlign: 'center', mt: -1 }}>
+                    <Link
+                      component="button"
+                      type="button"
+                      variant="caption"
+                      onClick={handleUseDifferentAccount}
+                      disabled={isLoading}
+                      sx={{
+                        color: theme.palette.text.secondary,
+                        textDecoration: 'none',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        opacity: isLoading ? 0.5 : 1,
+                        '&:hover': { textDecoration: 'underline' },
+                      }}
+                    >
+                      Not you? Sign in as a different account
+                    </Link>
+                  </Box>
+
+                  <PremiumButton
+                    fullWidth
+                    size="large"
+                    type="submit"
+                    startIcon={
+                      isLoading ? (
+                        <CircularProgress size={20} color="inherit" />
+                      ) : (
+                        <LoginIcon />
+                      )
+                    }
+                    disabled={isLoading}
+                  >
+                    {isLoading ? 'Signing in…' : 'Continue'}
+                  </PremiumButton>
+                </Stack>
+              </form>
+            )}
 
             <Divider sx={{ my: 3, opacity: 0.2 }} />
 
@@ -596,7 +735,7 @@ const Login: React.FC = () => {
                     letterSpacing: 0.3,
                   }}
                 >
-                  Device-linked authentication • Secure OTP pairing
+                  Marriott SSO • Device-linked authentication
                 </Typography>
               </Stack>
 

@@ -14,7 +14,7 @@ import { initializeIpc } from "./ipc";
 import { setupAutoUpdaterEvents } from "./ipc/handlers/app";
 import { attachUiScale } from "./ipc/handlers/window";
 import { createAuthStack } from "./main/auth";
-import { API_BASE_URL } from "./config";
+import { API_BASE_URL, SWA_ORIGIN } from "./config";
 
 // ────────────────────────────────────────────────────────────
 // 0) ENV + GLOBAL DECLS (Vite globals, .env loading)
@@ -121,9 +121,10 @@ function createMainWindow(): void {
     },
   });
 
-  // Apply default-auto UI scaling before any content loads, so the update-checker,
-  // loading and login screens are already sized to the window. The renderer will
-  // push the persisted policy (which may override to manual) once settings load.
+  // Wire UI scaling before any content loads. The default policy is native 1.0, so
+  // the update-checker, loading and login screens render at full fidelity. The
+  // renderer pushes the persisted policy (which may switch to auto or a saved
+  // factor) once settings load.
   attachUiScale(mainWindow);
 
   // Harden navigation: deny popups and block navigation away from app content.
@@ -301,6 +302,10 @@ app.on("ready", async () => {
     // (safeStorage requires the app to be ready).
     const { authController, apiClient } = await createAuthStack({
       baseUrl: API_BASE_URL,
+      swaOrigin: SWA_ORIGIN,
+      // Lazy getter: the main window is created later in this handler, so the
+      // broker resolves it on demand (when the user triggers a sign-in).
+      getMainWindow: () => mainWindow,
       sendToRenderer,
     });
 

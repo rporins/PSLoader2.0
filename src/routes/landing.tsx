@@ -19,6 +19,7 @@ import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import PersonAddAltRoundedIcon from "@mui/icons-material/PersonAddAltRounded";
 import HelpOutlineRoundedIcon from "@mui/icons-material/HelpOutlineRounded";
 import marriottLogo from "../images/marriott_logo.png";
+import { brokerErrorCode, describeBrokerError } from "../services/auth";
 
 // 3D imports
 import { Canvas, useFrame } from "@react-three/fiber";
@@ -498,7 +499,7 @@ function useIpcAuth() {
         }
         const status = await window.authApi.getStatus();
         if (!mounted) return;
-        const authed = status.securityLevel >= 3;
+        const authed = status.securityLevel >= 2;
         setState((s) => ({
           ...s,
           isAuthenticated: authed,
@@ -627,6 +628,42 @@ export default function Landing() {
 
   const { initialized, loading, isAuthenticated, user, error, clearError, cancelLogin } = useIpcAuth();
 
+  // Microsoft/Entra entrance state. Clicking "Sign in / Register with Microsoft"
+  // verifies the company identity via the SWA broker, then routes to the password
+  // screen with the verified email locked. The broker token never leaves main.
+  const [msVerifying, setMsVerifying] = useState(false);
+  const [msError, setMsError] = useState<string | null>(null);
+
+  const runMicrosoftEntrance = useCallback(
+    async (target: "/login" | "/register") => {
+      if (!window.authApi) {
+        setMsError("Auth bridge unavailable. Please restart the app.");
+        return;
+      }
+      setMsError(null);
+      setMsVerifying(true);
+      try {
+        const { email } = await window.authApi.beginMicrosoftSignIn();
+        navigate(target, { state: { msEmail: email } });
+      } catch (err) {
+        const code = brokerErrorCode(err);
+        // A cancelled sign-in is a normal user action — no scary error banner.
+        if (code !== "cancelled") {
+          setMsError(
+            code
+              ? describeBrokerError(code)
+              : err instanceof Error
+              ? err.message
+              : "Marriott SSO sign-in failed."
+          );
+        }
+      } finally {
+        setMsVerifying(false);
+      }
+    },
+    [navigate]
+  );
+
   // Auto-forward once authenticated
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -738,6 +775,25 @@ export default function Landing() {
               </Alert>
             )}
 
+            {/* Microsoft sign-in error */}
+            {!!msError && (
+              <Alert
+                severity="error"
+                sx={{
+                  mb: 3,
+                  borderRadius: 4,
+                  background: alpha("#ef4444", 0.08),
+                  border: `1px solid ${alpha("#ef4444", 0.2)}`,
+                  backdropFilter: "blur(10px)",
+                  "& .MuiAlert-icon": { color: "#ef4444" },
+                }}
+                onClose={() => setMsError(null)}
+                aria-live="assertive"
+              >
+                {msError}
+              </Alert>
+            )}
+
             {/* Auth buttons */}
             {!isAuthenticated ? (
               <>
@@ -745,22 +801,23 @@ export default function Landing() {
                   fullWidth
                   size="large"
                   startIcon={<LoginIcon />}
-                  onClick={() => navigate("/login")}
-                  disabled={loading}
-                  aria-label="Sign in"
+                  onClick={() => runMicrosoftEntrance("/login")}
+                  disabled={loading || msVerifying}
+                  aria-label="Sign in with Marriott SSO"
                   sx={{ mb: 2, color: 'white' }}
                 >
-                  Sign In
+                  Sign in with Marriott SSO
                 </PremiumButton>
 
                 <SecondaryButton
                   fullWidth
                   size="large"
                   startIcon={<PersonAddAltRoundedIcon />}
-                  onClick={() => navigate("/register")}
+                  onClick={() => runMicrosoftEntrance("/register")}
+                  disabled={loading || msVerifying}
                   sx={{ mb: 3 }}
                 >
-                  Request New Account
+                  Register with Marriott SSO
                 </SecondaryButton>
               </>
             ) : (
@@ -793,9 +850,10 @@ export default function Landing() {
                     color: theme.palette.text.secondary,
                     fontWeight: 600,
                     letterSpacing: 0.3,
+                    textAlign: "center",
                   }}
                 >
-                  Device-linked authentication • Secure OTP pairing
+                  Marriott SSO • Device-linked authentication
                 </Typography>
               </Stack>
 
@@ -881,6 +939,8 @@ export default function Landing() {
         <LoadingOverlay message="Initializing secure connection..." />
       ) : loading ? (
         <LoadingOverlay message="Authenticating..." onCancel={cancelLogin} />
+      ) : msVerifying ? (
+        <LoadingOverlay message="Verifying with Marriott SSO…" />
       ) : null}
     </PageRoot>
   );

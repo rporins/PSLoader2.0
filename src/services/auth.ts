@@ -10,20 +10,52 @@
  *     the main-process authenticated transport via the `api` seam.
  *
  * The public method names match the previous renderer AuthService so existing
- * screens (login, device-verify, totp, password reset, profile) keep working.
+ * screens (login, device-verify, profile) keep working. Passwordless: identity
+ * comes from the Microsoft broker token; there is no password or email-TOTP step.
  */
 
 import api from "./api";
+import { MS_BROKER_ERROR_PREFIX } from "../config";
+
+/**
+ * Classify an auth error: broker-gate failures carry a `MS_BROKER:<code>`
+ * message; everything else is a normal app error (FastAPI `detail` text).
+ * Returns the broker code (e.g. "no_principal") or null for an app error.
+ */
+export function brokerErrorCode(err: unknown): string | null {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return msg.startsWith(MS_BROKER_ERROR_PREFIX)
+    ? msg.slice(MS_BROKER_ERROR_PREFIX.length)
+    : null;
+}
+
+/** User-facing copy for a broker-gate error code. */
+export function describeBrokerError(code: string): string {
+  switch (code) {
+    case "domain_not_allowed":
+      return "This Microsoft account isn't authorized for PS Loader. Please sign in with your company account.";
+    case "no_principal":
+      return "Microsoft sign-in didn't complete. Please try again.";
+    case "cancelled":
+      return "Microsoft sign-in was cancelled.";
+    case "timeout":
+      return "Microsoft sign-in timed out. Please try again.";
+    case "server_misconfigured":
+    case "server_error":
+    case "mint_failed":
+    default:
+      return "Microsoft sign-in is temporarily unavailable. Please try again.";
+  }
+}
 
 // ── Public status projected from main (never contains a token) ──
 export interface PublicAuthStatus {
-  securityLevel: number; // 0 none, 1 login, 2 device-verified, 3 TOTP
+  securityLevel: number; // 0 none, 1 login, 2 device-verified (full access)
   isActive: boolean;
   deviceId: string | null;
   devicePending: boolean;
   encryptionAvailable: boolean;
   lastUserEmail: string | null;
-  stepUpRequired: boolean;
 }
 
 // ── Domain types re-exported for consumers (unchanged shapes) ──
@@ -35,15 +67,6 @@ export interface AuthTokenResponse {
 
 export interface DeviceVerifyResponse {
   deviceId: string;
-  securityLevel: number;
-}
-
-export interface TOTPGenerateResponse {
-  message: string;
-  expiresInMinutes: number;
-}
-
-export interface TOTPVerifyResponse {
   securityLevel: number;
 }
 
@@ -80,14 +103,6 @@ export interface DeviceRegisterResponse {
   deviceId: string;
 }
 
-export interface PasswordResetRequestResponse {
-  message: string;
-}
-
-export interface PasswordResetConfirmResponse {
-  message: string;
-}
-
 // ── Window augmentation for the typed auth bridge ──
 import type { AuthApi } from "../preload";
 declare global {
@@ -103,7 +118,6 @@ const EMPTY_STATUS: PublicAuthStatus = {
   devicePending: false,
   encryptionAvailable: false,
   lastUserEmail: null,
-  stepUpRequired: false,
 };
 
 class AuthClient {
@@ -208,7 +222,8 @@ class AuthClient {
   }
 
   isAuthenticated(): boolean {
-    return this.status.securityLevel >= 3;
+    // Device verification (Level 2) is the finish line — full access.
+    return this.status.securityLevel >= 2;
   }
 
   getDeviceId(): string | null {
@@ -218,11 +233,6 @@ class AuthClient {
   /** Remembered email from a previous login, for prefilling the login form. */
   getLastUserEmail(): string | null {
     return this.status.lastUserEmail;
-  }
-
-  /** True when a cold-start resume still needs a fresh TOTP before data access. */
-  isStepUpRequired(): boolean {
-    return this.status.stepUpRequired;
   }
 
   getStatusSnapshot(): PublicAuthStatus {
@@ -238,20 +248,32 @@ class AuthClient {
   }
 
   private setLevel(securityLevel: number): void {
-    // Any explicit auth transition (login / verify / TOTP) also resolves a
-    // pending cold-start step-up.
     this.status = {
       ...this.status,
       securityLevel,
       isActive: securityLevel >= 2,
-      stepUpRequired: false,
     };
     this.notify();
   }
 
+  // ── Microsoft/Entra broker sign-in (identity gate) ──
+  /**
+   * Run the SWA/Microsoft sign-in and return the server-verified company email
+   * (to show in a locked field). The broker token stays in main. `silent` avoids
+   * showing the Microsoft window when the SWA cookie is expected to be valid.
+   */
+  async beginMicrosoftSignIn(silent = false): Promise<{ email: string }> {
+    return this.requireAuthApi().beginMicrosoftSignIn({ silent });
+  }
+
+  /** Sign out of the SWA (switch-account). */
+  async microsoftSignOut(): Promise<void> {
+    await this.requireAuthApi().microsoftSignOut();
+  }
+
   // ── Auth handshake (delegates to main; updates cached status from results) ──
-  async login(email: string, password: string): Promise<AuthTokenResponse> {
-    const result = await this.requireAuthApi().login({ email, password });
+  async login(email: string): Promise<AuthTokenResponse> {
+    const result = await this.requireAuthApi().login({ email });
     this.setLevel(1);
     return { settings: (result as any)?.settings ?? null };
   }
@@ -264,20 +286,19 @@ class AuthClient {
     return result;
   }
 
+  /**
+   * Request an account (passwordless): the broker token verifies identity. Used
+   * both by the explicit Register screen and by the login screen when /auth/login
+   * reports the user isn't registered yet.
+   */
+  async register(email: string): Promise<unknown> {
+    return this.requireAuthApi().register({ email });
+  }
+
   async registerDevice(): Promise<DeviceRegisterResponse> {
     const result = await this.requireAuthApi().registerDevice();
     this.status = { ...this.status, deviceId: result.deviceId, devicePending: true };
     this.notify();
-    return result;
-  }
-
-  async generateTOTP(): Promise<TOTPGenerateResponse> {
-    return this.requireAuthApi().generateTotp();
-  }
-
-  async verifyTOTP(code: string): Promise<TOTPVerifyResponse> {
-    const result = await this.requireAuthApi().submitTotp({ code });
-    this.setLevel(result.securityLevel);
     return result;
   }
 
@@ -304,17 +325,6 @@ class AuthClient {
   /** Local-only reset (main owns real teardown; kept for legacy call sites). */
   clearAuth(): void {
     this.setLevel(0);
-  }
-
-  async requestPasswordReset(email: string): Promise<PasswordResetRequestResponse> {
-    return this.requireAuthApi().requestPasswordReset({ email });
-  }
-
-  async confirmPasswordReset(
-    token: string,
-    newPassword: string
-  ): Promise<PasswordResetConfirmResponse> {
-    return this.requireAuthApi().confirmPasswordReset({ token, newPassword });
   }
 
   // ── Business reads (routed through the main-process authed transport) ──

@@ -99,7 +99,9 @@ const currentMonth = new Date().getMonth() + 1;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   [SETTINGS_KEYS.THEME_MODE]: "light",
-  [SETTINGS_KEYS.UI_SCALE_MODE]: "auto",
+  // Default to native 100% (manual @ 1.0): full fidelity and no fractional-zoom
+  // compositing cost. "auto" (fit-to-window) remains an opt-in the user can enable.
+  [SETTINGS_KEYS.UI_SCALE_MODE]: "manual",
   [SETTINGS_KEYS.UI_SCALE]: 1.0,
   [SETTINGS_KEYS.SELECTED_HOTEL_OU]: null,
   [SETTINGS_KEYS.SELECTED_DEPARTMENT]: null,

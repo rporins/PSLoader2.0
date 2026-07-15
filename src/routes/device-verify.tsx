@@ -32,9 +32,9 @@ const DeviceVerify: React.FC = () => {
       setProgress(100);
       setMessage('Device verified successfully');
 
-      // Navigate to TOTP after a brief success message
+      // Device verification is the finish line — full access. Enter the app.
       setTimeout(() => {
-        navigate('/auth/totp');
+        navigate('/signed-in-landing/home');
       }, 1500);
     } catch (err: any) {
       clearInterval(progressInterval);
@@ -87,7 +87,7 @@ const DeviceVerify: React.FC = () => {
         await authService.verifyDevice();
         setMessage('Device approved and verified');
         setTimeout(() => {
-          navigate('/auth/totp');
+          navigate('/signed-in-landing/home');
         }, 1500);
       } catch (verifyErr: any) {
         // Device is registered but not approved yet

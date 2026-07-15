@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, safeStorage } from "electron";
 import path from "path";
 import { createClient, Client } from "@libsql/client";
 import dotenv from "dotenv";
@@ -2310,48 +2310,140 @@ interface UserSettings {
   [key: string]: any;
 }
 
-// Get or create the permanent device salt
+// Storage keys for the permanent device salt.
+//   - PERMANENT_SALT_KEY:     legacy plaintext (kept as a fallback for machines
+//                             where OS-level encryption is unavailable).
+//   - PERMANENT_SALT_ENC_KEY: base64 of the DPAPI (safeStorage) ciphertext.
+const PERMANENT_SALT_KEY = 'permanentSalt';
+const PERMANENT_SALT_ENC_KEY = 'permanentSaltEnc';
+
+/** Whether OS-level encryption (Windows DPAPI via Electron safeStorage) is usable. */
+function saltEncryptionAvailable(): boolean {
+  try {
+    return safeStorage.isEncryptionAvailable();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Unwrap a salt that may have been persisted JSON-stringified (with quotes).
+ * The returned value is exactly what device_secret hashes, so it MUST match the
+ * historical return value of getPermanentSalt() to keep device_secret stable.
+ */
+function normalizeSalt(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === 'string') return parsed;
+  } catch {
+    // Not JSON — use as-is.
+  }
+  return raw;
+}
+
+/** Read a raw user_settings value (plain string), or null if the key is absent. */
+async function readSaltSetting(key: string): Promise<string | null> {
+  const result = await client.execute({
+    sql: "SELECT value FROM user_settings WHERE key = ?",
+    args: [key],
+  });
+  if (result.rows.length > 0) {
+    return (result.rows[0].value as string) ?? null;
+  }
+  return null;
+}
+
+/** Upsert a user_settings value as a plain string (no JSON wrapping). */
+async function writeSaltSetting(key: string, value: string): Promise<void> {
+  await client.execute({
+    sql: `
+      INSERT INTO user_settings (key, value, updated_at)
+      VALUES (?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(key) DO UPDATE SET
+        value = excluded.value,
+        updated_at = CURRENT_TIMESTAMP
+    `,
+    args: [key, value],
+  });
+}
+
+// Get or create the permanent device salt.
+//
+// Storage hardening: when OS-level encryption (Electron safeStorage / Windows
+// DPAPI) is available the salt is kept as an encrypted blob under
+// `permanentSaltEnc` and the legacy plaintext `permanentSalt` is blanked. When
+// encryption is unavailable we transparently fall back to plaintext storage.
+//
+// IMPORTANT: the salt *value* never changes across this migration — only how it
+// is stored at rest — so device_secret (SHA-256 over hardware || salt) stays
+// byte-for-byte identical and already-registered devices keep verifying.
 export async function getPermanentSalt(): Promise<string> {
   try {
-    const result = await client.execute({
-      sql: "SELECT value FROM user_settings WHERE key = ?",
-      args: ['permanentSalt']
-    });
+    const dpapi = saltEncryptionAvailable();
 
-    if (result.rows.length > 0) {
-      let salt = result.rows[0].value as string;
-      // ALWAYS return existing salt, even if it appears invalid
-      // Changing the salt would break device authentication
-      if (salt) {
-        // Handle case where salt was stored JSON-stringified (with quotes)
-        // This ensures consistency regardless of how it was stored
-        try {
-          const parsed = JSON.parse(salt);
-          if (typeof parsed === 'string') {
-            salt = parsed;
-          }
-        } catch {
-          // Not JSON, use as-is
-        }
-        return salt;
+    // 1) Preferred path: an encrypted blob already exists.
+    const encRaw = await readSaltSetting(PERMANENT_SALT_ENC_KEY);
+    const encExists = !!encRaw;
+    if (encRaw && dpapi) {
+      try {
+        const plaintext = safeStorage.decryptString(Buffer.from(encRaw, 'base64'));
+        if (plaintext) return plaintext;
+      } catch (error) {
+        // Blob unreadable (e.g. Windows profile/credential loss). Fall through:
+        // recover from a plaintext copy if one still exists, otherwise the
+        // orphan guard below prevents silently minting a replacement.
+        console.warn('[salt] Failed to decrypt permanentSaltEnc:', error);
       }
     }
 
-    // Only generate new salt if none exists
+    // 2) Legacy / fallback path: plaintext salt.
+    const plainRaw = await readSaltSetting(PERMANENT_SALT_KEY);
+    if (plainRaw) {
+      const salt = normalizeSalt(plainRaw);
+      // Opportunistically migrate to encrypted-at-rest when possible. The value
+      // is unchanged, so device_secret is unaffected.
+      if (dpapi) {
+        try {
+          const blob = safeStorage.encryptString(salt).toString('base64');
+          await writeSaltSetting(PERMANENT_SALT_ENC_KEY, blob);
+          await writeSaltSetting(PERMANENT_SALT_KEY, ''); // blank the plaintext
+          // console.log('[salt] Migrated permanent salt to DPAPI-encrypted storage.');
+        } catch (error) {
+          // Migration failed — keep serving the plaintext salt as-is.
+          console.warn('[salt] Salt encryption migration failed:', error);
+        }
+      }
+      return salt;
+    }
+
+    // 3) Orphan guard: an encrypted salt exists but we could neither decrypt it
+    // nor find a plaintext fallback. Do NOT mint a new salt — that would change
+    // device_secret and orphan an already-registered device. Fail this launch
+    // instead; it self-heals once encryption is available again.
+    if (encExists) {
+      throw new Error(
+        'permanentSaltEnc present but undecryptable and no plaintext fallback'
+      );
+    }
+
+    // 4) True first run on this machine: mint a new salt.
     const crypto = await import('crypto');
     const newSalt = crypto.randomBytes(16).toString('hex');
 
-    // Store it in the database - INSERT only, never update
-    // This should only run once per device, ever
-    await client.execute({
-      sql: `
-        INSERT INTO user_settings (key, value, updated_at)
-        VALUES (?, ?, CURRENT_TIMESTAMP)
-      `,
-      args: ['permanentSalt', newSalt]
-    });
+    if (dpapi) {
+      try {
+        const blob = safeStorage.encryptString(newSalt).toString('base64');
+        await writeSaltSetting(PERMANENT_SALT_ENC_KEY, blob);
+      } catch (error) {
+        // Encryption failed at mint time — persist plaintext so the value is
+        // durable; a later launch can migrate it once encryption works.
+        console.warn('[salt] Failed to encrypt new salt, storing plaintext:', error);
+        await writeSaltSetting(PERMANENT_SALT_KEY, newSalt);
+      }
+    } else {
+      await writeSaltSetting(PERMANENT_SALT_KEY, newSalt);
+    }
 
-    // console.log('Generated and stored new permanent device salt in database');
     return newSalt;
   } catch (error) {
     console.error('Error getting/creating permanent salt:', error);

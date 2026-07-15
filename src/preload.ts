@@ -72,7 +72,6 @@ export interface PublicAuthStatus {
   devicePending: boolean;
   encryptionAvailable: boolean;
   lastUserEmail: string | null;
-  stepUpRequired: boolean;
 }
 
 export interface IpcApi {
@@ -91,21 +90,16 @@ export interface IpcApi {
 }
 
 export interface AuthApi {
-  register: (p: { email: string; password: string }) => Promise<unknown>;
-  login: (p: { email: string; password: string }) => Promise<{ settings: unknown }>;
+  beginMicrosoftSignIn: (p?: { silent?: boolean }) => Promise<{ email: string }>;
+  microsoftSignOut: () => Promise<{ success: true }>;
+  register: (p: { email: string }) => Promise<unknown>;
+  login: (p: { email: string }) => Promise<{ settings: unknown }>;
   registerDevice: () => Promise<{ status: string; deviceId: string }>;
   verifyDevice: () => Promise<{ deviceId: string; securityLevel: number }>;
-  generateTotp: () => Promise<{ message: string; expiresInMinutes: number }>;
-  submitTotp: (p: { code: string }) => Promise<{ securityLevel: number }>;
   logout: () => Promise<{ success: true }>;
   getStatus: () => Promise<PublicAuthStatus>;
   resume: () => Promise<PublicAuthStatus>;
   hasResumableSession: () => Promise<boolean>;
-  requestPasswordReset: (p: { email: string }) => Promise<{ message: string }>;
-  confirmPasswordReset: (p: {
-    token: string;
-    newPassword: string;
-  }) => Promise<{ message: string }>;
   onAuthStatusChanged: (cb: (status: PublicAuthStatus) => void) => void;
   offAuthStatusChanged: (cb: (status: PublicAuthStatus) => void) => void;
   onSessionExpired: (cb: () => void) => void;
@@ -165,22 +159,17 @@ contextBridge.exposeInMainWorld("ipcApi", {
 // bridge — only opaque success/failure of named domain actions plus status.
 // ────────────────────────────────────────────────────────────
 contextBridge.exposeInMainWorld("authApi", {
-  register: (p: { email: string; password: string }) =>
-    invokeUnwrapped("auth:register", p),
-  login: (p: { email: string; password: string }) =>
-    invokeUnwrapped("auth:login", p),
+  beginMicrosoftSignIn: (p?: { silent?: boolean }) =>
+    invokeUnwrapped("auth:beginMicrosoftSignIn", p),
+  microsoftSignOut: () => invokeUnwrapped("auth:microsoftSignOut"),
+  register: (p: { email: string }) => invokeUnwrapped("auth:register", p),
+  login: (p: { email: string }) => invokeUnwrapped("auth:login", p),
   registerDevice: () => invokeUnwrapped("auth:registerDevice"),
   verifyDevice: () => invokeUnwrapped("auth:verifyDevice"),
-  generateTotp: () => invokeUnwrapped("auth:generateTotp"),
-  submitTotp: (p: { code: string }) => invokeUnwrapped("auth:submitTotp", p),
   logout: () => invokeUnwrapped("auth:logout"),
   getStatus: () => invokeUnwrapped("auth:getStatus"),
   resume: () => invokeUnwrapped("auth:resume"),
   hasResumableSession: () => invokeUnwrapped("auth:hasResumableSession"),
-  requestPasswordReset: (p: { email: string }) =>
-    invokeUnwrapped("auth:requestPasswordReset", p),
-  confirmPasswordReset: (p: { token: string; newPassword: string }) =>
-    invokeUnwrapped("auth:confirmPasswordReset", p),
 
   onAuthStatusChanged: (cb: (status: PublicAuthStatus) => void) => {
     const wrapped = (_event: any, status: PublicAuthStatus) => cb(status);

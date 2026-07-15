@@ -18,8 +18,9 @@ const MAX_ZOOM = 1.0; // only ever scale down — never magnify the UI
 const REFERENCE_WIDTH = 3840;
 
 // Current policy shared across the (single) app window. Updated by the renderer
-// once settings load; defaults to auto so the pre-login screens are scaled too.
-let policy: { mode: ScaleMode; factor: number } = { mode: "auto", factor: 1 };
+// once settings load; defaults to native 1.0 (manual) so the pre-login screens
+// render at full fidelity. A saved policy may switch it to auto or another factor.
+let policy: { mode: ScaleMode; factor: number } = { mode: "manual", factor: 1 };
 
 // Windows we've already wired resize/load listeners onto.
 const wired = new WeakSet<BrowserWindow>();

@@ -85,9 +85,6 @@ export default function Settings() {
   // Template download state
   const [templateMessage, setTemplateMessage] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
-  // App version
-  const [appVersion, setAppVersion] = useState<string>('');
-
   const loadHotels = async (forceRefresh = false) => {
     try {
       setLoadingHotels(true);
@@ -137,19 +134,7 @@ export default function Settings() {
     loadHotels();
     loadMappingTablesVersion();
     loadFinancialDataInfo();
-    loadAppVersion();
   }, []);
-
-  const loadAppVersion = async () => {
-    try {
-      if (window.ipcApi) {
-        const response = await window.ipcApi.sendIpcRequest("app:get-version");
-        setAppVersion(response.version);
-      }
-    } catch (error) {
-      // console.warn('Failed to load app version:', error);
-    }
-  };
 
   useEffect(() => {
     // Reload financial data info when selected hotel changes
@@ -528,11 +513,26 @@ export default function Settings() {
                 disabled={uiScaleMode === "auto"}
                 onChange={(_, v) => setUiScale((v as number) / 100)}
               />
-              <Typography variant="caption" color="text.secondary">
-                {uiScaleMode === "auto"
-                  ? "Automatically sized to the app window — larger windows show the UI at full size, smaller windows scale it down."
-                  : `Manual scale: ${Math.round((uiScale || 1) * 100)}%`}
-              </Typography>
+              <Stack
+                direction="row"
+                alignItems="center"
+                justifyContent="space-between"
+                spacing={1}
+              >
+                <Typography variant="caption" color="text.secondary">
+                  {uiScaleMode === "auto"
+                    ? "Automatically sized to the app window — larger windows show the UI at full size, smaller windows scale it down."
+                    : `Manual scale: ${Math.round((uiScale || 1) * 100)}%`}
+                </Typography>
+                <Button
+                  size="small"
+                  startIcon={<RefreshIcon />}
+                  onClick={() => window.location.reload()}
+                  sx={{ textTransform: "none", flexShrink: 0 }}
+                >
+                  Reload to apply
+                </Button>
+              </Stack>
             </Box>
           </FormControl>
         </CardContent>
@@ -970,7 +970,7 @@ export default function Settings() {
 
       <Box sx={{ mt: 4, textAlign: 'center', pb: 2 }}>
         <Typography variant="caption" color="text.secondary">
-          PS Loader Version {appVersion || 'Loading...'}
+          PS Loader Version {__APP_VERSION__}
         </Typography>
       </Box>
     </Box>

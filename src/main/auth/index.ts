@@ -8,11 +8,13 @@
  * Call once after app `ready` and after the local DB is initialised.
  */
 
+import { BrowserWindow } from "electron";
 import { SecureStore } from "./secureStore";
 import { DeviceIdentity } from "./deviceIdentity";
 import { SessionManager } from "./sessionManager";
 import { ApiClient } from "./apiClient";
 import { AuthController } from "./authController";
+import { MsBroker } from "./msBroker";
 
 export interface AuthStack {
   authController: AuthController;
@@ -21,6 +23,8 @@ export interface AuthStack {
 
 export async function createAuthStack(options: {
   baseUrl: string;
+  swaOrigin: string;
+  getMainWindow: () => BrowserWindow | null;
   sendToRenderer: (channel: string, payload?: unknown) => void;
 }): Promise<AuthStack> {
   const secureStore = new SecureStore();
@@ -31,11 +35,16 @@ export async function createAuthStack(options: {
     baseUrl: options.baseUrl,
   });
   const apiClient = new ApiClient({ sessionManager, baseUrl: options.baseUrl });
+  const msBroker = new MsBroker({
+    swaOrigin: options.swaOrigin,
+    getMainWindow: options.getMainWindow,
+  });
   const authController = new AuthController({
     sessionManager,
     deviceIdentity,
     secureStore,
     apiClient,
+    msBroker,
     sendToRenderer: options.sendToRenderer,
   });
 
