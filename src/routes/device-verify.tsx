@@ -25,7 +25,6 @@ const DeviceVerify: React.FC = () => {
     }, 200);
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Small delay for UX
       const result = await authService.verifyDevice();
 
       clearInterval(progressInterval);
@@ -35,7 +34,7 @@ const DeviceVerify: React.FC = () => {
       // Device verification is the finish line — full access. Enter the app.
       setTimeout(() => {
         navigate('/signed-in-landing/home');
-      }, 1500);
+      }, 400);
     } catch (err: any) {
       clearInterval(progressInterval);
 
@@ -68,7 +67,6 @@ const DeviceVerify: React.FC = () => {
     }, 300);
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Small delay for UX
       const result = await authService.registerDevice();
 
       clearInterval(progressInterval);
@@ -81,14 +79,13 @@ const DeviceVerify: React.FC = () => {
       // If approved, verification will succeed
       // If pending, verification will fail with appropriate message
       setMessage('Checking device approval status...');
-      await new Promise(resolve => setTimeout(resolve, 500));
 
       try {
         await authService.verifyDevice();
         setMessage('Device approved and verified');
         setTimeout(() => {
           navigate('/signed-in-landing/home');
-        }, 1500);
+        }, 400);
       } catch (verifyErr: any) {
         // Device is registered but not approved yet
         if (verifyErr.message?.includes('pending') || verifyErr.message?.includes('approval')) {
