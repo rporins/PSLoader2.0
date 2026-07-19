@@ -7343,125 +7343,140 @@ export async function getRoomSegmentExportData(
     const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
     const results: RoomSegmentExportRow[] = [];
 
-    for (const segment of SEGMENTS_CONFIG) {
-      // Actuals and LY always use 'MAIN' version; only budget uses user-selected version
-      const revenueParams = [
-        latestStagingPeriod,
-        ou, 'MAIN',                      // actuals_combined - actuals always MAIN
-        segment.revenueAccount,
-        ...periods,
-        segment.revenueAccount,
-        ...periods,
-        ou,
-        'MAIN',                           // NOT EXISTS — actuals existence check always MAIN
-        ou, version,                      // budget - uses user selection
-        segment.revenueAccount,
-        ...periods,
-        ou, 'MAIN',                       // ly - last year always MAIN
-        segment.revenueAccount,
-        ...lyPeriods
-      ];
+    // Every segment needs the same three aggregates (actuals / budget / LY) for
+    // one revenue account and one stat account. This used to run two
+    // single-account queries per segment inside the loop below — 116 sequential
+    // scans of financial_data per call, 232 per report pack, ~38s of a ~52s
+    // report. They are all independent and differ only in the account filter, so
+    // they collapse into one grouped query, mirroring
+    // getRoomSegmentBudgetByMonth further down.
+    const segmentAccounts: string[] = [];
+    for (const seg of SEGMENTS_CONFIG) {
+      segmentAccounts.push(seg.revenueAccount);
+      if (seg.statAccount) segmentAccounts.push(seg.statAccount);
+    }
+    const uniqueAccounts = [...new Set(segmentAccounts)];
+    const accountPlaceholders = uniqueAccounts.map(() => '?').join(', ');
 
-      const revenueQuery = `
-        WITH actuals_combined AS (
-          SELECT
-            COALESCE(fds.account, fd.account) AS account,
-            COALESCE(fds.amount, fd.amount) AS amount
-          FROM financial_data fd
-          LEFT JOIN financial_data_staging fds
-            ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
-            AND fds.period_combo = ?
-            AND fd.period_combo = fds.period_combo
-            AND fds.scenario = 'ACT'
-            AND fds.ou = fd.ou
-            AND fds.version = fd.version
-          WHERE fd.scenario = 'ACT'
-            AND fd.ou = ?
-            AND fd.version = ?
-            AND fd.account = ?
-            AND fd.period_combo IN (${periodPlaceholders})
-
-          UNION ALL
-
-          SELECT
-            fds.account,
-            fds.amount
-          FROM financial_data_staging fds
-          WHERE fds.scenario = 'ACT'
-            AND fds.account = ?
-            AND fds.period_combo IN (${periodPlaceholders})
-            AND fds.ou = ?
-            AND NOT EXISTS (
-              SELECT 1 FROM financial_data fd2
-              WHERE fd2.dep_acc_combo_id = fds.dep_acc_combo_id
-                AND fd2.period_combo = fds.period_combo
-                AND fd2.scenario = 'ACT'
-                AND fd2.version = ?
-                AND fd2.ou = fds.ou
-            )
-        ),
-        actuals AS (
-          SELECT account, SUM(amount) AS amount
-          FROM actuals_combined
-          GROUP BY account
-        ),
-        budget AS (
-          SELECT account, SUM(amount) AS amount
-          FROM financial_data
-          WHERE scenario = 'BUD'
-            AND ou = ?
-            AND version = ?
-            AND account = ?
-            AND period_combo IN (${periodPlaceholders})
-          GROUP BY account
-        ),
-        ly AS (
-          SELECT account, SUM(amount) AS amount
-          FROM financial_data
-          WHERE scenario = 'ACT'
-            AND ou = ?
-            AND version = ?
-            AND account = ?
-            AND period_combo IN (${lyPeriodPlaceholders})
-          GROUP BY account
-        )
+    const segmentQuery = `
+      WITH actuals_combined AS (
         SELECT
-          COALESCE(act.amount, 0) AS actuals,
-          COALESCE(bud.amount, 0) AS budget,
-          COALESCE(l.amount, 0) AS ly
-        FROM (SELECT 1) dummy
-        LEFT JOIN actuals act ON 1=1
-        LEFT JOIN budget bud ON 1=1
-        LEFT JOIN ly l ON 1=1
-      `;
+          COALESCE(fds.account, fd.account) AS account,
+          COALESCE(fds.amount, fd.amount) AS amount
+        FROM financial_data fd
+        LEFT JOIN financial_data_staging fds
+          ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
+          AND fds.period_combo = ?
+          AND fd.period_combo = fds.period_combo
+          AND fds.scenario = 'ACT'
+          AND fds.ou = fd.ou
+          AND fds.version = fd.version
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.account IN (${accountPlaceholders})
+          AND fd.period_combo IN (${periodPlaceholders})
 
-      const revenueResult = await client.execute({ sql: revenueQuery, args: revenueParams });
-      const revenueData = revenueResult.rows[0] || { actuals: 0, budget: 0, ly: 0 };
+        UNION ALL
 
-      let nightsData = { actuals: 0, budget: 0, ly: 0 };
+        SELECT
+          fds.account,
+          fds.amount
+        FROM financial_data_staging fds
+        WHERE fds.scenario = 'ACT'
+          AND fds.account IN (${accountPlaceholders})
+          AND fds.period_combo IN (${periodPlaceholders})
+          AND fds.ou = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM financial_data fd2
+            WHERE fd2.dep_acc_combo_id = fds.dep_acc_combo_id
+              AND fd2.period_combo = fds.period_combo
+              AND fd2.scenario = 'ACT'
+              AND fd2.version = ?
+              AND fd2.ou = fds.ou
+          )
+      ),
+      actuals AS (
+        SELECT account, SUM(amount) AS amount
+        FROM actuals_combined
+        GROUP BY account
+      ),
+      budget AS (
+        SELECT account, SUM(amount) AS amount
+        FROM financial_data
+        WHERE scenario = 'BUD'
+          AND ou = ?
+          AND version = ?
+          AND account IN (${accountPlaceholders})
+          AND period_combo IN (${periodPlaceholders})
+        GROUP BY account
+      ),
+      ly AS (
+        SELECT account, SUM(amount) AS amount
+        FROM financial_data
+        WHERE scenario = 'ACT'
+          AND ou = ?
+          AND version = ?
+          AND account IN (${accountPlaceholders})
+          AND period_combo IN (${lyPeriodPlaceholders})
+        GROUP BY account
+      )
+      SELECT
+        account,
+        SUM(actuals) AS actuals,
+        SUM(budget) AS budget,
+        SUM(ly) AS ly
+      FROM (
+        SELECT account, amount AS actuals, 0 AS budget, 0 AS ly FROM actuals
+        UNION ALL
+        SELECT account, 0, amount, 0 FROM budget
+        UNION ALL
+        SELECT account, 0, 0, amount FROM ly
+      )
+      GROUP BY account
+    `;
 
-      if (segment.statAccount) {
-        // Actuals and LY always use 'MAIN' version; only budget uses user-selected version
-        const nightsParams = [
-          latestStagingPeriod,
-          ou, 'MAIN',                      // actuals_combined - actuals always MAIN
-          segment.statAccount,
-          ...periods,
-          segment.statAccount,
-          ...periods,
-          ou,
-          'MAIN',                           // NOT EXISTS — actuals existence check always MAIN
-          ou, version,                      // budget - uses user selection
-          segment.statAccount,
-          ...periods,
-          ou, 'MAIN',                       // ly - last year always MAIN
-          segment.statAccount,
-          ...lyPeriods
-        ];
+    // Binding order mirrors the CTEs above, one account list per IN (...) clause.
+    const segmentParams: any[] = [
+      latestStagingPeriod,
+      ou, 'MAIN',                       // actuals_combined — actuals always MAIN
+      ...uniqueAccounts,
+      ...periods,
+      ...uniqueAccounts,
+      ...periods,
+      ou,
+      'MAIN',                           // NOT EXISTS — actuals existence check always MAIN
+      ou, version,                      // budget — uses user selection
+      ...uniqueAccounts,
+      ...periods,
+      ou, 'MAIN',                       // ly — last year always MAIN
+      ...uniqueAccounts,
+      ...lyPeriods
+    ];
 
-        const nightsResult = await client.execute({ sql: revenueQuery, args: nightsParams });
-        nightsData = nightsResult.rows[0] as any || { actuals: 0, budget: 0, ly: 0 };
-      }
+    const segmentRows = (await client.execute({
+      sql: segmentQuery,
+      args: segmentParams
+    })).rows as any[];
+
+    // Seed every requested account with zeros so lookups below are total, which
+    // preserves the old per-segment `|| { actuals: 0, budget: 0, ly: 0 }` fallback.
+    const ZERO_SEGMENT = { actuals: 0, budget: 0, ly: 0 };
+    const byAccount = new Map<string, { actuals: number; budget: number; ly: number }>();
+    for (const acct of uniqueAccounts) byAccount.set(acct, { ...ZERO_SEGMENT });
+    for (const row of segmentRows) {
+      const entry = byAccount.get(row.account as string);
+      if (!entry) continue;
+      entry.actuals = Number(row.actuals) || 0;
+      entry.budget = Number(row.budget) || 0;
+      entry.ly = Number(row.ly) || 0;
+    }
+
+    for (const segment of SEGMENTS_CONFIG) {
+      const revenueData = byAccount.get(segment.revenueAccount) ?? ZERO_SEGMENT;
+      const nightsData = segment.statAccount
+        ? (byAccount.get(segment.statAccount) ?? ZERO_SEGMENT)
+        : ZERO_SEGMENT;
 
       results.push({
         description: segment.description,
