@@ -33,16 +33,20 @@
     "eslint-plugin-import": "^2.30.0",
     "ts-node": "^10.9.2",
     "typescript": "~4.5.4",
-    "vite": "^7.1.3"
+    "vite": "^7.3.6"
   },
   "keywords": [],
   "author": "Marriott EMEA FRA",
   "license": "UNLICENSED",
   "comments": {
-    "overrides.node-abi": "@electron/rebuild and prebuild-install both pull node-abi 3.68, which predates Electron 39 and so cannot resolve its ABI - native builds fail with 'Could not detect abi for version 39.x'. Pinned to the newest 3.x; do NOT move to 4.x, which is ESM-only and cannot be require()d by either dependent."
+    "overrides.node-abi": "@electron/rebuild and prebuild-install both pull node-abi 3.68, which predates Electron 39 and so cannot resolve its ABI - native builds fail with 'Could not detect abi for version 39.x'. Pinned to the newest 3.x; do NOT move to 4.x, which is ESM-only and cannot be require()d by either dependent.",
+    "overrides.uuid": "exceljs 4.4 pins uuid 8.3.2, which carries GHSA-w5hq-g745-h8pq (missing buffer bounds check in v3/v5/v6 when `buf` is passed). exceljs only calls v4, so it is not actually exploitable here, but npm audit still flags it and its only suggested 'fix' is downgrading exceljs to 3.4.0. uuid 11 still ships a CJS build, so exceljs's single `require('uuid')` (lib/xlsx/xform/sheet/cf-ext/cf-rule-ext-xform.js) resolves fine."
   },
   "overrides": {
-    "node-abi": "^3.94.0"
+    "node-abi": "^3.94.0",
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
   },
   "repository": {
     "type": "git",
