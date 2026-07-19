@@ -28,7 +28,6 @@ const bundledModules = [
   'react-router-dom',
   // Pure JS utilities (can be bundled)
   'csv-parse',
-  'xlsx',
   'uuid',
   '@faker-js/faker',
   '@fontsource/roboto'

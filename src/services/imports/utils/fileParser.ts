@@ -10,8 +10,12 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
 import { parse } from 'csv-parse/sync';
-import * as XLSX from 'xlsx';
 import { ParsedFile } from '../core/interfaces';
+import {
+  readSheetRows,
+  isLegacyWorkbookFile,
+  legacyWorkbookMessage,
+} from './sheetToRows';
 
 /**
  * File parser options
@@ -37,9 +41,6 @@ export interface FileParserOptions {
 
   /** Trim whitespace from values (default: true) */
   trim?: boolean;
-
-  /** Date format for parsing dates */
-  dateFormat?: string;
 
   /** Custom column mapping */
   columnMapping?: Record<string, string>;
@@ -159,7 +160,27 @@ export async function parseCSVFile(
 }
 
 /**
- * Parse an Excel file (.xlsx or .xls)
+ * Turn a header row into object keys, reproducing SheetJS's naming rules so
+ * that swapping the reader did not silently rename anyone's columns:
+ *   - a blank header cell becomes the empty-string key `''`,
+ *   - a repeated header gets an `_1`, `_2`, ... suffix by occurrence order.
+ */
+function toColumnKeys(headerRow: unknown[]): string[] {
+  const seen = new Map<string, number>();
+  return headerRow.map((cell) => {
+    const base = cell === '' || cell === null || cell === undefined ? '' : String(cell);
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return count === 0 ? base : `${base}_${count}`;
+  });
+}
+
+/**
+ * Parse an Excel workbook (.xlsx / .xlsm)
+ *
+ * Reading goes through `readSheetRows` (exceljs); the legacy binary formats
+ * .xls and .xlsb are no longer supported — see sheetToRows.ts for why.
+ *
  * @param filePath Path to the Excel file
  * @param options Parser options
  * @returns Parsed file data
@@ -169,57 +190,45 @@ export async function parseExcelFile(
   options: FileParserOptions = {}
 ): Promise<ParsedFile> {
   // console.log(`[FileParser] Parsing Excel file: ${filePath}`);
+
+  // Fail with something actionable rather than an opaque zip-parse error.
+  if (isLegacyWorkbookFile(filePath)) {
+    throw new Error(legacyWorkbookMessage(path.basename(filePath)));
+  }
+
   try {
     // Read file as buffer
     const fileBuffer = await fs.readFile(filePath);
 
-    // Parse workbook
-    const workbook = XLSX.read(fileBuffer, {
-      type: 'buffer',
-      cellDates: true,
-      cellNF: false,
-      cellText: false
+    const { sheetName, rows } = await readSheetRows(fileBuffer, {
+      sheetName: options.sheetName
     });
 
-    // Get sheet name
-    let sheetName = options.sheetName;
-    if (!sheetName) {
-      // Use first sheet if not specified
-      sheetName = workbook.SheetNames[0];
-      // console.log(`[FileParser] Using first sheet: ${sheetName}`);
+    // `hasHeaders !== false` produces objects keyed by the first row; otherwise
+    // the caller wants the raw array-of-arrays. This mirrors the old
+    // `sheet_to_json(header: undefined | 1)` split.
+    let data: any[];
+    let columns: string[] = [];
+
+    if (options.hasHeaders !== false) {
+      const [headerRow, ...bodyRows] = rows;
+      columns = headerRow ? toColumnKeys(headerRow) : [];
+      data = bodyRows.map((row) => {
+        const record: Record<string, unknown> = {};
+        columns.forEach((key, index) => {
+          record[key] = row[index] ?? '';
+        });
+        return record;
+      });
+    } else {
+      data = rows;
+      // Generate column names for headerless data
+      columns = rows.length > 0 ? rows[0].map((_, index) => `Column${index + 1}`) : [];
     }
-
-    // Validate sheet exists
-    if (!workbook.Sheets[sheetName]) {
-      throw new Error(`Sheet '${sheetName}' not found. Available sheets: ${workbook.SheetNames.join(', ')}`);
-    }
-
-    const sheet = workbook.Sheets[sheetName];
-
-    // Convert to JSON
-    const jsonData = XLSX.utils.sheet_to_json(sheet, {
-      header: options.hasHeaders === false ? 1 : undefined,
-      defval: '', // Default value for empty cells
-      blankrows: false, // Skip blank rows
-      dateNF: options.dateFormat
-    });
 
     // Apply row limit if specified
-    let data = jsonData;
     if (options.limit && options.limit > 0) {
-      data = jsonData.slice(0, options.limit);
-    }
-
-    // Get column names
-    let columns: string[] = [];
-    if (data.length > 0) {
-      if (options.hasHeaders !== false) {
-        columns = Object.keys(data[0]);
-      } else {
-        // Generate column names for headerless data
-        const firstRow = data[0] as any;
-        columns = Object.keys(firstRow).map((_, index) => `Column${index + 1}`);
-      }
+      data = data.slice(0, options.limit);
     }
 
     // Apply column mapping if provided
@@ -327,17 +336,20 @@ export async function parseFile(
     case 'txt':
       return parseCSVFile(filePath, options);
 
+    // xls/xlsb are routed here deliberately even though they can no longer be
+    // read, so that anything slipping past validation still gets the
+    // "save it as .xlsx" message instead of a bare "unsupported file type".
     case 'xls':
+    case 'xlsb':
     case 'xlsx':
     case 'xlsm':
-    case 'xlsb':
       return parseExcelFile(filePath, options);
 
     case 'json':
       return parseJSONFile(filePath, options);
 
     default:
-      throw new Error(`Unsupported file type: ${fileType}. Supported formats: CSV, Excel (XLS/XLSX), JSON`);
+      throw new Error(`Unsupported file type: ${fileType}. Supported formats: CSV, Excel (XLSX/XLSM), JSON`);
   }
 }
 
@@ -356,7 +368,7 @@ export function getFileType(filePath: string): string {
  * @returns True if supported
  */
 export function isSupportedFileType(fileType: string): boolean {
-  const supported = ['csv', 'txt', 'xls', 'xlsx', 'xlsm', 'xlsb', 'json'];
+  const supported = ['csv', 'txt', 'xlsx', 'xlsm', 'json'];
   return supported.includes(fileType.toLowerCase().replace('.', ''));
 }
 
@@ -520,6 +532,12 @@ export async function validateFile(filePath: string): Promise<{
         valid: false,
         error: `File too large (${Math.round(fileInfo.size / 1024 / 1024)}MB). Maximum size is ${maxSize / 1024 / 1024}MB`
       };
+    }
+
+    // Legacy Excel binaries get a message that says what to do about it,
+    // rather than the bare "unsupported file type" below.
+    if (isLegacyWorkbookFile(fileInfo.name)) {
+      return { valid: false, error: legacyWorkbookMessage(fileInfo.name) };
     }
 
     // Check if file type is supported

@@ -9,6 +9,11 @@
 import ImportRegistry from '../../services/imports/core/registry';
 import type { IpcHandler } from '../types';
 import type { ImportOptions } from '../../services/imports/core/interfaces';
+import {
+  readSheetRows,
+  isLegacyWorkbookFile,
+  legacyWorkbookMessage,
+} from '../../services/imports/utils/sheetToRows';
 
 /**
  * Create import-related IPC handlers
@@ -19,6 +24,44 @@ export function createImportsHandlers(): Record<string, IpcHandler> {
   ImportRegistry.initialize();
 
   return {
+    /**
+     * Parse a worksheet the renderer already holds the bytes for.
+     *
+     * The renderer gets its workbook from an <input type="file">, so it has an
+     * ArrayBuffer but no path on disk and cannot use the filePath-based
+     * handlers above. Parsing lives here rather than in the renderer because
+     * exceljs is a main-process (externalized) dependency — bundling it into
+     * the renderer would add roughly a megabyte for one code path.
+     *
+     * Frontend usage:
+     *   await window.ipcApi.sendIpcRequest('imports:parseSheetRows',
+     *     { buffer, fileName, sheetName: 'GL' })
+     */
+    'imports:parseSheetRows': async (
+      _event,
+      params: { buffer: ArrayBuffer | Uint8Array; fileName?: string; sheetName?: string }
+    ) => {
+      try {
+        if (!params?.buffer) {
+          return { success: false, error: 'No file contents were provided.' };
+        }
+        if (params.fileName && isLegacyWorkbookFile(params.fileName)) {
+          return { success: false, error: legacyWorkbookMessage(params.fileName) };
+        }
+
+        const { rows, sheetName, sheetNames } = await readSheetRows(params.buffer, {
+          sheetName: params.sheetName,
+        });
+        return { success: true, data: { rows, sheetName, sheetNames } };
+      } catch (error) {
+        console.error('[IPC] parseSheetRows error:', error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to read the workbook.',
+        };
+      }
+    },
+
     /**
      * Execute an import with file dialog
      * Frontend usage: await ipcRenderer.invoke('imports:execute', 'customer_data')

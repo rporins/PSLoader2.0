@@ -63,7 +63,7 @@ export class ManualImportFileProcessor extends BaseImportProcessor {
     category: 'Manual',
 
     // File formats this processor can handle
-    supportedFormats: ['xlsx', 'xls'],
+    supportedFormats: ['xlsx', 'xlsm'],
 
     // Whether this import is required for system operation
     required: false,
