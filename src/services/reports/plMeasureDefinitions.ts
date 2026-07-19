@@ -1040,7 +1040,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     filters: [
       { type: 'dept_level', level: 2, value: 'Lodging Operations' },
       { type: 'dept_level', level: 4, value: 'Operating Departments' },
-      { type: 'dept_level', level: 7, value: 'Other Operated Departments' },
+      { type: 'dept_level', level: 7, value: ['Other Operated Departments', 'Payroll Cost Allocation'] },
       { type: 'dept_level', level: 10, value: ['Other Profit Departments', 'Dry Cleaning'] },
       { type: 'acc_level', level: 1, value: 'EBITDA' },
       { type: 'acc_level', level: 6, value: 'Revenue' }
@@ -1054,7 +1054,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     filters: [
       { type: 'dept_level', level: 2, value: 'Lodging Operations' },
       { type: 'dept_level', level: 4, value: 'Operating Departments' },
-      { type: 'dept_level', level: 7, value: 'Other Operated Departments' },
+      { type: 'dept_level', level: 7, value: ['Other Operated Departments', 'Payroll Cost Allocation'] },
       { type: 'dept_level', level: 10, value: ['Other Profit Departments', 'Dry Cleaning'] },
       { type: 'acc_level', level: 1, value: 'EBITDA' },
       { type: 'acc_level', level: 6, value: 'Revenue' }
@@ -1068,7 +1068,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     filters: [
       { type: 'dept_level', level: 2, value: 'Lodging Operations' },
       { type: 'dept_level', level: 4, value: 'Operating Departments' },
-      { type: 'dept_level', level: 7, value: 'Other Operated Departments' },
+      { type: 'dept_level', level: 7, value: ['Other Operated Departments', 'Payroll Cost Allocation'] },
       { type: 'dept_level', level: 10, value: ['Other Profit Departments', 'Dry Cleaning'] },
       { type: 'acc_level', level: 1, value: 'EBITDA' },
       { type: 'acc_level', level: 6, value: 'Revenue' }
@@ -1904,7 +1904,7 @@ export const SUB_MEASURES: Record<string, SubMeasure> = {
     filters: [
       { type: 'dept_level', level: 2, value: 'Lodging Operations' },
       { type: 'dept_level', level: 4, value: 'Operating Departments' },
-      { type: 'dept_level', level: 7, value: 'Other Operated Departments' },
+      { type: 'dept_level', level: 7, value: ['Other Operated Departments', 'Payroll Cost Allocation'] },
       { type: 'dept_level', level: 10, value: ['Other Profit Departments', 'Dry Cleaning'] },
       { type: 'acc_level', level: 1, value: 'EBITDA' },
       { type: 'acc_level', level: 4, value: 'Profit Amount' }

@@ -1,52 +1,68 @@
 /**
  * Authentication IPC Handlers
- * Handles all auth-related IPC requests
+ * -----------------------------------------------------------
+ * Thin adapters over the main-process AuthController. Each channel is an
+ * explicit, named domain action — the renderer never gets a token or a generic
+ * API passthrough. Handlers return plain data; the registry wraps it in the
+ * standard { success, data, timestamp } envelope and converts thrown errors to
+ * { success: false, error }.
  */
 
 import { IpcHandler } from "../types";
-import { AuthTypes, IPC_CHANNELS } from "../types";
+import { AuthController } from "../../main/auth/authController";
 
-export class AuthHandlers {
-  constructor(private authService: any, private sendToRenderer: (channel: string, payload?: unknown) => void) {}
+/** Auth IPC channel names (also mirrored in the preload allowlist). */
+export const AUTH_CHANNELS = {
+  BEGIN_MS_SIGN_IN: "auth:beginMicrosoftSignIn",
+  MS_SIGN_OUT: "auth:microsoftSignOut",
+  REGISTER: "auth:register",
+  LOGIN: "auth:login",
+  REGISTER_DEVICE: "auth:registerDevice",
+  VERIFY_DEVICE: "auth:verifyDevice",
+  LOGOUT: "auth:logout",
+  GET_STATUS: "auth:getStatus",
+  RESUME: "auth:resume",
+  HAS_RESUMABLE: "auth:hasResumableSession",
+} as const;
 
-  login: IpcHandler<AuthTypes.LoginRequest, AuthTypes.LoginResponse> = async (event, request) => {
-    await this.authService.startLogin();
-    return {
-      success: true,
-      data: { success: true },
-      timestamp: Date.now(),
-    };
-  };
+export function createAuthHandlers(
+  controller: AuthController
+): Record<string, IpcHandler> {
+  const beginMicrosoftSignIn: IpcHandler<{ silent?: boolean } | undefined> = (
+    _event,
+    p
+  ) => controller.beginMicrosoftSignIn({ silent: p?.silent });
 
-  logout: IpcHandler = async (event, request) => {
-    this.authService.logout();
-    this.sendToRenderer("auth-logout");
-    return {
-      success: true,
-      data: { success: true },
-      timestamp: Date.now(),
-    };
-  };
+  const microsoftSignOut: IpcHandler = () => controller.microsoftSignOut();
 
-  check: IpcHandler<void, AuthTypes.CheckResponse> = async (event, request) => {
-    return {
-      success: true,
-      data: {
-        isAuthenticated: this.authService.isAuthenticated(),
-        user: this.authService.getTokenSet(),
-      },
-      timestamp: Date.now(),
-    };
-  };
-}
+  const register: IpcHandler<{ email: string }> = (_event, p) =>
+    controller.register(p.email);
 
-// Factory function to create and register auth handlers
-export function createAuthHandlers(authService: any, sendToRenderer: (channel: string, payload?: unknown) => void) {
-  const handlers = new AuthHandlers(authService, sendToRenderer);
-  
+  const login: IpcHandler<{ email: string }> = (_event, p) =>
+    controller.login(p.email);
+
+  const registerDevice: IpcHandler = () => controller.registerDevice();
+
+  const verifyDevice: IpcHandler = () => controller.verifyDevice();
+
+  const logout: IpcHandler = () => controller.logout();
+
+  const getStatus: IpcHandler = () => controller.getStatus();
+
+  const resume: IpcHandler = () => controller.resume();
+
+  const hasResumableSession: IpcHandler = () => controller.hasResumableSession();
+
   return {
-    [IPC_CHANNELS.AUTH_LOGIN]: handlers.login,
-    [IPC_CHANNELS.AUTH_LOGOUT]: handlers.logout,
-    [IPC_CHANNELS.AUTH_CHECK]: handlers.check,
+    [AUTH_CHANNELS.BEGIN_MS_SIGN_IN]: beginMicrosoftSignIn,
+    [AUTH_CHANNELS.MS_SIGN_OUT]: microsoftSignOut,
+    [AUTH_CHANNELS.REGISTER]: register,
+    [AUTH_CHANNELS.LOGIN]: login,
+    [AUTH_CHANNELS.REGISTER_DEVICE]: registerDevice,
+    [AUTH_CHANNELS.VERIFY_DEVICE]: verifyDevice,
+    [AUTH_CHANNELS.LOGOUT]: logout,
+    [AUTH_CHANNELS.GET_STATUS]: getStatus,
+    [AUTH_CHANNELS.RESUME]: resume,
+    [AUTH_CHANNELS.HAS_RESUMABLE]: hasResumableSession,
   };
 }

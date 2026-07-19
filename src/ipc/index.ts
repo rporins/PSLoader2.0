@@ -4,13 +4,16 @@
  */
 
 import { ipcRegistry } from "./registry";
-import { createAuthHandlers, createDatabaseHandlers, createHardwareHandlers, createDataImportHandlers, createSettingsHandlers, createImportsHandlers, createValidationHandlers, createAppHandlers, createExcelExportHandlers, createTemplateExportHandlers, createProteaReportPackHandlers, createProteaBudgetPackHandlers, createBSTExtractHandlers } from "./handlers";
+import { createAuthHandlers, createDataHandlers, createDatabaseHandlers, createHardwareHandlers, createDataImportHandlers, createSettingsHandlers, createImportsHandlers, createValidationHandlers, createAppHandlers, createExcelExportHandlers, createTemplateExportHandlers, createProteaReportPackHandlers, createProteaBudgetPackHandlers, createBSTExtractHandlers, createWindowHandlers } from "./handlers";
 import {
   loggingMiddleware,
   errorHandlingMiddleware,
   performanceMiddleware,
-  securityMiddleware
+  securityMiddleware,
+  senderValidationMiddleware
 } from "./middleware";
+import type { AuthController } from "../main/auth/authController";
+import type { ApiClient } from "../main/auth/apiClient";
 
 export * from "./types";
 export * from "./registry";
@@ -20,20 +23,33 @@ export * from "./handlers";
 /**
  * Initialize the IPC system with all handlers and middleware
  */
-export function initializeIpc(
-  authService: any, 
-  sendToRenderer: (channel: string, payload?: unknown) => void,
-  logger?: any
-) {
-  // Set up global middleware
+export function initializeIpc(deps: {
+  authController: AuthController;
+  apiClient: ApiClient;
+  sendToRenderer: (channel: string, payload?: unknown) => void;
+  logger?: any;
+  /** Vite dev-server origin (dev only); trusted alongside file:// senders. */
+  devServerUrl?: string | null;
+}) {
+  const { authController, apiClient, logger, devServerUrl } = deps;
+
+  // Set up global middleware. Sender validation runs first so untrusted frames
+  // are rejected before any handler logic executes.
+  ipcRegistry.use(senderValidationMiddleware([devServerUrl ?? ""].filter(Boolean)));
   ipcRegistry.use(securityMiddleware());
   ipcRegistry.use(errorHandlingMiddleware(logger));
   ipcRegistry.use(loggingMiddleware(logger));
   ipcRegistry.use(performanceMiddleware(1000)); // 1 second slow threshold
 
-  // Register auth handlers
-  const authHandlers = createAuthHandlers(authService, sendToRenderer);
+  // Register auth handlers (backed by the main-process AuthController)
+  const authHandlers = createAuthHandlers(authController);
   Object.entries(authHandlers).forEach(([channel, handler]) => {
+    ipcRegistry.register(channel, handler);
+  });
+
+  // Register business data handler (allowlisted authenticated transport)
+  const dataHandlers = createDataHandlers(apiClient);
+  Object.entries(dataHandlers).forEach(([channel, handler]) => {
     ipcRegistry.register(channel, handler);
   });
 
@@ -106,6 +122,12 @@ export function initializeIpc(
   // Register BST Extract handlers
   const bstExtractHandlers = createBSTExtractHandlers();
   Object.entries(bstExtractHandlers).forEach(([channel, handler]) => {
+    ipcRegistry.register(channel, handler);
+  });
+
+  // Register Window handlers (UI scaling / zoom)
+  const windowHandlers = createWindowHandlers();
+  Object.entries(windowHandlers).forEach(([channel, handler]) => {
     ipcRegistry.register(channel, handler);
   });
 

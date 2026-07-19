@@ -19,6 +19,7 @@ import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import PersonAddAltRoundedIcon from "@mui/icons-material/PersonAddAltRounded";
 import HelpOutlineRoundedIcon from "@mui/icons-material/HelpOutlineRounded";
 import marriottLogo from "../images/marriott_logo.png";
+import { brokerErrorCode, describeBrokerError } from "../services/auth";
 
 // 3D imports
 import { Canvas, useFrame } from "@react-three/fiber";
@@ -31,25 +32,8 @@ import * as THREE from "three";
 const REDIRECT_AFTER_LOGIN = "/signed-in-landing/home";
 const SUPPORT_EMAIL = "EMEAReportingSupport@marriott.com";
 
-// ────────────────────────────────────────────────────────────
-/** 1) IPC TYPES + GLOBAL AUGMENTATION */
-// ────────────────────────────────────────────────────────────
-
-interface IpcApi {
-  sendIpcRequest: (channel: string, ...args: any[]) => Promise<any>;
-  onAuthSuccess: (cb: (event: any, data: any) => void) => void;
-  onAuthError: (cb: (event: any, message: string) => void) => void;
-  onAuthLogout: (cb: (event: any) => void) => void;
-  offAuthSuccess?: (cb: (event: any, data: any) => void) => void;
-  offAuthError?: (cb: (event: any, message: string) => void) => void;
-  offAuthLogout?: (cb: (event: any) => void) => void;
-}
-
-declare global {
-  interface Window {
-    ipcApi?: IpcApi;
-  }
-}
+// window.ipcApi / window.authApi are typed globally (src/renderer.ts,
+// src/services/auth.ts) — no local augmentation needed here.
 
 // ────────────────────────────────────────────────────────────
 /** 2) PREMIUM ANIMATIONS */
@@ -495,74 +479,31 @@ function useIpcAuth() {
     error: null,
   });
 
-  const onSuccess = useCallback((_e: any, data: any) => {
-    setState((s) => ({
-      ...s,
-      isAuthenticated: true,
-      user: data?.user ?? null,
-      loading: false,
-      error: null,
-      initialized: true,
-    }));
-  }, []);
-
-  const onError = useCallback((_e: any, message: string) => {
-    setState((s) => ({
-      ...s,
-      isAuthenticated: false,
-      user: null,
-      loading: false,
-      error: message || "Authentication failed.",
-      initialized: true,
-    }));
-  }, []);
-
-  const onLogout = useCallback((_e: any) => {
-    setState((s) => ({
-      ...s,
-      isAuthenticated: false,
-      user: null,
-      error: null,
-      loading: false,
-      initialized: true,
-    }));
-  }, []);
-
   useEffect(() => {
     let mounted = true;
 
-    const wireEvents = () => {
-      if (!window.ipcApi) return;
-      window.ipcApi.onAuthSuccess(onSuccess);
-      window.ipcApi.onAuthError(onError);
-      window.ipcApi.onAuthLogout(onLogout);
-    };
-
-    const unwireEvents = () => {
-      if (!window.ipcApi) return;
-      window.ipcApi.offAuthSuccess?.(onSuccess);
-      window.ipcApi.offAuthError?.(onError);
-      window.ipcApi.offAuthLogout?.(onLogout);
-    };
-
+    // Read the real session status from main (this also drives cold-start
+    // resume). A live Level-3 session lets the component redirect straight to
+    // the dashboard; otherwise the landing page is shown.
     const check = async () => {
       try {
-        if (!window.ipcApi) {
+        if (!window.authApi) {
           if (mounted) {
             setState((s) => ({
               ...s,
               initialized: true,
-              error: s.error ?? "IPC bridge unavailable. Please ensure preload exposes window.ipcApi.",
+              error: s.error ?? "Auth bridge unavailable. Please ensure preload exposes window.authApi.",
             }));
           }
           return;
         }
-        const authState: any = await window.ipcApi.sendIpcRequest("auth-check");
+        const status = await window.authApi.getStatus();
         if (!mounted) return;
+        const authed = status.securityLevel >= 2;
         setState((s) => ({
           ...s,
-          isAuthenticated: !!authState?.isAuthenticated && !!authState?.user,
-          user: authState?.user ?? null,
+          isAuthenticated: authed,
+          user: authed ? { securityLevel: status.securityLevel } : null,
           initialized: true,
         }));
       } catch {
@@ -576,27 +517,11 @@ function useIpcAuth() {
       }
     };
 
-    wireEvents();
     void check();
 
     return () => {
       mounted = false;
-      unwireEvents();
     };
-  }, [onError, onLogout, onSuccess]);
-
-  const login = useCallback(async () => {
-    setState((s) => ({ ...s, error: null, loading: true }));
-    try {
-      if (!window.ipcApi) throw new Error("IPC bridge unavailable.");
-      await window.ipcApi.sendIpcRequest("auth-login");
-    } catch {
-      setState((s) => ({
-        ...s,
-        loading: false,
-        error: "Failed to start login process.",
-      }));
-    }
   }, []);
 
   const clearError = useCallback(() => {
@@ -607,7 +532,7 @@ function useIpcAuth() {
     setState((s) => ({ ...s, loading: false, error: null }));
   }, []);
 
-  return { ...state, login, clearError, cancelLogin };
+  return { ...state, clearError, cancelLogin };
 }
 
 // ────────────────────────────────────────────────────────────
@@ -702,6 +627,42 @@ export default function Landing() {
   const theme = useTheme();
 
   const { initialized, loading, isAuthenticated, user, error, clearError, cancelLogin } = useIpcAuth();
+
+  // Microsoft/Entra entrance state. Clicking "Sign in / Register with Microsoft"
+  // verifies the company identity via the SWA broker, then routes to the password
+  // screen with the verified email locked. The broker token never leaves main.
+  const [msVerifying, setMsVerifying] = useState(false);
+  const [msError, setMsError] = useState<string | null>(null);
+
+  const runMicrosoftEntrance = useCallback(
+    async (target: "/login" | "/register") => {
+      if (!window.authApi) {
+        setMsError("Auth bridge unavailable. Please restart the app.");
+        return;
+      }
+      setMsError(null);
+      setMsVerifying(true);
+      try {
+        const { email } = await window.authApi.beginMicrosoftSignIn();
+        navigate(target, { state: { msEmail: email } });
+      } catch (err) {
+        const code = brokerErrorCode(err);
+        // A cancelled sign-in is a normal user action — no scary error banner.
+        if (code !== "cancelled") {
+          setMsError(
+            code
+              ? describeBrokerError(code)
+              : err instanceof Error
+              ? err.message
+              : "Marriott SSO sign-in failed."
+          );
+        }
+      } finally {
+        setMsVerifying(false);
+      }
+    },
+    [navigate]
+  );
 
   // Auto-forward once authenticated
   useEffect(() => {
@@ -814,6 +775,25 @@ export default function Landing() {
               </Alert>
             )}
 
+            {/* Microsoft sign-in error */}
+            {!!msError && (
+              <Alert
+                severity="error"
+                sx={{
+                  mb: 3,
+                  borderRadius: 4,
+                  background: alpha("#ef4444", 0.08),
+                  border: `1px solid ${alpha("#ef4444", 0.2)}`,
+                  backdropFilter: "blur(10px)",
+                  "& .MuiAlert-icon": { color: "#ef4444" },
+                }}
+                onClose={() => setMsError(null)}
+                aria-live="assertive"
+              >
+                {msError}
+              </Alert>
+            )}
+
             {/* Auth buttons */}
             {!isAuthenticated ? (
               <>
@@ -821,22 +801,23 @@ export default function Landing() {
                   fullWidth
                   size="large"
                   startIcon={<LoginIcon />}
-                  onClick={() => navigate("/login")}
-                  disabled={loading}
-                  aria-label="Sign in"
+                  onClick={() => runMicrosoftEntrance("/login")}
+                  disabled={loading || msVerifying}
+                  aria-label="Sign in with Marriott SSO"
                   sx={{ mb: 2, color: 'white' }}
                 >
-                  Sign In
+                  Sign in with Marriott SSO
                 </PremiumButton>
 
                 <SecondaryButton
                   fullWidth
                   size="large"
                   startIcon={<PersonAddAltRoundedIcon />}
-                  onClick={() => navigate("/register")}
+                  onClick={() => runMicrosoftEntrance("/register")}
+                  disabled={loading || msVerifying}
                   sx={{ mb: 3 }}
                 >
-                  Request New Account
+                  Register with Marriott SSO
                 </SecondaryButton>
               </>
             ) : (
@@ -869,9 +850,10 @@ export default function Landing() {
                     color: theme.palette.text.secondary,
                     fontWeight: 600,
                     letterSpacing: 0.3,
+                    textAlign: "center",
                   }}
                 >
-                  Device-linked authentication • Secure OTP pairing
+                  Marriott SSO • Device-linked authentication
                 </Typography>
               </Stack>
 
@@ -957,6 +939,8 @@ export default function Landing() {
         <LoadingOverlay message="Initializing secure connection..." />
       ) : loading ? (
         <LoadingOverlay message="Authenticating..." onCancel={cancelLogin} />
+      ) : msVerifying ? (
+        <LoadingOverlay message="Verifying with Marriott SSO…" />
       ) : null}
     </PageRoot>
   );

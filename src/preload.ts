@@ -1,67 +1,82 @@
 // See the Electron documentation for details on how to use preload scripts:
 // https://www.electronjs.org/docs/latest/tutorial/process-model#preload-scripts
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer } from "electron";
 
-// IPC Channel constants (matching the ones in main process)
-const IPC_CHANNELS = {
-  // Auth channels
-  AUTH_LOGIN: 'auth:login',
-  AUTH_LOGOUT: 'auth:logout',
-  AUTH_CHECK: 'auth:check',
+// ────────────────────────────────────────────────────────────
+// Channel allowlist for the generic domain dispatch (`sendIpcRequest`).
+// The renderer may only reach these explicitly-approved channel families.
+// Auth is NOT here — it is exposed as the separate, typed `authApi` surface.
+// Business API calls go through the single allowlisted `data:fetch` channel.
+// ────────────────────────────────────────────────────────────
+const ALLOWED_CHANNEL_PREFIXES = [
+  "data:fetch",
+  "db:",
+  "settings-",
+  "settings:",
+  "hardware:",
+  "validation:",
+  "dataImport:",
+  "imports:",
+  "excel:",
+  "template:",
+  "protea:",
+  "app:",
+  "window:",
+] as const;
 
-  // Hardware channels
-  HARDWARE_GET_INFO: 'hardware:get-info',
-  HARDWARE_GET_PERMANENT_SALT: 'hardware:get-permanent-salt',
-  HARDWARE_LOG_DEVICE_SECRET: 'hardware:log-device-secret',
-
-  // Database channels (legacy support)
-  DB_GET_PERIODS: 'db:get-periods',
-  DB_UPDATE_PERIODS: 'db:update-periods',
-  DB_GET_ACCOUNTS: 'db:get-accounts',
-  DB_CREATE_ACCOUNT: 'db:create-account',
-  DB_GET_DEPARTMENTS: 'db:get-departments',
-  DB_CREATE_DEPARTMENT: 'db:create-department',
-  DB_GET_COMBO_METADATA: 'db:get-combo-metadata',
-  DB_CREATE_COMBO: 'db:create-combo',
-  DB_GENERATE_DUMMY_DATA: 'db:generate-dummy-data',
-} as const;
-
-// Legacy channel mappings for backward compatibility
+// Legacy channel names still used by some renderer call sites → canonical names.
 const LEGACY_CHANNEL_MAP: Record<string, string> = {
-  'auth-login': IPC_CHANNELS.AUTH_LOGIN,
-  'auth-logout': IPC_CHANNELS.AUTH_LOGOUT,
-  'auth-check': IPC_CHANNELS.AUTH_CHECK,
-  'Get12periods': IPC_CHANNELS.DB_GET_PERIODS,
-  'Update12periods': IPC_CHANNELS.DB_UPDATE_PERIODS,
-  'db-get-all-accounts': IPC_CHANNELS.DB_GET_ACCOUNTS,
-  'db-create-account': IPC_CHANNELS.DB_CREATE_ACCOUNT,
-  'db-get-all-departments': IPC_CHANNELS.DB_GET_DEPARTMENTS,
-  'db-create-department': IPC_CHANNELS.DB_CREATE_DEPARTMENT,
-  'db-get-all-combo-metadata': IPC_CHANNELS.DB_GET_COMBO_METADATA,
-  'db-create-combo': IPC_CHANNELS.DB_CREATE_COMBO,
-  'GenerateDummyData': IPC_CHANNELS.DB_GENERATE_DUMMY_DATA,
+  Get12periods: "db:get-periods",
+  Update12periods: "db:update-periods",
+  "db-get-all-accounts": "db:get-accounts",
+  "db-create-account": "db:create-account",
+  "db-get-all-departments": "db:get-departments",
+  "db-create-department": "db:create-department",
+  "db-get-all-combo-metadata": "db:get-combo-metadata",
+  "db-create-combo": "db:create-combo",
+  GenerateDummyData: "db:generate-dummy-data",
 };
 
-// Define the IPC API interface
+function resolveChannel(request: string): string {
+  const channel = LEGACY_CHANNEL_MAP[request] || request;
+  const allowed = ALLOWED_CHANNEL_PREFIXES.some((prefix) =>
+    prefix.endsWith(":") || prefix.endsWith("-")
+      ? channel.startsWith(prefix)
+      : channel === prefix
+  );
+  if (!allowed) {
+    throw new Error(`IPC channel not allowed: ${channel}`);
+  }
+  return channel;
+}
+
+/** Unwrap the { success, data } envelope or throw on failure. */
+async function invokeUnwrapped(channel: string, ...args: unknown[]): Promise<unknown> {
+  const result = await ipcRenderer.invoke("ipcMain", channel, ...args);
+  if (result && typeof result === "object" && "success" in result) {
+    if (!(result as any).success) {
+      throw new Error((result as any).error || "Unknown error occurred");
+    }
+    return (result as any).data;
+  }
+  return result;
+}
+
+// ────────────────────────────────────────────────────────────
+// Types
+// ────────────────────────────────────────────────────────────
+export interface PublicAuthStatus {
+  securityLevel: number;
+  isActive: boolean;
+  deviceId: string | null;
+  devicePending: boolean;
+  encryptionAvailable: boolean;
+  lastUserEmail: string | null;
+}
+
 export interface IpcApi {
   sendIpcRequest: (request: string, ...args: unknown[]) => Promise<unknown>;
-  getHardwareInfo: () => Promise<{
-    machineId: string;
-    biosSerial: string;
-    motherboardSerial: string;
-    diskSerial: string;
-    macAddresses: string[];
-    cpuInfo: { model: string; cores: number };
-    memoryTotal: number;
-  }>;
-  getPermanentSalt: () => Promise<string>;
-  logDeviceSecret: (logData: any) => Promise<void>;
-  onAuthSuccess: (callback: (event: any, data: any) => void) => void;
-  onAuthError: (callback: (event: any, error: string) => void) => void;
-  onAuthLogout: (callback: (event: any) => void) => void;
-  offAuthSuccess?: (callback: (event: any, data: any) => void) => void;
-  offAuthError?: (callback: (event: any, error: string) => void) => void;
-  offAuthLogout?: (callback: (event: any) => void) => void;
+  // Auto-updater events (main -> renderer)
   onUpdateAvailable?: (callback: (event: any, info: any) => void) => void;
   onUpdateNotAvailable?: (callback: () => void) => void;
   onDownloadProgress?: (callback: (event: any, progress: any) => void) => void;
@@ -74,109 +89,110 @@ export interface IpcApi {
   offUpdateError?: (callback: (event: any, error: string) => void) => void;
 }
 
-// Expose the API in the renderer's `window` object
-contextBridge.exposeInMainWorld('ipcApi', {
+export interface AuthApi {
+  beginMicrosoftSignIn: (p?: { silent?: boolean }) => Promise<{ email: string }>;
+  microsoftSignOut: () => Promise<{ success: true }>;
+  register: (p: { email: string }) => Promise<unknown>;
+  login: (p: { email: string }) => Promise<{ settings: unknown }>;
+  registerDevice: () => Promise<{ status: string; deviceId: string }>;
+  verifyDevice: () => Promise<{ deviceId: string; securityLevel: number }>;
+  logout: () => Promise<{ success: true }>;
+  getStatus: () => Promise<PublicAuthStatus>;
+  resume: () => Promise<PublicAuthStatus>;
+  hasResumableSession: () => Promise<boolean>;
+  onAuthStatusChanged: (cb: (status: PublicAuthStatus) => void) => void;
+  offAuthStatusChanged: (cb: (status: PublicAuthStatus) => void) => void;
+  onSessionExpired: (cb: () => void) => void;
+  offSessionExpired: (cb: () => void) => void;
+}
+
+// ────────────────────────────────────────────────────────────
+// Renderer <- Main event bridging. We keep a map from the caller's callback to
+// the wrapped ipcRenderer listener so off* can remove the correct listener.
+// ────────────────────────────────────────────────────────────
+const statusListeners = new WeakMap<
+  (status: PublicAuthStatus) => void,
+  (event: any, status: PublicAuthStatus) => void
+>();
+const expiredListeners = new WeakMap<() => void, (event: any) => void>();
+
+// ────────────────────────────────────────────────────────────
+// Expose the generic domain dispatch (business/data/db/settings/...).
+// ────────────────────────────────────────────────────────────
+contextBridge.exposeInMainWorld("ipcApi", {
   sendIpcRequest: async (request: string, ...args: unknown[]): Promise<unknown> => {
-    // Map legacy channels to new channels for backward compatibility
-    const channel = LEGACY_CHANNEL_MAP[request] || request;
-
-    // Use ipcRenderer.invoke to communicate with the main process
-    const result = await ipcRenderer.invoke('ipcMain', channel, ...args);
-
-    // Debug logging for db:get-all-mapping-configs
-    if (request === 'db:get-all-mapping-configs') {
-      // console.log('[preload] db:get-all-mapping-configs raw result:', result);
-      // console.log('[preload] db:get-all-mapping-configs has data?:', result?.data);
-    }
-
-    // Handle the new wrapped response format
-    if (result && typeof result === 'object' && 'success' in result) {
-      if (!result.success) {
-        throw new Error(result.error || 'Unknown error occurred');
+    const channel = resolveChannel(request);
+    const result = await ipcRenderer.invoke("ipcMain", channel, ...args);
+    // Preserve the existing contract: callers receive the full envelope object.
+    if (result && typeof result === "object" && "success" in result) {
+      if (!(result as any).success) {
+        throw new Error((result as any).error || "Unknown error occurred");
       }
-      // Always return the full result object for consistency
       return result;
     }
+    return result;
+  },
+  onUpdateAvailable: (callback: (event: any, info: any) => void) =>
+    ipcRenderer.on("update-available", callback),
+  onUpdateNotAvailable: (callback: () => void) =>
+    ipcRenderer.on("update-not-available", callback),
+  onDownloadProgress: (callback: (event: any, progress: any) => void) =>
+    ipcRenderer.on("download-progress", callback),
+  onUpdateDownloaded: (callback: () => void) =>
+    ipcRenderer.on("update-downloaded", callback),
+  onUpdateError: (callback: (event: any, error: string) => void) =>
+    ipcRenderer.on("update-error", callback),
+  offUpdateAvailable: (callback: (event: any, info: any) => void) =>
+    ipcRenderer.off("update-available", callback),
+  offUpdateNotAvailable: (callback: () => void) =>
+    ipcRenderer.off("update-not-available", callback),
+  offDownloadProgress: (callback: (event: any, progress: any) => void) =>
+    ipcRenderer.off("download-progress", callback),
+  offUpdateDownloaded: (callback: () => void) =>
+    ipcRenderer.off("update-downloaded", callback),
+  offUpdateError: (callback: (event: any, error: string) => void) =>
+    ipcRenderer.off("update-error", callback),
+});
 
-    // Return raw result for backward compatibility
-    return result;
+// ────────────────────────────────────────────────────────────
+// Expose the narrow, typed auth domain surface. No tokens ever cross this
+// bridge — only opaque success/failure of named domain actions plus status.
+// ────────────────────────────────────────────────────────────
+contextBridge.exposeInMainWorld("authApi", {
+  beginMicrosoftSignIn: (p?: { silent?: boolean }) =>
+    invokeUnwrapped("auth:beginMicrosoftSignIn", p),
+  microsoftSignOut: () => invokeUnwrapped("auth:microsoftSignOut"),
+  register: (p: { email: string }) => invokeUnwrapped("auth:register", p),
+  login: (p: { email: string }) => invokeUnwrapped("auth:login", p),
+  registerDevice: () => invokeUnwrapped("auth:registerDevice"),
+  verifyDevice: () => invokeUnwrapped("auth:verifyDevice"),
+  logout: () => invokeUnwrapped("auth:logout"),
+  getStatus: () => invokeUnwrapped("auth:getStatus"),
+  resume: () => invokeUnwrapped("auth:resume"),
+  hasResumableSession: () => invokeUnwrapped("auth:hasResumableSession"),
+
+  onAuthStatusChanged: (cb: (status: PublicAuthStatus) => void) => {
+    const wrapped = (_event: any, status: PublicAuthStatus) => cb(status);
+    statusListeners.set(cb, wrapped);
+    ipcRenderer.on("auth:status-changed", wrapped);
   },
-  getHardwareInfo: async () => {
-    const result = await ipcRenderer.invoke('ipcMain', IPC_CHANNELS.HARDWARE_GET_INFO);
-    if (result && typeof result === 'object' && 'success' in result) {
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to get hardware info');
-      }
-      return result.data;
+  offAuthStatusChanged: (cb: (status: PublicAuthStatus) => void) => {
+    const wrapped = statusListeners.get(cb);
+    if (wrapped) {
+      ipcRenderer.off("auth:status-changed", wrapped);
+      statusListeners.delete(cb);
     }
-    return result;
   },
-  getPermanentSalt: async () => {
-    const result = await ipcRenderer.invoke('ipcMain', IPC_CHANNELS.HARDWARE_GET_PERMANENT_SALT);
-    if (result && typeof result === 'object' && 'success' in result) {
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to get permanent salt');
-      }
-      return result.data;
+  onSessionExpired: (cb: () => void) => {
+    const wrapped = (_event: any) => cb();
+    expiredListeners.set(cb, wrapped);
+    ipcRenderer.on("auth:session-expired", wrapped);
+  },
+  offSessionExpired: (cb: () => void) => {
+    const wrapped = expiredListeners.get(cb);
+    if (wrapped) {
+      ipcRenderer.off("auth:session-expired", wrapped);
+      expiredListeners.delete(cb);
     }
-    return result;
   },
-  logDeviceSecret: async (logData: any) => {
-    const result = await ipcRenderer.invoke('ipcMain', IPC_CHANNELS.HARDWARE_LOG_DEVICE_SECRET, logData);
-    if (result && typeof result === 'object' && 'success' in result) {
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to log device secret');
-      }
-      return result.data;
-    }
-    return result;
-  },
-  onAuthSuccess: (callback: (event: any, data: any) => void) => {
-    ipcRenderer.on('auth-success', callback);
-  },
-  onAuthError: (callback: (event: any, error: string) => void) => {
-    ipcRenderer.on('auth-error', callback);
-  },
-  onAuthLogout: (callback: (event: any) => void) => {
-    ipcRenderer.on('auth-logout', callback);
-  },
-  offAuthSuccess: (callback: (event: any, data: any) => void) => {
-    ipcRenderer.off('auth-success', callback);
-  },
-  offAuthError: (callback: (event: any, error: string) => void) => {
-    ipcRenderer.off('auth-error', callback);
-  },
-  offAuthLogout: (callback: (event: any) => void) => {
-    ipcRenderer.off('auth-logout', callback);
-  },
-  onUpdateAvailable: (callback: (event: any, info: any) => void) => {
-    ipcRenderer.on('update-available', callback);
-  },
-  onUpdateNotAvailable: (callback: () => void) => {
-    ipcRenderer.on('update-not-available', callback);
-  },
-  onDownloadProgress: (callback: (event: any, progress: any) => void) => {
-    ipcRenderer.on('download-progress', callback);
-  },
-  onUpdateDownloaded: (callback: () => void) => {
-    ipcRenderer.on('update-downloaded', callback);
-  },
-  onUpdateError: (callback: (event: any, error: string) => void) => {
-    ipcRenderer.on('update-error', callback);
-  },
-  offUpdateAvailable: (callback: (event: any, info: any) => void) => {
-    ipcRenderer.off('update-available', callback);
-  },
-  offUpdateNotAvailable: (callback: () => void) => {
-    ipcRenderer.off('update-not-available', callback);
-  },
-  offDownloadProgress: (callback: (event: any, progress: any) => void) => {
-    ipcRenderer.off('download-progress', callback);
-  },
-  offUpdateDownloaded: (callback: () => void) => {
-    ipcRenderer.off('update-downloaded', callback);
-  },
-  offUpdateError: (callback: (event: any, error: string) => void) => {
-    ipcRenderer.off('update-error', callback);
-  }
 });

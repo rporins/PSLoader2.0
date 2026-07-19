@@ -6,15 +6,13 @@ import { createRoot } from "react-dom/client";
 import { createHashRouter, RouterProvider } from "react-router-dom";
 import AppThemeProvider from "./components/AppThemeProvider";
 import AppInitializer from "./components/AppInitializer";
+import UiScaleController from "./components/UiScaleController";
 
 //import routes
-import Landing from "./routes/landing";
+import SessionGate from "./routes/sessionGate";
 import Register from "./routes/register";
 import Login from "./routes/login";
 import DeviceVerify from "./routes/device-verify";
-import TOTPVerify from "./routes/totp-verify";
-import PasswordResetRequest from "./routes/password-reset-request";
-import PasswordResetConfirm from "./routes/password-reset-confirm";
 import DataTable from "./routes/nestedPages/dataTable";
 import StagingDataReview from "./routes/nestedPages/stagingDataReview";
 import SignedInLanding from "./routes/signedinLanding";
@@ -44,7 +42,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 const router = createHashRouter([
   {
     path: "/",
-    element: <Landing />,
+    element: <SessionGate />,
   },
   {
     path: "/register",
@@ -57,18 +55,6 @@ const router = createHashRouter([
   {
     path: "/auth/device-verify",
     element: <DeviceVerify />,
-  },
-  {
-    path: "/auth/totp",
-    element: <TOTPVerify />,
-  },
-  {
-    path: "/auth/password-reset/request",
-    element: <PasswordResetRequest />,
-  },
-  {
-    path: "/auth/password-reset/confirm",
-    element: <PasswordResetConfirm />,
   },
   {
     path: "/signed-in-landing",
@@ -199,10 +185,13 @@ LicenseInfo.setLicenseKey("0170f20369e51857b2536db7dfa0f38eTz0xMTkzODcsRT0xNzkxO
 //root document
 createRoot(document.getElementById("root")).render(
   <StrictMode>
-    <AppInitializer>
-      <AppThemeProvider>
+    {/* Theme provider wraps AppInitializer so its splash/loading screens are
+        also rendered with the user's light/dark MUI theme. */}
+    <AppThemeProvider>
+      <AppInitializer>
+        <UiScaleController />
         <RouterProvider router={router} />
-      </AppThemeProvider>
-    </AppInitializer>
+      </AppInitializer>
+    </AppThemeProvider>
   </StrictMode>
 );

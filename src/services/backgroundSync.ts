@@ -86,10 +86,10 @@ class BackgroundSyncService {
       return;
     }
 
-    // Check if user is authenticated
-    const token = authService.getAccessToken();
-    if (!token) {
-      // console.log('[BackgroundSync] No access token, skipping sync');
+    // Check if user has an active (device-verified) session. The token lives in
+    // the main process now; we gate on the cached security level instead.
+    if (authService.getSecurityLevel() < 2) {
+      // console.log('[BackgroundSync] No active session, skipping sync');
       return;
     }
 

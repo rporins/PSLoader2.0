@@ -3,6 +3,7 @@ import { CircularProgress, Box, Typography } from "@mui/material";
 import { useSettingsStore } from "../store/settings";
 import UpdateChecker from "./UpdateChecker";
 import backgroundSyncService from "../services/backgroundSync";
+import authService from "../services/auth";
 
 interface AppInitializerProps {
   children: React.ReactNode;
@@ -11,8 +12,10 @@ interface AppInitializerProps {
 /**
  * AppInitializer Component
  * 1. Checks for updates first (blocking - user must wait for download/install)
- * 2. Then loads app settings from database
- * 3. Finally renders the main app
+ * 2. Kicks off the cold-start session resume in the BACKGROUND (non-blocking —
+ *    no splash), then loads settings
+ * 3. Renders the main app; the login page surfaces any resumable session via
+ *    its "Continue session" affordance
  */
 const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
   const [updateCheckComplete, setUpdateCheckComplete] = useState(false);
@@ -23,17 +26,20 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
 
   // Step 1: Check for updates (blocking)
   const handleUpdateComplete = () => {
-    // console.log("Update check completed, proceeding to app initialization");
     setUpdateCheckComplete(true);
   };
 
-  // Step 2: Initialize app settings after update check
+  // Step 2: Initialize app after update check
   useEffect(() => {
     if (!updateCheckComplete) return;
 
     const initializeApp = async () => {
       try {
-        // console.log("Initializing app settings...");
+        // Start the cold-start resume in the background. bootstrap() returns as
+        // soon as the fast local checks are done — the real /auth/refresh runs
+        // without blocking, and the login page reacts to its result. No splash.
+        await authService.bootstrap();
+
         // Load settings from database
         await loadSettingsFromDb();
 
@@ -49,8 +55,7 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
               console.warn("[AutoClean] startup trigger failed:", err);
             });
         }
-        // console.log("Background sync service started");
-        // console.log("App settings initialized successfully");
+
         setIsInitialized(true);
       } catch (err) {
         console.error("Failed to initialize app:", err);
@@ -80,7 +85,8 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
     return <UpdateChecker onUpdateComplete={handleUpdateComplete} />;
   }
 
-  // Show loading screen while initializing settings
+  // Brief, neutral loader while settings load (no session "splash" — the resume
+  // runs in the background and surfaces on the login page).
   if (!isInitialized) {
     return (
       <Box
@@ -91,11 +97,12 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
           justifyContent: "center",
           height: "100vh",
           gap: 2,
+          bgcolor: "background.default",
         }}
       >
-        <CircularProgress />
-        <Typography variant="body1" color="text.secondary">
-          Loading settings...
+        <CircularProgress size={40} />
+        <Typography variant="body2" color="text.secondary">
+          Loading…
         </Typography>
       </Box>
     );

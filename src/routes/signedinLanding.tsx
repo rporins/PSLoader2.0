@@ -56,22 +56,8 @@ import authService, { Hotel } from "../services/auth";
 import mappingTablesService from "../services/mappingTablesService";
 import dailyFinancialSyncService from "../services/dailyFinancialSyncService";
 
-// IPC API types
-interface IpcApi {
-  sendIpcRequest: (channel: string, ...args: any[]) => Promise<any>;
-  onAuthSuccess: (cb: (event: any, data: any) => void) => void;
-  onAuthError: (cb: (event: any, message: string) => void) => void;
-  onAuthLogout: (cb: (event: any) => void) => void;
-  offAuthSuccess?: (cb: (event: any, data: any) => void) => void;
-  offAuthError?: (cb: (event: any, message: string) => void) => void;
-  offAuthLogout?: (cb: (event: any) => void) => void;
-}
-
-declare global {
-  interface Window {
-    ipcApi?: IpcApi;
-  }
-}
+// window.ipcApi / window.authApi are typed globally (src/renderer.ts,
+// src/services/auth.ts) — no local augmentation needed here.
 
 // Custom styled components for modern menu
 const StyledMenu = styled(Menu)(({ theme }) => ({
@@ -272,10 +258,9 @@ const handleHelp = () => {
 // Sign out function
 const handleSignOut = useCallback(async () => {
   try {
-    if (window.ipcApi) {
-      await window.ipcApi.sendIpcRequest("auth-logout");
-      navigate("/", { replace: true });
-    }
+    // Revokes the session server-side and wipes local tokens in main.
+    await authService.logout();
+    navigate("/", { replace: true });
   } catch (error) {
     console.error("Sign out failed:", error);
   }

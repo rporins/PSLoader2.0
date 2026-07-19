@@ -4,8 +4,8 @@
 // ---------------------------------------------------------------------------------
 
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { API_BASE_URL } from "../config";
+import { useNavigate, useLocation } from "react-router-dom";
+import { brokerErrorCode, describeBrokerError } from "../services/auth";
 import {
   Alert,
   Box,
@@ -23,9 +23,6 @@ import {
 import { alpha, styled, useTheme, keyframes } from "@mui/material/styles";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import EmailIcon from "@mui/icons-material/Email";
-import LockIcon from "@mui/icons-material/Lock";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import PersonAddAltRoundedIcon from "@mui/icons-material/PersonAddAltRounded";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 
@@ -259,119 +256,89 @@ const BackButton = styled(IconButton)(({ theme }) => ({
 
 interface RegisterFormData {
   email: string;
-  password: string;
-  confirmPassword: string;
-}
-
-interface ApiError {
-  detail?: string;
-  message?: string;
 }
 
 export default function Register() {
   const navigate = useNavigate();
+  const location = useLocation();
   const theme = useTheme();
 
+  // Verified company email from the Microsoft entrance (router state); if absent
+  // (deep link / back), we verify in place before requesting the account.
+  const verifiedEmail = (location.state as { msEmail?: string } | null)?.msEmail;
+
   const [formData, setFormData] = useState<RegisterFormData>({
-    email: "",
-    password: "",
-    confirmPassword: "",
+    email: verifiedEmail ?? "",
   });
 
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [msVerified, setMsVerified] = useState(!!verifiedEmail);
+  const [msVerifying, setMsVerifying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [validationErrors, setValidationErrors] = useState<{
-    email?: string;
-    password?: string;
-    confirmPassword?: string;
-  }>({});
 
-  const validateEmail = (email: string): boolean => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
-
-  const validateForm = (): boolean => {
-    const errors: typeof validationErrors = {};
-
-    if (!formData.email) {
-      errors.email = "Email is required";
-    } else if (!validateEmail(formData.email)) {
-      errors.email = "Please enter a valid email address";
+  // In-place Microsoft verification (fallback when landed here without an email).
+  const handleMicrosoftVerify = async () => {
+    if (!window.authApi) {
+      setError("Auth bridge unavailable. Please restart the app.");
+      return;
     }
-
-    if (!formData.password) {
-      errors.password = "Password is required";
-    } else if (formData.password.length < 8) {
-      errors.password = "Password must be at least 8 characters";
-    }
-
-    if (!formData.confirmPassword) {
-      errors.confirmPassword = "Please confirm your password";
-    } else if (formData.password !== formData.confirmPassword) {
-      errors.confirmPassword = "Passwords do not match";
-    }
-
-    setValidationErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const handleChange = (field: keyof RegisterFormData) => (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    setFormData({ ...formData, [field]: event.target.value });
-    // Clear validation error for this field
-    setValidationErrors({ ...validationErrors, [field]: undefined });
     setError(null);
+    setMsVerifying(true);
+    try {
+      const result = await window.authApi.beginMicrosoftSignIn();
+      setFormData((f) => ({ ...f, email: result.email }));
+      setMsVerified(true);
+    } catch (err) {
+      const code = brokerErrorCode(err);
+      if (code !== "cancelled") {
+        setError(
+          code
+            ? describeBrokerError(code)
+            : err instanceof Error
+            ? err.message
+            : "Marriott SSO sign-in failed."
+        );
+      }
+    } finally {
+      setMsVerifying(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!validateForm()) {
-      return;
-    }
-
     setLoading(true);
     setError(null);
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/auth/register`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email: formData.email,
-            password: formData.password,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = (await response.json()) as ApiError;
-        throw new Error(
-          errorData.detail || errorData.message || "Registration failed"
-        );
+      // Passwordless account request routed through the main process. Main
+      // attaches the verified broker token and uses the token's email as
+      // identity; the `email` we pass is for display only.
+      if (!window.authApi) {
+        throw new Error("Auth bridge unavailable");
       }
-
-      const userData = await response.json();
-      // console.log("Registration successful:", userData);
+      await window.authApi.register({ email: formData.email });
+      // The account is created UNAPPROVED — do not auto-redirect to a login the
+      // user can't use yet; the success state explains the approval step.
       setSuccess(true);
-
-      // Redirect to login page after 2 seconds
-      setTimeout(() => {
-        navigate("/login");
-      }, 2000);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "An unexpected error occurred"
-      );
+      const code = brokerErrorCode(err);
+      if (code) {
+        setError(describeBrokerError(code));
+        if (code === "domain_not_allowed" || code === "no_principal") {
+          setMsVerified(false);
+        }
+      } else {
+        const msg = err instanceof Error ? err.message : "";
+        if (/already registered/i.test(msg)) {
+          setError(
+            `You already have an account for ${formData.email} — please sign in.`
+          );
+        } else {
+          setError(msg || "An unexpected error occurred");
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -421,15 +388,24 @@ export default function Register() {
                     WebkitTextFillColor: "transparent",
                   }}
                 >
-                  Registration Successful!
+                  Account requested
                 </Typography>
                 <Typography
                   variant="body1"
                   color="text.secondary"
                   align="center"
                 >
-                  Your account has been created. Redirecting to sign in...
+                  An administrator must approve your account before you can sign
+                  in. You'll also approve this device on your first sign-in.
                 </Typography>
+                <PremiumButton
+                  fullWidth
+                  size="large"
+                  onClick={() => navigate("/login")}
+                  sx={{ mt: 1, color: "white" }}
+                >
+                  Back to sign in
+                </PremiumButton>
               </Stack>
             ) : (
               // Registration form
@@ -497,87 +473,61 @@ export default function Register() {
                   </Alert>
                 )}
 
-                {/* Form */}
+                {/* Microsoft-gated: verify company identity to request an account */}
+                {!msVerified ? (
+                  <Stack spacing={3}>
+                    <Typography
+                      variant="body2"
+                      sx={{ textAlign: "center", color: theme.palette.text.secondary }}
+                    >
+                      Verify your company Marriott SSO account to request an account.
+                    </Typography>
+                    <PremiumButton
+                      fullWidth
+                      size="large"
+                      onClick={handleMicrosoftVerify}
+                      disabled={msVerifying}
+                      sx={{ color: "white" }}
+                    >
+                      {msVerifying ? (
+                        <CircularProgress size={24} sx={{ color: "white" }} />
+                      ) : (
+                        "Register with Marriott SSO"
+                      )}
+                    </PremiumButton>
+                  </Stack>
+                ) : (
                 <form onSubmit={handleSubmit}>
                   <Stack spacing={3}>
-                    {/* Email field */}
+                    {/* Email field (verified via Microsoft — read-only) */}
                     <StyledTextField
                       fullWidth
                       label="Email Address"
                       type="email"
                       value={formData.email}
-                      onChange={handleChange("email")}
-                      error={!!validationErrors.email}
-                      helperText={validationErrors.email}
-                      disabled={loading}
+                      helperText="Verified via Marriott SSO"
                       InputProps={{
+                        readOnly: true,
                         startAdornment: (
                           <InputAdornment position="start">
                             <EmailIcon sx={{ color: "text.secondary" }} />
                           </InputAdornment>
                         ),
-                      }}
-                    />
-
-                    {/* Password field */}
-                    <StyledTextField
-                      fullWidth
-                      label="Password"
-                      type={showPassword ? "text" : "password"}
-                      value={formData.password}
-                      onChange={handleChange("password")}
-                      error={!!validationErrors.password}
-                      helperText={validationErrors.password || "Minimum 8 characters"}
-                      disabled={loading}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <LockIcon sx={{ color: "text.secondary" }} />
-                          </InputAdornment>
-                        ),
                         endAdornment: (
                           <InputAdornment position="end">
-                            <IconButton
-                              onClick={() => setShowPassword(!showPassword)}
-                              edge="end"
-                              size="small"
-                            >
-                              {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                            </IconButton>
+                            <CheckCircleIcon fontSize="small" sx={{ color: "#10b981" }} />
                           </InputAdornment>
                         ),
                       }}
                     />
 
-                    {/* Confirm password field */}
-                    <StyledTextField
-                      fullWidth
-                      label="Confirm Password"
-                      type={showConfirmPassword ? "text" : "password"}
-                      value={formData.confirmPassword}
-                      onChange={handleChange("confirmPassword")}
-                      error={!!validationErrors.confirmPassword}
-                      helperText={validationErrors.confirmPassword}
-                      disabled={loading}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <LockIcon sx={{ color: "text.secondary" }} />
-                          </InputAdornment>
-                        ),
-                        endAdornment: (
-                          <InputAdornment position="end">
-                            <IconButton
-                              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                              edge="end"
-                              size="small"
-                            >
-                              {showConfirmPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                            </IconButton>
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
+                    <Typography
+                      variant="body2"
+                      sx={{ textAlign: "center", color: theme.palette.text.secondary }}
+                    >
+                      No password needed — your Marriott SSO identity is your
+                      credential. An administrator will approve your account.
+                    </Typography>
 
                     {/* Submit button */}
                     <PremiumButton
@@ -585,16 +535,17 @@ export default function Register() {
                       type="submit"
                       size="large"
                       disabled={loading}
-                      sx={{ mt: 2, color: "white" }}
+                      sx={{ mt: 1, color: "white" }}
                     >
                       {loading ? (
                         <CircularProgress size={24} sx={{ color: "white" }} />
                       ) : (
-                        "Create Account"
+                        "Request Account"
                       )}
                     </PremiumButton>
                   </Stack>
                 </form>
+                )}
 
                 {/* Sign in link */}
                 <Box sx={{ textAlign: "center", mt: 3 }}>

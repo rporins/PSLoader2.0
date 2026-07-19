@@ -1,74 +1,76 @@
-import { API_BASE_URL } from '../config';
-import authService from './auth';
-
 /**
- * API wrapper that handles authentication errors globally.
- * On 401 responses, clears auth and redirects to login.
+ * Renderer API seam.
+ * -----------------------------------------------------------
+ * The renderer holds NO token and never calls the network directly. Every
+ * business request is forwarded over IPC to the main-process ApiClient
+ * (`data:fetch`), which attaches the Bearer token and transparently refreshes
+ * on 401. Main returns { ok, status, body }; we reconstruct a real `Response`
+ * so the existing per-endpoint error handling in each service keeps working
+ * unchanged.
+ *
+ * Only endpoints on the main-process allowlist (src/ipc/handlers/data.ts) are
+ * permitted — this is not an open passthrough.
  */
+
+interface MainFetchResult {
+  ok: boolean;
+  status: number;
+  body: string;
+}
+
+// Statuses that must not carry a response body when reconstructing a Response.
+const NULL_BODY_STATUSES = new Set([204, 205, 304]);
+
 class ApiService {
   /**
-   * Wrapper around fetch that adds auth token and handles 401 errors
+   * Fetch-compatible wrapper. Returns a real `Response` reconstructed from the
+   * main-process result. Rejects (like `fetch`) if the transport itself fails.
    */
   async fetch(endpoint: string, options: RequestInit = {}): Promise<Response> {
-    const accessToken = authService.getAccessToken();
-
-    // Add auth header if we have a token
-    const headers: HeadersInit = {
-      ...options.headers,
-    };
-
-    if (accessToken) {
-      (headers as Record<string, string>)['Authorization'] = `Bearer ${accessToken}`;
+    if (typeof window === "undefined" || !window.ipcApi) {
+      throw new Error("IPC bridge unavailable");
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers,
+    const method = (options.method || "GET").toUpperCase();
+    const body =
+      options.body === undefined || options.body === null
+        ? undefined
+        : typeof options.body === "string"
+        ? options.body
+        : JSON.stringify(options.body);
+
+    const envelope: any = await window.ipcApi.sendIpcRequest("data:fetch", {
+      method,
+      path: endpoint,
+      body,
     });
 
-    // Handle 401 Unauthorized - session expired or invalid token
-    if (response.status === 401) {
-      this.handleAuthError();
-      throw new Error('Session expired. Please log in again.');
-    }
+    // Preload returns the { success, data, ... } envelope; data is the result.
+    const result: MainFetchResult = envelope?.data ?? envelope;
+    const responseBody = NULL_BODY_STATUSES.has(result.status)
+      ? null
+      : result.body ?? "";
 
-    return response;
+    return new Response(responseBody, { status: result.status });
   }
 
-  /**
-   * Convenience method for GET requests
-   */
+  /** Convenience method for GET requests. */
   async get(endpoint: string, options: RequestInit = {}): Promise<Response> {
-    return this.fetch(endpoint, { ...options, method: 'GET' });
+    return this.fetch(endpoint, { ...options, method: "GET" });
   }
 
-  /**
-   * Convenience method for POST requests
-   */
-  async post(endpoint: string, body?: any, options: RequestInit = {}): Promise<Response> {
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    };
-
+  /** Convenience method for POST requests. */
+  async post(
+    endpoint: string,
+    body?: any,
+    options: RequestInit = {}
+  ): Promise<Response> {
     return this.fetch(endpoint, {
       ...options,
-      method: 'POST',
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options.headers },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
     });
-  }
-
-  /**
-   * Handle authentication errors by clearing auth and redirecting to login
-   */
-  private handleAuthError(): void {
-    // Clear auth state
-    authService.clearAuth();
-
-    // Redirect to login page using hash router format
-    // Using window.location.hash since the app uses createHashRouter
-    window.location.hash = '#/login';
   }
 }
 

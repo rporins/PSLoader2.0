@@ -6,9 +6,14 @@
 
 import { ThemeMode } from "../theme/settings";
 
+// UI scale mode: "auto" fits the scale to the app window size; "manual" uses a saved factor
+export type UiScaleMode = "auto" | "manual";
+
 // Define all possible settings keys as a const enum for type safety
 export const SETTINGS_KEYS = {
   THEME_MODE: 'themeMode',
+  UI_SCALE_MODE: 'uiScaleMode',
+  UI_SCALE: 'uiScale',
   SELECTED_HOTEL_OU: 'selectedHotelOu',
   SELECTED_DEPARTMENT: 'selectedDepartment',
   SELECTED_ACCOUNT: 'selectedAccount',
@@ -50,6 +55,8 @@ export type SettingsKey = typeof SETTINGS_KEYS[keyof typeof SETTINGS_KEYS];
 // Define the shape of all settings with their types
 export interface AppSettings {
   [SETTINGS_KEYS.THEME_MODE]: ThemeMode;
+  [SETTINGS_KEYS.UI_SCALE_MODE]: UiScaleMode;
+  [SETTINGS_KEYS.UI_SCALE]: number;
   [SETTINGS_KEYS.SELECTED_HOTEL_OU]: string | null;
   [SETTINGS_KEYS.SELECTED_DEPARTMENT]: string | null;
   [SETTINGS_KEYS.SELECTED_ACCOUNT]: string | null;
@@ -92,6 +99,10 @@ const currentMonth = new Date().getMonth() + 1;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   [SETTINGS_KEYS.THEME_MODE]: "light",
+  // Default to native 100% (manual @ 1.0): full fidelity and no fractional-zoom
+  // compositing cost. "auto" (fit-to-window) remains an opt-in the user can enable.
+  [SETTINGS_KEYS.UI_SCALE_MODE]: "manual",
+  [SETTINGS_KEYS.UI_SCALE]: 1.0,
   [SETTINGS_KEYS.SELECTED_HOTEL_OU]: null,
   [SETTINGS_KEYS.SELECTED_DEPARTMENT]: null,
   [SETTINGS_KEYS.SELECTED_ACCOUNT]: null,
