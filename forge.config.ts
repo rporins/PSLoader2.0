@@ -50,17 +50,12 @@ const config: ForgeConfig = {
 
       // List of external native dependencies that need to be copied
       const externalDeps = [
-        '@libsql/client',
-        '@libsql/core',
-        '@libsql/hrana-client',
-        '@libsql/isomorphic-fetch',
-        '@libsql/isomorphic-ws',
-        '@libsql/win32-x64-msvc',
-        'libsql',
-        'js-base64',
-        'promise-limit',
-        '@neon-rs/load',
-        'detect-libc',
+        // SQLite. The prebuilt binary lives in build/Release inside the package
+        // itself; `bindings` (and its own dep `file-uri-to-path`) is what locates
+        // it at runtime, so all three must be copied.
+        'better-sqlite3-multiple-ciphers',
+        'bindings',
+        'file-uri-to-path',
         'nodejs-polars',
         'node-machine-id',
         'systeminformation',

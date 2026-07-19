@@ -102,6 +102,15 @@ export interface ProteaReportPackConfig {
 class ProteaReportPackService {
   private generatedAt: string = '';
 
+  /**
+   * Account-level detail for every department, fetched once per run instead of
+   * twice per department sheet. Populated alongside `departments`; consumers
+   * fall back to a direct per-department query if a department is missing, so
+   * an unpopulated cache is a slow path, never a wrong one.
+   */
+  private deptDetailMonth: Map<string, any[]> = new Map();
+  private deptDetailRange: Map<string, any[]> = new Map();
+
   /** Registry of sheets and group headers for the cover page TOC */
   private sheetRegistry: Array<{
     type: 'sheet' | 'groupHeader';
@@ -146,6 +155,34 @@ class ProteaReportPackService {
     // 3. Fetch departments once -- used by department tabs
     const departments = (await db.getDepartmentsWithDataForOU(config.ou, config.version))
       .filter(d => !EXCEL_EXCLUDED_DEPARTMENTS.has(d.baseDepartment));
+
+    // 3b. Pre-fetch every department's account detail in two queries (current +
+    //     YTD) rather than two per department sheet. Same reasoning as the
+    //     moved-account pre-fetch below, just applied to the whole department set.
+    //
+    //     Only the detail tabs read this. Without the guard the pre-fetch still
+    //     runs when they are disabled, paying for two of the most expensive
+    //     queries in the report to fill a cache nothing reads — measured at
+    //     ~800ms of pure overhead.
+    this.deptDetailMonth = new Map();
+    this.deptDetailRange = new Map();
+    if (config.generateDetailTabs) {
+      const deptIds = departments.map(d => d.baseDepartment);
+      [this.deptDetailMonth, this.deptDetailRange] = await Promise.all([
+        db.getProteaAllDepartmentsDetailData(
+          config.ou, deptIds,
+          config.selectedMonth, config.selectedYear,
+          config.selectedMonth, config.selectedYear,
+          config.version
+        ),
+        db.getProteaAllDepartmentsDetailData(
+          config.ou, deptIds,
+          config.ytdStartMonth, config.ytdStartYear,
+          config.ytdEndMonth, config.ytdEndYear,
+          config.version
+        )
+      ]);
+    }
 
     // 4. Pre-fetch moved account detail data from D0480/D0490 (insurance/audit accounts
     //    that will be reported under Admin & General) AND all department-level movements.
@@ -924,26 +961,34 @@ class ProteaReportPackService {
     movedRange: any[] = [],
     movedDeptData: Map<string, { month: any[]; range: any[] }> = new Map()
   ): Promise<string | null> {
-    let [monthDetailData, rangeDetailData] = await Promise.all([
-      db.getProteaDepartmentDetailData(
-        config.ou,
-        dept.baseDepartment,
-        config.selectedMonth,
-        config.selectedYear,
-        config.selectedMonth,
-        config.selectedYear,
-        config.version
-      ),
-      db.getProteaDepartmentDetailData(
-        config.ou,
-        dept.baseDepartment,
-        config.ytdStartMonth,
-        config.ytdStartYear,
-        config.ytdEndMonth,
-        config.ytdEndYear,
-        config.version
-      )
-    ]);
+    // Served from the pre-fetch in generate(); the per-department queries remain
+    // as a fallback for callers that reach this without one (and so this method
+    // stays correct in isolation).
+    const cachedMonth = this.deptDetailMonth.get(dept.baseDepartment);
+    const cachedRange = this.deptDetailRange.get(dept.baseDepartment);
+
+    let [monthDetailData, rangeDetailData] = cachedMonth && cachedRange
+      ? [cachedMonth, cachedRange]
+      : await Promise.all([
+        db.getProteaDepartmentDetailData(
+          config.ou,
+          dept.baseDepartment,
+          config.selectedMonth,
+          config.selectedYear,
+          config.selectedMonth,
+          config.selectedYear,
+          config.version
+        ),
+        db.getProteaDepartmentDetailData(
+          config.ou,
+          dept.baseDepartment,
+          config.ytdStartMonth,
+          config.ytdStartYear,
+          config.ytdEndMonth,
+          config.ytdEndYear,
+          config.version
+        )
+      ]);
 
     // Protea account movement: filter out moved accounts from D0480/D0490 individual sheets
     if (PROTEA_MOVEMENT_SOURCE_DEPTS.includes(dept.baseDepartment)) {

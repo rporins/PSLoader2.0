@@ -38,6 +38,12 @@
   "keywords": [],
   "author": "Marriott EMEA FRA",
   "license": "UNLICENSED",
+  "comments": {
+    "overrides.node-abi": "@electron/rebuild and prebuild-install both pull node-abi 3.68, which predates Electron 39 and so cannot resolve its ABI - native builds fail with 'Could not detect abi for version 39.x'. Pinned to the newest 3.x; do NOT move to 4.x, which is ESM-only and cannot be require()d by either dependent."
+  },
+  "overrides": {
+    "node-abi": "^3.94.0"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/rporins/PSLoader2.0"
@@ -47,13 +53,12 @@
     "@emotion/styled": "^11.13.0",
     "@faker-js/faker": "^9.0.2",
     "@fontsource/roboto": "^5.0.15",
-    "@libsql/client": "^0.14.0",
     "@mui/icons-material": "^6.1.3",
     "@mui/material": "^6.1.3",
     "@mui/x-data-grid-premium": "^7.20.0",
     "@react-three/fiber": "^8.18.0",
-    "@types/better-sqlite3": "^7.6.11",
     "@types/openid-client": "^3.1.6",
+    "better-sqlite3-multiple-ciphers": "^12.11.1",
     "csv-parse": "^6.1.0",
     "electron-log": "^5.4.3",
     "electron-squirrel-startup": "^1.0.1",
