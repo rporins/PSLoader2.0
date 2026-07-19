@@ -167,7 +167,14 @@ export function createClient(config: ClientConfig): Client {
     } finally {
       const ms = Number(process.hrtime.bigint() - t0) / 1e6;
       if (ms >= TRACE_SLOW_MS) {
-        console.log(`[db-slow] ${ms.toFixed(0)}ms :: ${sql.replace(/\s+/g, " ").slice(0, 110)}`);
+        // Identify by the whole statement, not a prefix: sibling queries here
+        // can share hundreds of leading characters and differ only in a WHERE
+        // clause, which is enough to misattribute a hotspot to the wrong caller.
+        const flat = sql.replace(/\s+/g, " ").trim();
+        let hash = 0;
+        for (let i = 0; i < flat.length; i++) hash = (Math.imul(hash, 31) + flat.charCodeAt(i)) | 0;
+        const shape = (hash >>> 0).toString(36).padStart(7, "0");
+        console.log(`[db-slow] ${ms.toFixed(0)}ms #${shape} :: ${flat.slice(0, 90)}`);
       }
     }
   }

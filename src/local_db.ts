@@ -1243,6 +1243,7 @@ export async function getFinancialReportData(
     const latestPeriod = periods[periods.length - 1];
 
     const query = `
+      /* getFinancialReportData */
       WITH combined_actuals AS (
         SELECT
           COALESCE(fds.dep_acc_combo_id, fd.dep_acc_combo_id) AS combo,
@@ -1761,6 +1762,7 @@ export async function getStagingVsBudgetData(ou?: string, version: string = 'MAI
 
     // Now fetch staging actuals vs budget for this period
     const query = `
+      /* getStagingVsBudgetData */
       WITH staging_actuals AS (
         SELECT
           fds.dep_acc_combo_id AS combo,
@@ -6081,6 +6083,7 @@ export async function getDepartmentDetailData(
     const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
 
     const query = `
+      /* getDepartmentDetailData */
       WITH combined_actuals AS (
         SELECT
           COALESCE(fds.account, fd.account) AS account,
@@ -6228,6 +6231,7 @@ export async function getGroupDepartmentDetailData(
     const deptPlaceholders = departments.map(() => '?').join(', ');
 
     const query = `
+      /* getGroupDepartmentDetailData */
       WITH combined_actuals AS (
         SELECT
           COALESCE(fds.account, fd.account) AS account,
@@ -6380,6 +6384,7 @@ export async function getAllDepartmentDetailData(
       : '';
 
     const query = `
+      /* getAllDepartmentDetailData */
       WITH combined_actuals AS (
         SELECT
           COALESCE(fds.account, fd.account) AS account,
@@ -6546,6 +6551,7 @@ export async function getProteaDepartmentDetailData(
     const proteaClauses = buildProteaCategoryClauses();
 
     const query = `
+      /* getProteaDepartmentDetailData */
       WITH combined_actuals AS (
         SELECT
           COALESCE(fds.account, fd.account) AS account,
@@ -6665,6 +6671,200 @@ export async function getProteaDepartmentDetailData(
 }
 
 /**
+ * Protea variant: same account-level detail as getProteaDepartmentDetailData,
+ * but for many departments in ONE query, keyed by department.
+ *
+ * The report pack builds a sheet per department and used to call the
+ * single-department function twice per sheet (current range + YTD). With ~25
+ * departments that is ~50 sequential scans of financial_data per report. The
+ * queries are independent and differ only in the department filter, so they
+ * collapse into one grouped query — the same fix applied to
+ * getRoomSegmentExportData.
+ *
+ * Rows for a department come back in exactly the order the single-department
+ * query produced them (department is prepended to ORDER BY, leaving the
+ * category / level_12 / base_account ordering intact within each department),
+ * so callers can swap one for the other without re-sorting.
+ *
+ * Departments with no data are present in the map with an empty array, matching
+ * what the per-department call returned.
+ */
+export async function getProteaAllDepartmentsDetailData(
+  ou: string,
+  departments: string[],
+  startMonth: number,
+  startYear: number,
+  endMonth: number,
+  endYear: number,
+  version: string = 'MAIN'
+): Promise<Map<string, DepartmentDetailRow[]>> {
+  const byDepartment = new Map<string, DepartmentDetailRow[]>();
+  if (departments.length === 0) return byDepartment;
+
+  const uniqueDepartments = [...new Set(departments)];
+  for (const dept of uniqueDepartments) byDepartment.set(dept, []);
+
+  try {
+    const {
+      generatePeriods,
+      generateLYPeriods
+    } = await import('./services/reports/plCalculationEngine');
+
+    const periodRange = { startMonth, startYear, endMonth, endYear };
+    const periods = generatePeriods(periodRange);
+    const lyPeriods = generateLYPeriods(periods);
+    const latestStagingPeriod = periods[periods.length - 1];
+
+    const periodPlaceholders = periods.map(() => '?').join(', ');
+    const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
+    const deptPlaceholders = uniqueDepartments.map(() => '?').join(', ');
+    const proteaClauses = buildProteaCategoryClauses();
+
+    const query = `
+      /* getProteaAllDepartmentsDetailData */
+      WITH combined_actuals AS (
+        SELECT
+          fd.department AS department,
+          COALESCE(fds.account, fd.account) AS account,
+          SUM(COALESCE(
+            CASE WHEN fds.period_combo = ? THEN fds.amount ELSE NULL END,
+            fd.amount
+          )) AS amount
+        FROM financial_data fd
+        LEFT JOIN financial_data_staging fds
+          ON fd.dep_acc_combo_id = fds.dep_acc_combo_id
+          AND fd.period_combo = fds.period_combo
+          AND fds.scenario = 'ACT'
+          AND fds.ou = fd.ou
+          AND fds.version = fd.version
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department IN (${deptPlaceholders})
+          AND ${excludeBalanceSheet('fd.account')}
+          AND fd.period_combo IN (${periodPlaceholders})
+        GROUP BY fd.department, COALESCE(fds.account, fd.account)
+        UNION ALL
+        SELECT
+          fds.department AS department,
+          fds.account,
+          SUM(fds.amount) AS amount
+        FROM financial_data_staging fds
+        LEFT JOIN financial_data fd
+          ON fds.dep_acc_combo_id = fd.dep_acc_combo_id
+          AND fds.period_combo = fd.period_combo
+          AND fd.scenario = 'ACT'
+          AND fd.version = ?
+          AND fd.ou = fds.ou
+        WHERE fds.scenario = 'ACT'
+          AND fds.ou = ?
+          AND fds.department IN (${deptPlaceholders})
+          AND ${excludeBalanceSheet('fds.account')}
+          AND fd.dep_acc_combo_id IS NULL
+          AND fds.period_combo IN (${periodPlaceholders})
+        GROUP BY fds.department, fds.account
+      ),
+      actuals_totals AS (
+        SELECT department, account, SUM(amount) AS actuals FROM combined_actuals
+        WHERE ${excludeBalanceSheet('account')}
+        GROUP BY department, account
+      ),
+      budget_totals AS (
+        SELECT
+          fd.department AS department,
+          fd.account,
+          SUM(fd.amount) AS budget
+        FROM financial_data fd
+        WHERE fd.scenario = 'BUD'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department IN (${deptPlaceholders})
+          AND ${excludeBalanceSheet('fd.account')}
+          AND fd.period_combo IN (${periodPlaceholders})
+        GROUP BY fd.department, fd.account
+      ),
+      ly_totals AS (
+        SELECT
+          fd.department AS department,
+          fd.account,
+          SUM(fd.amount) AS ly
+        FROM financial_data fd
+        WHERE fd.scenario = 'ACT'
+          AND fd.ou = ?
+          AND fd.version = ?
+          AND fd.department IN (${deptPlaceholders})
+          AND ${excludeBalanceSheet('fd.account')}
+          AND fd.period_combo IN (${lyPeriodPlaceholders})
+        GROUP BY fd.department, fd.account
+      )
+      SELECT
+        COALESCE(a.department, b.department, l.department) AS department,
+        COALESCE(a.account, b.account, l.account) AS account,
+        am.account_description_detail_level_max AS account_name,
+        am.level_12 AS level_12_group,
+        am.level_13 AS level_13_group,
+        am.level_20 AS level_20_group,
+        CASE ${proteaClauses.categoryCase}
+        END AS category,
+        COALESCE(a.actuals, 0) AS actuals,
+        COALESCE(b.budget, 0) AS budget,
+        COALESCE(a.actuals, 0) - COALESCE(b.budget, 0) AS vs_bud,
+        COALESCE(l.ly, 0) AS ly,
+        COALESCE(a.actuals, 0) - COALESCE(l.ly, 0) AS vs_ly
+      FROM actuals_totals a
+      FULL OUTER JOIN budget_totals b
+        ON a.account = b.account AND a.department = b.department
+      FULL OUTER JOIN ly_totals l
+        ON COALESCE(a.account, b.account) = l.account
+        AND COALESCE(a.department, b.department) = l.department
+      LEFT JOIN account_maps am ON COALESCE(a.account, b.account, l.account) = am.base_account
+      WHERE COALESCE(a.account, b.account, l.account) IS NOT NULL
+        AND ${excludeBalanceSheet('COALESCE(a.account, b.account, l.account)')}
+      ORDER BY
+        COALESCE(a.department, b.department, l.department),
+        CASE ${proteaClauses.orderCase}
+        END,
+        am.level_12,
+        am.base_account
+    `;
+
+    const params: any[] = [
+      latestStagingPeriod,
+      ou, 'MAIN', ...uniqueDepartments,
+      ...periods,
+      'MAIN',
+      ou, ...uniqueDepartments,
+      ...periods,
+      ou, version, ...uniqueDepartments,
+      ...periods,
+      ou, 'MAIN', ...uniqueDepartments,
+      ...lyPeriods
+    ];
+
+    const result = await client.execute({ sql: query, args: params });
+
+    // Split into per-department slices, preserving row order, then run each
+    // through the same mapper the single-department path uses.
+    const rowsByDepartment = new Map<string, any[]>();
+    for (const row of result.rows as any[]) {
+      const dept = row.department as string;
+      const bucket = rowsByDepartment.get(dept);
+      if (bucket) bucket.push(row);
+      else rowsByDepartment.set(dept, [row]);
+    }
+    for (const [dept, rows] of rowsByDepartment) {
+      if (!byDepartment.has(dept)) continue;
+      byDepartment.set(dept, mapDetailRows(rows));
+    }
+
+    return byDepartment;
+  } catch (error) {
+    console.error(`Error getting Protea detail data for ${departments.length} departments:`, error);
+    throw error;
+  }
+}
+
+/**
  * Protea variant: Get account-level detail data aggregated across multiple departments.
  * Includes Protea category repoints (e.g., A610112 → Payroll).
  */
@@ -6694,6 +6894,7 @@ export async function getProteaGroupDepartmentDetailData(
     const proteaClauses = buildProteaCategoryClauses();
 
     const query = `
+      /* getProteaGroupDepartmentDetailData */
       WITH combined_actuals AS (
         SELECT
           COALESCE(fds.account, fd.account) AS account,
@@ -6873,6 +7074,7 @@ export async function getProteaPayrollBurdenAccounts(
     // amount != 0 in each subquery keeps the set tight; a SELECT DISTINCT outer
     // wrap is unnecessary — the GROUP BY does it.
     const query = `
+      /* getProteaPayrollBurdenAccounts */
       WITH burden_hits AS (
         SELECT fd.account
         FROM financial_data fd
@@ -7004,6 +7206,7 @@ export async function getRoomsSoldForPeriod(
     const lyPeriodPlaceholders = lyPeriods.map(() => '?').join(', ');
 
     const query = `
+      /* getRoomsSoldForPeriod */
       WITH combined_actuals AS (
         SELECT
           SUM(COALESCE(
@@ -7126,6 +7329,7 @@ export async function getDepartmentVolumeForPeriod(
     const deptPlaceholders = departments.map(() => '?').join(', ');
 
     const query = `
+      /* getDepartmentVolumeForPeriod */
       WITH combined_actuals AS (
         SELECT
           SUM(COALESCE(
@@ -7359,6 +7563,7 @@ export async function getRoomSegmentExportData(
     const accountPlaceholders = uniqueAccounts.map(() => '?').join(', ');
 
     const segmentQuery = `
+      /* getRoomSegmentExportData */
       WITH actuals_combined AS (
         SELECT
           COALESCE(fds.account, fd.account) AS account,
