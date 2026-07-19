@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, safeStorage } from "electron";
 import path from "path";
-import { createClient, Client } from "@libsql/client";
+import { createClient } from "./db/client";
 import dotenv from "dotenv";
 import fs from "fs";
 import {
@@ -10,7 +10,6 @@ import {
 import { daysInPeriod } from "./services/reports/periodUtils";
 
 dotenv.config();
-const secretKey = process.env.TEMP_DB_KEY; // will be pulled from the server and used for creation, encryption, and decryption of the database
 const documentsPath = app.getPath("documents");
 const psLoaderFolderPath = path.join(documentsPath, "PSLoader");
 // Set the SQLite database file path
@@ -19,11 +18,10 @@ if (!fs.existsSync(psLoaderFolderPath)) {
   fs.mkdirSync(psLoaderFolderPath, { recursive: true });
 }
 const dbPath = path.join(psLoaderFolderPath, "psloader.db");
-// Enable secret key after testing
-// Create a new SQLite client
+// SQLite client. See src/db/client.ts — better-sqlite3 behind the libsql API
+// this file was written against. Pass `encryptionKey` there to encrypt at rest.
 const client = createClient({
   url: "file:" + dbPath,
-  //encryptionKey: secretKey,
 });
 
 const dbExists = fs.existsSync(dbPath);
@@ -632,8 +630,8 @@ export async function initializeDatabase() {
       // console.log("Database does not exist, creating a new one...");
     }
 
-    // Set WAL mode (not required explicitly with libsql but mentioned here for behavior reference)
-    // Equivalent operations to WAL and encryption key settings can be considered
+    // WAL mode, foreign keys and the encryption key are all set on the
+    // connection itself — see src/db/client.ts.
 
     // Create necessary tables
     await client.batch([
