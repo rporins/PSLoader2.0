@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import api from '../api';
 import { SubmissionWindow, deriveWindowMonths } from '../submissionWindowService';
 
@@ -132,35 +131,30 @@ function ouCode(x: unknown): string {
 const GL_SHEET_NAME = 'GL';
 
 /**
- * Read the GL sheet of an xlsx/xlsm/xls File into an array-of-arrays.
- * Mirrors the conventions in services/imports/utils/fileParser.ts.
+ * Read the GL sheet of an xlsx/xlsm File into an array-of-arrays.
+ *
+ * The actual parsing happens in the main process (`imports:parseSheetRows`,
+ * backed by services/imports/utils/sheetToRows.ts) — we only ship the bytes
+ * across. Reading used to be done here with SheetJS, but that package is
+ * abandoned and carries unfixable advisories; its replacement, exceljs, is a
+ * main-process dependency and does not belong in the renderer bundle.
+ *
+ * Note that .xls is no longer readable as a result — exceljs is OOXML-only.
  */
 async function readSheetRows(file: File): Promise<unknown[][]> {
-  const data = new Uint8Array(await file.arrayBuffer());
-  const workbook = XLSX.read(data, {
-    type: 'array',
-    cellDates: true,
-    cellNF: false,
-    cellText: false,
-  });
-  if (workbook.SheetNames.length === 0) {
-    throw new Error('The file contains no worksheets.');
+  const buffer = await file.arrayBuffer();
+
+  const envelope = (await window.ipcApi.sendIpcRequest('imports:parseSheetRows', {
+    buffer,
+    fileName: file.name,
+    sheetName: GL_SHEET_NAME,
+  })) as { data?: { rows?: unknown[][]; sheetNames?: string[] } };
+
+  const rows = envelope?.data?.rows;
+  if (!rows) {
+    throw new Error('The workbook could not be read.');
   }
-  const sheetName = workbook.SheetNames.find(
-    (name) => name.trim().toLowerCase() === GL_SHEET_NAME.toLowerCase(),
-  );
-  if (!sheetName) {
-    throw new Error(
-      `Could not find a "${GL_SHEET_NAME}" worksheet. ` +
-        `Found: ${workbook.SheetNames.join(', ')}.`,
-    );
-  }
-  const sheet = workbook.Sheets[sheetName];
-  return XLSX.utils.sheet_to_json(sheet, {
-    header: 1,
-    defval: '',
-    blankrows: false,
-  }) as unknown[][];
+  return rows;
 }
 
 // ── Transform ─────────────────────────────────────────────────────────────────

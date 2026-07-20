@@ -14,9 +14,11 @@ first; the **Troubleshooting** section explains the *why* behind each workaround
 - The publisher is configured with **`draft: true`**, so `npm run publish` creates a
   **draft** release. Clients do **not** get the update until you open the draft on
   GitHub and click **Publish release**.
-- Build is **x64 only**. There is intentionally no 32-bit (`ia32`) build — the
-  postPackage hook bundles the x64-only native module `@libsql/win32-x64-msvc`. A
-  missing `x32` folder under `out/make/...` is expected, not a bug.
+- Build is **x64 only** — now by *choice*, not by constraint. This used to be forced
+  by libSQL, which only shipped an x64 Windows binary; since the move to
+  `better-sqlite3-multiple-ciphers` (which publishes `win32-x64`, `win32-arm64` and
+  `win32-ia32` prebuilds) other Windows arches are buildable if we ever want them.
+  A missing `x32` folder under `out/make/...` is still expected, not a bug.
 
 ## Release checklist
 
@@ -50,6 +52,27 @@ first; the **Troubleshooting** section explains the *why* behind each workaround
    **Publish release**. Auto-update only serves published (non-draft) releases.
 
 ## Environment fixes (the stuff that bit us)
+
+### 0. Native SQLite module is built per Electron ABI
+
+The database driver (`better-sqlite3-multiple-ciphers`) is a **V8-ABI** native module,
+so Electron Forge rebuilds it for the target Electron on every `start` / `package`.
+Two consequences:
+
+- **`node-abi` must know your Electron version.** It's pinned via `overrides` in
+  `package.json` to `^3.94.0`. Without it the build dies at *"Preparing native
+  dependencies"* with `Could not detect abi for version <x> and runtime electron`.
+  **Do not bump it to 4.x** — v4 is ESM-only and cannot be `require()`d by
+  `@electron/rebuild` or `prebuild-install`, which both consume it. If you upgrade
+  Electron and hit that error again, raise the 3.x pin.
+- **After any Forge command, `node_modules` holds an Electron-ABI binary.** Plain
+  `node` can no longer load it — you'll get `NODE_MODULE_VERSION 140 ... requires 137`.
+  That's expected, not corruption. To run a standalone Node script against the DB,
+  install a throwaway copy of the driver in a scratch folder rather than rebuilding
+  the repo's.
+
+The predecessor (`@libsql/client`) was Node-API and needed no rebuild, so this whole
+class of problem is new as of that switch. It buys ~10-24x on query throughput.
 
 ### 1. electron-winstaller 7z bug — FIXED automatically, do not remove
 
@@ -135,6 +158,8 @@ safe because the bump commit is auto-generated).
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| `Could not detect abi for version <x> and runtime electron` | `node-abi` predates your Electron | raise the `node-abi` pin in `overrides` (stay on 3.x) |
+| `NODE_MODULE_VERSION 140 ... requires 137` running a plain Node script | driver is built for Electron, not Node | expected — use a scratch install, don't rebuild the repo's |
 | `cannot find the file specified` in Squirrel releasify; only intermediate `.nupkg` produced | missing `vendor/7z.exe` (electron-winstaller bug) | `node ./scripts/fix-winstaller-7z.js` (auto via postinstall) |
 | `self-signed certificate in certificate chain` at upload | corporate TLS interception | set `NODE_EXTRA_CA_CERTS` (or `NODE_TLS_REJECT_UNAUTHORIZED=0`) |
 | `tag 'v1.0.x' already exists` | version already released | bump to next free version |

@@ -2,7 +2,7 @@
  * SecureStore — encrypted-at-rest storage for the refresh token.
  * -----------------------------------------------------------
  * Uses Electron `safeStorage` (DPAPI on Windows) to encrypt the refresh token,
- * then persists the ciphertext (base64) in the existing libsql `user_settings`
+ * then persists the ciphertext (base64) in the existing SQLite `user_settings`
  * table via the shared local_db helpers.
  *
  * Invariants:

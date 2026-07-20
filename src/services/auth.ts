@@ -18,6 +18,37 @@ import api from "./api";
 import { MS_BROKER_ERROR_PREFIX } from "../config";
 
 /**
+ * The IPC error middleware rewrites every thrown error as `${code}: ${message}`
+ * (code falls back to INTERNAL_ERROR). Main's auth contract lives entirely in the
+ * MESSAGE — DEVICE_NOT_REGISTERED, DEVICE_TPM_MISMATCH, MS_BROKER:<code> — so
+ * callers matching on those sentinels must see the original text, not the
+ * envelope. This strips exactly that one leading `CODE: ` prefix.
+ *
+ * Note a BrokerError carries its own `.code`, so it arrives double-wrapped as
+ * `domain_not_allowed: MS_BROKER:domain_not_allowed`; the inner sentinel has no
+ * space after its colon, so a single strip leaves it intact.
+ */
+const IPC_ERROR_ENVELOPE = /^[A-Za-z][A-Za-z0-9_]*:\s+/;
+
+function unwrapAuthError(error: unknown): unknown {
+  if (!(error instanceof Error) || !IPC_ERROR_ENVELOPE.test(error.message)) {
+    return error;
+  }
+  const unwrapped = new Error(error.message.replace(IPC_ERROR_ENVELOPE, ""));
+  unwrapped.stack = error.stack;
+  return unwrapped;
+}
+
+/** Run a bridge call, re-throwing with the main-process message intact. */
+async function viaBridge<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    throw unwrapAuthError(error);
+  }
+}
+
+/**
  * Classify an auth error: broker-gate failures carry a `MS_BROKER:<code>`
  * message; everything else is a normal app error (FastAPI `detail` text).
  * Returns the broker code (e.g. "no_principal") or null for an app error.
@@ -56,6 +87,7 @@ export interface PublicAuthStatus {
   devicePending: boolean;
   encryptionAvailable: boolean;
   lastUserEmail: string | null;
+  tpmBound: boolean; // the server holds a hardware-sealed key for this device
 }
 
 // ── Domain types re-exported for consumers (unchanged shapes) ──
@@ -104,7 +136,8 @@ export interface DeviceRegisterResponse {
 }
 
 // ── Window augmentation for the typed auth bridge ──
-import type { AuthApi } from "../preload";
+import type { AuthApi, DeviceProgressEvent } from "../preload";
+export type { DeviceProgressEvent };
 declare global {
   interface Window {
     authApi?: AuthApi;
@@ -118,6 +151,7 @@ const EMPTY_STATUS: PublicAuthStatus = {
   devicePending: false,
   encryptionAvailable: false,
   lastUserEmail: null,
+  tpmBound: false,
 };
 
 class AuthClient {
@@ -247,6 +281,20 @@ class AuthClient {
     window.authApi?.offSessionExpired(cb);
   }
 
+  /** True when the server holds a hardware-sealed key for this device. */
+  isTpmBound(): boolean {
+    return this.status.tpmBound;
+  }
+
+  /** Per-step progress from the main-process device verify/register flows. */
+  onDeviceProgress(cb: (event: DeviceProgressEvent) => void): void {
+    window.authApi?.onDeviceProgress(cb);
+  }
+
+  offDeviceProgress(cb: (event: DeviceProgressEvent) => void): void {
+    window.authApi?.offDeviceProgress(cb);
+  }
+
   private setLevel(securityLevel: number): void {
     this.status = {
       ...this.status,
@@ -263,23 +311,31 @@ class AuthClient {
    * showing the Microsoft window when the SWA cookie is expected to be valid.
    */
   async beginMicrosoftSignIn(silent = false): Promise<{ email: string }> {
-    return this.requireAuthApi().beginMicrosoftSignIn({ silent });
+    return viaBridge(() => this.requireAuthApi().beginMicrosoftSignIn({ silent }));
   }
 
   /** Sign out of the SWA (switch-account). */
   async microsoftSignOut(): Promise<void> {
-    await this.requireAuthApi().microsoftSignOut();
+    await viaBridge(() => this.requireAuthApi().microsoftSignOut());
   }
 
   // ── Auth handshake (delegates to main; updates cached status from results) ──
   async login(email: string): Promise<AuthTokenResponse> {
-    const result = await this.requireAuthApi().login({ email });
+    const result = await viaBridge(() => this.requireAuthApi().login({ email }));
     this.setLevel(1);
     return { settings: (result as any)?.settings ?? null };
   }
 
-  async verifyDevice(): Promise<DeviceVerifyResponse> {
-    const result = await this.requireAuthApi().verifyDevice();
+  /**
+   * `phase: "register"` marks the follow-up approval check that runs straight
+   * after a registration, so main reports it on the register progress bar.
+   */
+  async verifyDevice(
+    options: { phase?: "verify" | "register" } = {}
+  ): Promise<DeviceVerifyResponse> {
+    const result = await viaBridge(() =>
+      this.requireAuthApi().verifyDevice(options)
+    );
     this.setLevel(result.securityLevel);
     this.status = { ...this.status, deviceId: result.deviceId, devicePending: false };
     this.notify();
@@ -292,11 +348,11 @@ class AuthClient {
    * reports the user isn't registered yet.
    */
   async register(email: string): Promise<unknown> {
-    return this.requireAuthApi().register({ email });
+    return viaBridge(() => this.requireAuthApi().register({ email }));
   }
 
   async registerDevice(): Promise<DeviceRegisterResponse> {
-    const result = await this.requireAuthApi().registerDevice();
+    const result = await viaBridge(() => this.requireAuthApi().registerDevice());
     this.status = { ...this.status, deviceId: result.deviceId, devicePending: true };
     this.notify();
     return result;
@@ -313,6 +369,8 @@ class AuthClient {
         encryptionAvailable: this.status.encryptionAvailable,
         lastUserEmail: this.status.lastUserEmail,
         deviceId: this.status.deviceId,
+        // Hardware binding is a property of the machine, not the session.
+        tpmBound: this.status.tpmBound,
       };
       // Signing out removes the on-disk token, so there's nothing to resume.
       this.resumable = false;

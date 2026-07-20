@@ -50,21 +50,23 @@ const config: ForgeConfig = {
 
       // List of external native dependencies that need to be copied
       const externalDeps = [
-        '@libsql/client',
-        '@libsql/core',
-        '@libsql/hrana-client',
-        '@libsql/isomorphic-fetch',
-        '@libsql/isomorphic-ws',
-        '@libsql/win32-x64-msvc',
-        'libsql',
-        'js-base64',
-        'promise-limit',
-        '@neon-rs/load',
-        'detect-libc',
+        // SQLite. The prebuilt binary lives in build/Release inside the package
+        // itself; `bindings` (and its own dep `file-uri-to-path`) is what locates
+        // it at runtime, so all three must be copied.
+        'better-sqlite3-multiple-ciphers',
+        'bindings',
+        'file-uri-to-path',
         'nodejs-polars',
         'node-machine-id',
         'systeminformation',
         'electron-squirrel-startup',
+        // FFI into ncrypt.dll for TPM device binding. `koffi` itself is only a
+        // JS shim — the actual koffi.node binary lives in the platform sibling
+        // package, so BOTH must be copied or the packaged app silently loses
+        // TPM support while dev keeps working.
+        'koffi',
+        '@koromix/koffi-win32-x64',
+
         // exceljs and all transitive dependencies
         'exceljs', 'jszip', 'archiver', 'dayjs', 'fast-csv', 'readable-stream', 'saxes', 'tmp', 'unzipper',
         '@fast-csv/format', '@fast-csv/parse', 'archiver-utils', 'async', 'balanced-match', 'base64-js',
@@ -78,6 +80,10 @@ const config: ForgeConfig = {
         'normalize-path', 'once', 'pako', 'path-is-absolute', 'readdir-glob', 'rimraf', 'safe-buffer',
         'setimmediate', 'string_decoder', 'tar-stream', 'traverse', 'util-deprecate', 'wrappy',
         'xmlchars', 'zip-stream', 'process-nextick-args', 'core-util-is', 'isarray',
+        // exceljs require()s uuid from cf-rule-ext-xform.js, which loads as soon as
+        // a workbook is read. Hoisted to the root node_modules by the overrides in
+        // package.json, so it must be copied explicitly like every other transitive dep.
+        'uuid',
       ];
 
       console.log('Copying dependencies from:', sourceNodeModules);

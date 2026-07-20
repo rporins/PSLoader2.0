@@ -462,7 +462,9 @@ export class ImportRegistry {
       filters.push({ name: 'CSV Files', extensions: ['csv'] });
     }
     if (formats.includes('xlsx') || formats.includes('xls')) {
-      filters.push({ name: 'Excel Files', extensions: ['xlsx', 'xls', 'xlsm', 'xlsb'] });
+      // No 'xls'/'xlsb': exceljs reads OOXML only. Offering them in the dialog
+      // would just let users pick a file we then have to reject.
+      filters.push({ name: 'Excel Files', extensions: ['xlsx', 'xlsm'] });
     }
     if (formats.includes('json')) {
       filters.push({ name: 'JSON Files', extensions: ['json'] });
