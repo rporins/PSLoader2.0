@@ -17,141 +17,114 @@
 
 import React, { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { Box, Button, Stack, Typography } from "@mui/material";
-import { alpha, keyframes, useTheme } from "@mui/material/styles";
-import ShieldRoundedIcon from "@mui/icons-material/ShieldRounded";
 import authService from "../services/auth";
 import { useAuthStatus } from "../hooks/useAuthStatus";
+import { useThemeMode } from "../store/settings";
 import Landing from "./landing";
+import "../styles/auth.css";
 
 /** Reveal the "Sign in instead" escape hatch after this long (ms). */
 const ESCAPE_HATCH_DELAY_MS = 2500;
 
-// Same visual language as the device-verify screen — a pulsing shield inside a
-// rippling ring, with stepped progress dots — so the resume splash reads as a
-// sibling of the security screens rather than a bare spinner.
-const ripple = keyframes`
-  0% { transform: scale(0.85); opacity: 0.7; }
-  100% { transform: scale(1.7); opacity: 0; }
-`;
+/**
+ * Resume has no per-step events from main (it is one refresh round-trip), so
+ * unlike the device screen these steps are paced rather than reported: each
+ * lights after this long, and the last one stays active until the gate routes
+ * away. The cadence is deliberately slower than a typical resume, so the bar
+ * never claims "Ready" before the app actually opens.
+ */
+const STEP_INTERVAL_MS = 900;
 
-const softPulse = keyframes`
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.06); }
-`;
-
-const dotWave = keyframes`
-  0%, 100% { opacity: 0.3; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.25); }
-`;
-
-const RESUME_STEPS = ["Restoring", "Verifying", "Ready"];
+const RESUME_STEPS = [
+  { id: "restore", label: "Restoring" },
+  { id: "verify", label: "Verifying" },
+  { id: "ready", label: "Ready" },
+];
 
 const RestoringSplash: React.FC<{
   onSignInInstead: () => void;
   email?: string | null;
 }> = ({ onSignInInstead, email }) => {
-  const theme = useTheme();
+  const isDark = useThemeMode() === "dark";
   const [showEscape, setShowEscape] = useState(false);
+  const [lit, setLit] = useState(1); // how many steps are lit (first is immediate)
 
   useEffect(() => {
-    const t = setTimeout(() => setShowEscape(true), ESCAPE_HATCH_DELAY_MS);
-    return () => clearTimeout(t);
+    const escape = setTimeout(() => setShowEscape(true), ESCAPE_HATCH_DELAY_MS);
+    const tick = setInterval(
+      () => setLit((n) => Math.min(n + 1, RESUME_STEPS.length)),
+      STEP_INTERVAL_MS
+    );
+    return () => {
+      clearTimeout(escape);
+      clearInterval(tick);
+    };
   }, []);
 
+  // Only settled steps fill the bar; the currently-active one is still running.
+  const progress = Math.round(((lit - 1) / RESUME_STEPS.length) * 100);
+
   return (
-    <Box
+    <div
+      className={`auth-container${isDark ? " theme-dark" : ""}`}
       role="status"
       aria-live="polite"
-      sx={{
-        height: "100vh",
-        display: "grid",
-        placeItems: "center",
-        bgcolor: "background.default",
-      }}
     >
-      <Stack alignItems="center" spacing={3} sx={{ px: 3, textAlign: "center" }}>
-        {/* Pulsing shield in a rippling ring */}
-        <Box
-          sx={{
-            position: "relative",
-            width: 112,
-            height: 112,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Box
-            sx={{
-              position: "absolute",
-              inset: 0,
-              borderRadius: "50%",
-              border: `2px solid ${alpha("#8b5cf6", 0.5)}`,
-              animation: `${ripple} 2s ease-out infinite`,
-            }}
-          />
-          <Box
-            sx={{
-              width: 68,
-              height: 68,
-              borderRadius: "50%",
-              background: `linear-gradient(135deg, #667eea, #764ba2)`,
-              boxShadow: `0 20px 40px ${alpha("#764ba2", 0.4)}`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              animation: `${softPulse} 2s ease-in-out infinite`,
-            }}
-          >
-            <ShieldRoundedIcon sx={{ color: "#ffffff", fontSize: 34 }} />
-          </Box>
-        </Box>
+      <div className="auth-card device-verify">
+        <div className="device-icon verifying">
+          <div className="device-animation">
+            <svg width="80" height="80" viewBox="0 0 80 80" fill="none" className="device-shield">
+              <path d="M40 10L15 22v20c0 13.255 10.745 28 25 28s25-14.745 25-28V22L40 10z"
+                    stroke="url(#resumeGradient)" strokeWidth="2" fill="none" opacity="0.3"/>
+              <path d="M30 40l8 8 16-16" stroke="url(#resumeGradient)" strokeWidth="3"
+                    strokeLinecap="round" strokeLinejoin="round" />
+              <defs>
+                <linearGradient id="resumeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="var(--primary-blue)" />
+                  <stop offset="100%" stopColor="var(--primary-purple)" />
+                </linearGradient>
+              </defs>
+            </svg>
+            <div className="pulse-ring" />
+          </div>
+        </div>
 
-        <Stack spacing={0.5} alignItems="center">
-          <Typography variant="h5" sx={{ fontWeight: 800, letterSpacing: -0.3 }}>
-            Welcome back
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {email ? `Restoring your session as ${email}…` : "Restoring your session…"}
-          </Typography>
-        </Stack>
+        <h2 className="auth-title">Welcome back</h2>
+        <p className="auth-subtitle">
+          {email ? `Restoring your session as ${email}…` : "Restoring your session…"}
+        </p>
 
-        {/* Stepped progress dots */}
-        <Stack direction="row" spacing={4} sx={{ mt: 0.5 }}>
-          {RESUME_STEPS.map((label, i) => (
-            <Stack key={label} spacing={1} alignItems="center">
-              <Box
-                sx={{
-                  width: 12,
-                  height: 12,
-                  borderRadius: "50%",
-                  background: `linear-gradient(135deg, #667eea, #764ba2)`,
-                  animation: `${dotWave} 1.4s ease-in-out ${i * 0.2}s infinite`,
-                }}
-              />
-              <Typography
-                variant="caption"
-                sx={{ color: theme.palette.text.secondary, fontWeight: 500 }}
-              >
-                {label}
-              </Typography>
-            </Stack>
-          ))}
-        </Stack>
+        <div className="progress-container">
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width: `${progress}%` }} />
+          </div>
+          <div className="progress-steps">
+            {RESUME_STEPS.map((step, i) => (
+              <div key={step.id} className={`step ${i < lit ? "active" : ""}`}>
+                <span className="step-dot" />
+                <span className="step-label">{step.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
 
         {showEscape && (
-          <Button
-            variant="text"
-            size="small"
+          <button
             onClick={onSignInInstead}
-            sx={{ textTransform: "none", mt: 1 }}
+            className="link"
+            style={{
+              marginTop: "20px",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
           >
             Sign in instead
-          </Button>
+          </button>
         )}
-      </Stack>
-    </Box>
+      </div>
+    </div>
   );
 };
 
