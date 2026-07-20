@@ -97,6 +97,12 @@ interface MintOptions {
 
 const AUTH_WINDOW_TIMEOUT_MS = 3 * 60 * 1000; // give the user 3 min to sign in
 
+/**
+ * Mint failures that mean "we may simply not be signed in yet" and so warrant one
+ * explicit interactive `/.auth/login/aad` attempt before surfacing an error.
+ */
+const RETRY_INTERACTIVE_CODES = new Set(["no_principal", "network", "mint_failed"]);
+
 export class MsBroker {
   constructor(private deps: MsBrokerDeps) {
     this.installDomainHintInjector();
@@ -173,9 +179,16 @@ export class MsBroker {
       } catch (error) {
         // '/' was reachable but the principal wasn't established (public root, not
         // yet signed in). For an interactive attempt, trigger Entra login explicitly.
+        //
+        // `network`/`mint_failed` land here too: right after a switch-account the
+        // cookie is gone, and the mint call can be torn down mid-flight (the page
+        // is already redirecting to the IdP) or rejected before it ever gets a
+        // status. Those are indistinguishable from "not signed in" at this point,
+        // so drive the same interactive login rather than hard-failing — the
+        // explicit /.auth/login/aad navigation below is authoritative either way.
         if (
           error instanceof BrokerError &&
-          error.code === "no_principal" &&
+          RETRY_INTERACTIVE_CODES.has(error.code) &&
           !silent
         ) {
           await this.waitForSwaOrigin(
@@ -490,7 +503,18 @@ export class MsBroker {
     const result = (await win.webContents.executeJavaScript(
       `(async () => {
         try {
-          const r = await fetch('/api/mint-ms-token', { method: 'POST', credentials: 'include' });
+          // 'manual' so an unauthenticated call that the SWA answers with a 302 to
+          // login.microsoftonline.com comes back as an opaque redirect instead of
+          // being followed cross-origin (which fails CORS and throws a TypeError,
+          // masking "not signed in" as a network error).
+          const r = await fetch('/api/mint-ms-token', {
+            method: 'POST',
+            credentials: 'include',
+            redirect: 'manual',
+          });
+          if (r.type === 'opaqueredirect' || (r.status >= 300 && r.status < 400)) {
+            return { status: 401, body: { error: 'no_principal' } };
+          }
           const text = await r.text();
           let body = null;
           try { body = JSON.parse(text); } catch (_e) { body = { raw: text }; }

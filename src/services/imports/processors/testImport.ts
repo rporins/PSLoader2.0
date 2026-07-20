@@ -67,7 +67,7 @@ export class TestImportProcessor extends BaseImportProcessor {
     category: 'Testing',
 
     // File formats this processor can handle
-    supportedFormats: ['csv', 'xlsx', 'xls'],
+    supportedFormats: ['csv', 'xlsx', 'xlsm'],
 
     // Whether this import is required for system operation
     required: false,
