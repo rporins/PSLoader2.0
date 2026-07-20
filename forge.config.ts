@@ -80,6 +80,10 @@ const config: ForgeConfig = {
         'normalize-path', 'once', 'pako', 'path-is-absolute', 'readdir-glob', 'rimraf', 'safe-buffer',
         'setimmediate', 'string_decoder', 'tar-stream', 'traverse', 'util-deprecate', 'wrappy',
         'xmlchars', 'zip-stream', 'process-nextick-args', 'core-util-is', 'isarray',
+        // exceljs require()s uuid from cf-rule-ext-xform.js, which loads as soon as
+        // a workbook is read. Hoisted to the root node_modules by the overrides in
+        // package.json, so it must be copied explicitly like every other transitive dep.
+        'uuid',
       ];
 
       console.log('Copying dependencies from:', sourceNodeModules);
