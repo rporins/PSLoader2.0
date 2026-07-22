@@ -131,21 +131,39 @@ function ouCode(x: unknown): string {
 const GL_SHEET_NAME = 'GL';
 
 /**
- * Read the GL sheet of an xlsx/xlsm File into an array-of-arrays.
+ * Base64-encode raw bytes for transport over IPC. Chunked because
+ * `String.fromCharCode(...bytes)` blows the call stack on large inputs.
+ */
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const CHUNK = 0x8000; // 32 KB per apply() call, comfortably under the limit
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Read the GL sheet of a workbook File into an array-of-arrays.
  *
  * The actual parsing happens in the main process (`imports:parseSheetRows`,
  * backed by services/imports/utils/sheetToRows.ts) — we only ship the bytes
- * across. Reading used to be done here with SheetJS, but that package is
- * abandoned and carries unfixable advisories; its replacement, exceljs, is a
- * main-process dependency and does not belong in the renderer bundle.
- *
- * Note that .xls is no longer readable as a result — exceljs is OOXML-only.
+ * across, and the reader libraries (exceljs, SheetJS) stay out of the renderer
+ * bundle. Every workbook format the reader supports works here, including BST
+ * extracts that are actually legacy .xls saved under an .xlsm name.
  */
 async function readSheetRows(file: File): Promise<unknown[][]> {
-  const buffer = await file.arrayBuffer();
+  // Transfer the bytes as base64, NOT as a raw ArrayBuffer. Electron's
+  // contextBridge does not reliably clone ArrayBuffer/TypedArray across the
+  // exposed-function boundary — it arrives in the main process as zero bytes,
+  // which is why the reader saw an empty workbook. A base64 string is a plain
+  // primitive that always survives the hop. BST extracts are tens of KB, so the
+  // ~33% base64 overhead is irrelevant.
+  const base64 = uint8ToBase64(new Uint8Array(await file.arrayBuffer()));
 
   const envelope = (await window.ipcApi.sendIpcRequest('imports:parseSheetRows', {
-    buffer,
+    buffer: base64,
+    encoding: 'base64',
     fileName: file.name,
     sheetName: GL_SHEET_NAME,
   })) as { data?: { rows?: unknown[][]; sheetNames?: string[] } };

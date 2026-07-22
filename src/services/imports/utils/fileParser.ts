@@ -11,11 +11,7 @@ import * as fsSync from 'fs';
 import * as path from 'path';
 import { parse } from 'csv-parse/sync';
 import { ParsedFile } from '../core/interfaces';
-import {
-  readSheetRows,
-  isLegacyWorkbookFile,
-  legacyWorkbookMessage,
-} from './sheetToRows';
+import { readSheetRows } from './sheetToRows';
 
 /**
  * File parser options
@@ -176,10 +172,10 @@ function toColumnKeys(headerRow: unknown[]): string[] {
 }
 
 /**
- * Parse an Excel workbook (.xlsx / .xlsm)
+ * Parse an Excel workbook (.xlsx / .xlsm / .xls / .xlsb)
  *
- * Reading goes through `readSheetRows` (exceljs); the legacy binary formats
- * .xls and .xlsb are no longer supported — see sheetToRows.ts for why.
+ * Reading goes through `readSheetRows`, which routes by content: OOXML to
+ * exceljs, legacy/binary/markup to SheetJS — see sheetToRows.ts.
  *
  * @param filePath Path to the Excel file
  * @param options Parser options
@@ -190,11 +186,6 @@ export async function parseExcelFile(
   options: FileParserOptions = {}
 ): Promise<ParsedFile> {
   // console.log(`[FileParser] Parsing Excel file: ${filePath}`);
-
-  // Fail with something actionable rather than an opaque zip-parse error.
-  if (isLegacyWorkbookFile(filePath)) {
-    throw new Error(legacyWorkbookMessage(path.basename(filePath)));
-  }
 
   try {
     // Read file as buffer
@@ -336,9 +327,8 @@ export async function parseFile(
     case 'txt':
       return parseCSVFile(filePath, options);
 
-    // xls/xlsb are routed here deliberately even though they can no longer be
-    // read, so that anything slipping past validation still gets the
-    // "save it as .xlsx" message instead of a bare "unsupported file type".
+    // All four go to the same reader; readSheetRows picks exceljs or SheetJS
+    // from the file's actual bytes, not the extension.
     case 'xls':
     case 'xlsb':
     case 'xlsx':
@@ -368,7 +358,7 @@ export function getFileType(filePath: string): string {
  * @returns True if supported
  */
 export function isSupportedFileType(fileType: string): boolean {
-  const supported = ['csv', 'txt', 'xlsx', 'xlsm', 'json'];
+  const supported = ['csv', 'txt', 'xlsx', 'xlsm', 'xls', 'xlsb', 'json'];
   return supported.includes(fileType.toLowerCase().replace('.', ''));
 }
 
@@ -532,12 +522,6 @@ export async function validateFile(filePath: string): Promise<{
         valid: false,
         error: `File too large (${Math.round(fileInfo.size / 1024 / 1024)}MB). Maximum size is ${maxSize / 1024 / 1024}MB`
       };
-    }
-
-    // Legacy Excel binaries get a message that says what to do about it,
-    // rather than the bare "unsupported file type" below.
-    if (isLegacyWorkbookFile(fileInfo.name)) {
-      return { valid: false, error: legacyWorkbookMessage(fileInfo.name) };
     }
 
     // Check if file type is supported

@@ -9,7 +9,7 @@ import { updateElectronApp } from "update-electron-app";
 import log from "electron-log";
 import path from "path";
 import dotenv from "dotenv";
-import { initializeDatabase } from "./local_db";
+import { initializeDatabase, closeLocalDatabase } from "./local_db";
 import { initializeIpc } from "./ipc";
 import { setupAutoUpdaterEvents } from "./ipc/handlers/app";
 import { attachUiScale } from "./ipc/handlers/window";
@@ -344,6 +344,13 @@ app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createMainWindow();
   }
+});
+
+// Last point at which the SQLite connection is still usable. Closing it here is
+// what checkpoints the WAL and removes the -wal/-shm sidecars; skip it and the
+// write-ahead log grows across every run of the app.
+app.on("will-quit", () => {
+  closeLocalDatabase();
 });
 
 // Global safety nets (don’t crash silently in prod).

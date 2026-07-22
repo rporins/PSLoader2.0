@@ -28,6 +28,11 @@ const bundledModules = [
   'react-router-dom',
   // Pure JS utilities (can be bundled)
   'csv-parse',
+  // SheetJS: legacy/binary/markup workbook reader (main process only). A single
+  // self-contained CJS file with zero dependencies, so it bundles straight into
+  // the main compile — no forge.config copy needed, unlike exceljs. Pinned to
+  // the patched CDN tarball in package.json; see sheetToRows.ts.
+  'xlsx',
   'uuid',
   '@faker-js/faker',
   '@fontsource/roboto'

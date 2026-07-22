@@ -9,11 +9,7 @@
 import ImportRegistry from '../../services/imports/core/registry';
 import type { IpcHandler } from '../types';
 import type { ImportOptions } from '../../services/imports/core/interfaces';
-import {
-  readSheetRows,
-  isLegacyWorkbookFile,
-  legacyWorkbookMessage,
-} from '../../services/imports/utils/sheetToRows';
+import { readSheetRows } from '../../services/imports/utils/sheetToRows';
 
 /**
  * Create import-related IPC handlers
@@ -30,26 +26,43 @@ export function createImportsHandlers(): Record<string, IpcHandler> {
      * The renderer gets its workbook from an <input type="file">, so it has an
      * ArrayBuffer but no path on disk and cannot use the filePath-based
      * handlers above. Parsing lives here rather than in the renderer because
-     * exceljs is a main-process (externalized) dependency — bundling it into
-     * the renderer would add roughly a megabyte for one code path.
+     * the reader libraries (exceljs, SheetJS) are main-process dependencies —
+     * bundling them into the renderer would add a megabyte-plus for one path.
      *
      * Frontend usage:
      *   await window.ipcApi.sendIpcRequest('imports:parseSheetRows',
-     *     { buffer, fileName, sheetName: 'GL' })
+     *     { buffer: base64String, encoding: 'base64', fileName, sheetName: 'GL' })
+     *
+     * The renderer sends the bytes as a base64 string: Electron's contextBridge
+     * does not reliably clone a raw ArrayBuffer across the exposed-function
+     * boundary (it arrives here as zero bytes). We still accept the legacy
+     * ArrayBuffer/Uint8Array shapes so any other caller keeps working.
      */
     'imports:parseSheetRows': async (
       _event,
-      params: { buffer: ArrayBuffer | Uint8Array; fileName?: string; sheetName?: string }
+      params: {
+        buffer: ArrayBuffer | Uint8Array | number[] | string;
+        encoding?: 'base64';
+        fileName?: string;
+        sheetName?: string;
+      }
     ) => {
       try {
         if (!params?.buffer) {
           return { success: false, error: 'No file contents were provided.' };
         }
-        if (params.fileName && isLegacyWorkbookFile(params.fileName)) {
-          return { success: false, error: legacyWorkbookMessage(params.fileName) };
+
+        // Normalize whatever the renderer sent into raw bytes for the reader.
+        let bytes: Buffer | ArrayBuffer | Uint8Array;
+        if (typeof params.buffer === 'string') {
+          bytes = Buffer.from(params.buffer, params.encoding ?? 'base64');
+        } else if (Array.isArray(params.buffer)) {
+          bytes = Buffer.from(params.buffer);
+        } else {
+          bytes = params.buffer;
         }
 
-        const { rows, sheetName, sheetNames } = await readSheetRows(params.buffer, {
+        const { rows, sheetName, sheetNames } = await readSheetRows(bytes, {
           sheetName: params.sheetName,
         });
         return { success: true, data: { rows, sheetName, sheetNames } };

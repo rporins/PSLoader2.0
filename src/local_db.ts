@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, safeStorage } from "electron";
+import { safeStorage } from "electron";
 import path from "path";
 import { createClient } from "./db/client";
 import dotenv from "dotenv";
@@ -8,16 +8,15 @@ import {
   PROTEA_CATEGORY_SORT_ORDER,
 } from "./services/reports/proteaMovements";
 import { daysInPeriod } from "./services/reports/periodUtils";
+import { getDataDir, DB_FILENAME } from "./main/paths";
 
 dotenv.config();
-const documentsPath = app.getPath("documents");
-const psLoaderFolderPath = path.join(documentsPath, "PSLoader");
-// Set the SQLite database file path
-// Ensure the "PSLoader" folder exists, create it if it doesn't
-if (!fs.existsSync(psLoaderFolderPath)) {
-  fs.mkdirSync(psLoaderFolderPath, { recursive: true });
-}
-const dbPath = path.join(psLoaderFolderPath, "psloader.db");
+// Resolves %LOCALAPPDATA%\PS Loader 2.0 (userData off Windows), creates it, and
+// moves a legacy Documents\PSLoader install across on first run. See
+// src/main/paths.ts for why this database must not live in a syncable folder.
+// Called here — above createClient — because that connection opens at import
+// time, which is too early for app.setPath() to be an option.
+const dbPath = path.join(getDataDir(), DB_FILENAME);
 // SQLite client. See src/db/client.ts — better-sqlite3 behind the libsql API
 // this file was written against. Pass `encryptionKey` there to encrypt at rest.
 const client = createClient({
@@ -617,6 +616,25 @@ async function runMigrations(): Promise<void> {
   }
 
   console.log(`All migrations completed. Database is now at v${CURRENT_SCHEMA_VERSION}`);
+}
+
+/**
+ * Close the SQLite connection. Call once, on `will-quit`.
+ *
+ * This is what checkpoints the WAL: SQLite folds `psloader.db-wal` back into the
+ * main file and unlinks both sidecars when the last connection closes cleanly.
+ * Without it the WAL is never truncated and every launch begins by recovering a
+ * log that only grows — recovered correctly, but pure accumulated debt.
+ *
+ * Never throws: nothing useful can be done about a failure at shutdown, and an
+ * exception here would stall the quit.
+ */
+export function closeLocalDatabase(): void {
+  try {
+    client.close();
+  } catch (error) {
+    console.error("Error closing local database:", error);
+  }
 }
 
 //------------------------------------------------------------------------------------------------------------------

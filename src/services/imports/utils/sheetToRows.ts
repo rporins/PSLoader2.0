@@ -1,40 +1,54 @@
 /**
- * Worksheet -> array-of-arrays reader (exceljs)
- * =============================================
+ * Worksheet -> array-of-arrays reader (exceljs + SheetJS)
+ * =======================================================
  *
- * Single place where spreadsheet *reading* happens. Replaces the SheetJS
- * (`xlsx`) `read` + `utils.sheet_to_json` pair that used to live inline in
- * fileParser.ts and bstImport/ownerBudgetUpload.ts.
+ * Single place where spreadsheet *reading* happens, for both the filePath
+ * callers in fileParser.ts and the renderer-buffer path in
+ * bstImport/ownerBudgetUpload.ts.
  *
- * Why the swap: `xlsx@0.18.5` is the abandoned npm-registry build of SheetJS
- * and carries two unfixable high-severity advisories (GHSA-4r6h-8v6p-xvw6
- * prototype pollution, GHSA-5pgg-2g8v-p4x9 ReDoS). SheetJS left npm, so there
- * is no patched version to move to. exceljs was already a dependency doing all
- * of our *writing*, so consolidating on it removes a package rather than
- * adding one.
+ * Two readers, picked by content — never by extension, because the files that
+ * break us lie about their extension:
  *
- * What we give up: exceljs cannot read the legacy binary formats — .xls (BIFF)
- * and .xlsb. Only the OOXML family (.xlsx / .xlsm) is supported now. Callers
- * are expected to reject the legacy extensions up front with a useful message
- * rather than letting the load fail obscurely; see `isReadableWorkbookFile`.
+ *   - exceljs for genuine OOXML (.xlsx / .xlsm). It is our *writing* library
+ *     already, so real workbooks stay on the fast, well-exercised path.
+ *   - SheetJS (`xlsx`) for everything exceljs can't read: legacy BIFF .xls
+ *     (OLE2 binary), .xlsb (OOXML *binary* — a zip, but with binary parts),
+ *     and the HTML / XML-SpreadsheetML files that reporting systems (e.g. the
+ *     BST extract) routinely emit under an .xls or .xlsx name. Excel opens all
+ *     of these; exceljs opens none of them.
  *
- * The output shape deliberately mirrors what SheetJS produced for
+ * Routing (see `readSheetRows`): a file starting with the `PK` zip signature is
+ * tried on exceljs first and only falls through to SheetJS if that throws —
+ * which is exactly what .xlsb does. Anything that isn't a zip goes straight to
+ * SheetJS. So a BST file saved as .xlsm but actually BIFF binary imports with
+ * no user action and no rename.
+ *
+ * On SheetJS security: the abandoned npm build (`xlsx@0.18.5`) carries two
+ * high-severity advisories — GHSA-4r6h-8v6p-xvw6 (prototype pollution, fixed in
+ * 0.19.3) and GHSA-5pgg-2g8v-p4x9 (ReDoS, fixed in 0.20.2). SheetJS publishes
+ * fixes only from its own CDN, not npm, so we pin the patched tarball
+ * (`https://cdn.sheetjs.com/xlsx-0.20.3/...`) in package.json rather than an
+ * npm semver range. Bump that URL by hand to upgrade.
+ *
+ * The output shape mirrors what SheetJS produced for
  * `sheet_to_json(sheet, { header: 1, defval: '', blankrows: false })`:
  *   - one array per row, padded to a uniform column count,
  *   - empty cells as `''` (never `null`/`undefined`),
  *   - fully-blank rows dropped,
  *   - formulas as their cached result, dates as `Date`.
- * Keeping that contract is what lets the two call sites migrate without
- * touching their downstream parsing.
+ * Both readers converge on this contract so downstream parsing never has to
+ * know which one produced the rows.
  */
 
 import ExcelJS from 'exceljs';
+import * as XLSX from 'xlsx';
 
-/** Extensions we can actually parse. exceljs is OOXML-only. */
-export const READABLE_WORKBOOK_EXTENSIONS = ['xlsx', 'xlsm'] as const;
-
-/** Legacy binary formats we used to accept via SheetJS and no longer can. */
-export const LEGACY_WORKBOOK_EXTENSIONS = ['xls', 'xlsb'] as const;
+/**
+ * Extensions we advertise as importable. All four are readable now — the OOXML
+ * pair via exceljs, the legacy/binary pair via SheetJS — so this is just the
+ * set we surface in file dialogs and support checks.
+ */
+export const READABLE_WORKBOOK_EXTENSIONS = ['xlsx', 'xlsm', 'xls', 'xlsb'] as const;
 
 export interface SheetRowsResult {
   /** The worksheet actually read (the resolved name, not the requested one). */
@@ -55,27 +69,12 @@ export interface ReadSheetRowsOptions {
 }
 
 /**
- * True when `fileName`'s extension is one exceljs can parse. Use this to fail
- * fast with a human-readable message instead of surfacing a zip-parse error.
+ * True when `fileName`'s extension is one we can import. Used to populate file
+ * dialogs and support checks — not for routing, which is content-based.
  */
 export function isReadableWorkbookFile(fileName: string): boolean {
   const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
   return (READABLE_WORKBOOK_EXTENSIONS as readonly string[]).includes(ext);
-}
-
-/** True for the pre-2007 binary formats we dropped along with SheetJS. */
-export function isLegacyWorkbookFile(fileName: string): boolean {
-  const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
-  return (LEGACY_WORKBOOK_EXTENSIONS as readonly string[]).includes(ext);
-}
-
-/** The message shown when someone picks a .xls/.xlsb file. */
-export function legacyWorkbookMessage(fileName: string): string {
-  const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
-  return (
-    `".${ext}" files are no longer supported. Open the file in Excel and use ` +
-    `File > Save As to save it as .xlsx, then try again.`
-  );
 }
 
 /**
@@ -119,42 +118,96 @@ function normalizeCellValue(value: unknown): unknown {
 }
 
 /**
+ * Coerce whatever the caller has into a single Node Buffer, so both readers and
+ * the signature sniff below see the same thing. A Uint8Array view is copied at
+ * its own offset/length rather than exposing the whole backing buffer.
+ */
+function toNodeBuffer(source: Buffer | ArrayBuffer | Uint8Array): Buffer {
+  if (Buffer.isBuffer(source)) return source;
+  if (source instanceof Uint8Array) {
+    return Buffer.from(source.buffer, source.byteOffset, source.byteLength);
+  }
+  return Buffer.from(new Uint8Array(source));
+}
+
+/** True when the bytes start with the `PK` local-file-header of a zip. */
+function looksLikeZip(buffer: Buffer): boolean {
+  return buffer.length >= 2 && buffer[0] === 0x50 && buffer[1] === 0x4b;
+}
+
+/**
+ * Pick which worksheet to read, shared by both readers so they resolve names
+ * identically.
+ *
+ * The `sheetNames.length === 1` fallback matters for the formats SheetJS reads:
+ * Microsoft "Web Page" HTML and XML-SpreadsheetML exports (which reporting
+ * tools like the BST extract emit under an .xls/.xlsm name) keep the real tab
+ * name in an `<x:Name>` island that the HTML reader drops, so a workbook that
+ * shows a `GL` tab in Excel parses here as a lone generic `Sheet1`. When there
+ * is only one sheet to choose from, the requested name is unambiguous — use it
+ * rather than failing on a name the file format simply didn't carry through.
+ * With two or more sheets the name is load-bearing, so a miss still throws.
+ */
+function resolveSheetName(sheetNames: string[], requested?: string): string {
+  if (sheetNames.length === 0) {
+    throw new Error('The file contains no worksheets.');
+  }
+  if (!requested) return sheetNames[0];
+
+  const match = sheetNames.find(
+    (name) => name.trim().toLowerCase() === requested.trim().toLowerCase()
+  );
+  if (match) return match;
+
+  if (sheetNames.length === 1) return sheetNames[0];
+
+  throw new Error(
+    `Sheet '${requested}' not found. Available sheets: ${sheetNames.join(', ')}`
+  );
+}
+
+/**
  * Read one worksheet into a padded array-of-arrays.
  *
  * `source` is the raw workbook bytes — a Buffer in the main process, or an
- * ArrayBuffer forwarded from the renderer over IPC.
+ * ArrayBuffer forwarded from the renderer over IPC. The format is detected from
+ * the bytes, not the file name: genuine OOXML zips go to exceljs; a zip exceljs
+ * chokes on (i.e. .xlsb) and every non-zip format (.xls BIFF, HTML, XML) go to
+ * SheetJS.
  */
 export async function readSheetRows(
   source: Buffer | ArrayBuffer | Uint8Array,
   options: ReadSheetRowsOptions = {}
 ): Promise<SheetRowsResult> {
-  const workbook = new ExcelJS.Workbook();
+  const buffer = toNodeBuffer(source);
 
-  // exceljs wants a Buffer/ArrayBuffer; normalize Uint8Array views so we do
-  // not accidentally hand it the whole backing buffer of a subarray.
-  const bytes =
-    source instanceof Uint8Array
-      ? source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength)
-      : source;
-  await workbook.xlsx.load(bytes as ArrayBuffer);
+  if (looksLikeZip(buffer)) {
+    try {
+      return await readViaExcelJs(buffer, options);
+    } catch {
+      // A zip exceljs can't open is almost always .xlsb (OOXML binary): a real
+      // zip container, but the sheets are binary parts exceljs never learned to
+      // read. SheetJS does. Fall through rather than surface the zip-parse error.
+      return readViaSheetJs(buffer, options);
+    }
+  }
+
+  // Not a zip at all: legacy BIFF .xls, or HTML / XML-SpreadsheetML wearing a
+  // spreadsheet extension. exceljs would throw the opaque jszip error here.
+  return readViaSheetJs(buffer, options);
+}
+
+/** OOXML path (.xlsx / .xlsm). */
+async function readViaExcelJs(
+  buffer: Buffer,
+  options: ReadSheetRowsOptions
+): Promise<SheetRowsResult> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
 
   const sheetNames = workbook.worksheets.map((sheet) => sheet.name);
-  if (sheetNames.length === 0) {
-    throw new Error('The file contains no worksheets.');
-  }
-
-  const requested = options.sheetName;
-  const worksheet = requested
-    ? workbook.worksheets.find(
-        (sheet) => sheet.name.trim().toLowerCase() === requested.trim().toLowerCase()
-      )
-    : workbook.worksheets[0];
-
-  if (!worksheet) {
-    throw new Error(
-      `Sheet '${requested}' not found. Available sheets: ${sheetNames.join(', ')}`
-    );
-  }
+  const resolvedName = resolveSheetName(sheetNames, options.sheetName);
+  const worksheet = workbook.worksheets.find((sheet) => sheet.name === resolvedName)!;
 
   // `columnCount` spans the sheet's used range, which is the closest analogue
   // to the `!ref` range SheetJS padded rows out to.
@@ -178,4 +231,36 @@ export async function readSheetRows(
   });
 
   return { sheetName: worksheet.name, sheetNames, rows };
+}
+
+/** Legacy / binary / markup path (.xls, .xlsb, HTML, XML-SpreadsheetML). */
+function readViaSheetJs(
+  buffer: Buffer,
+  options: ReadSheetRowsOptions
+): SheetRowsResult {
+  // `cellDates` so date cells arrive as `Date`, matching the exceljs path and
+  // the documented output contract instead of raw Excel serial numbers.
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+
+  const sheetNames = workbook.SheetNames;
+  const sheetName = resolveSheetName(sheetNames, options.sheetName);
+
+  // The exact call the old inline readers used: header:1 -> array-of-arrays,
+  // defval:'' -> empty cells as '', blankrows:false -> drop fully-blank rows.
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], {
+    header: 1,
+    defval: '',
+    blankrows: false,
+    raw: true,
+  });
+
+  // sheet_to_json only pads each row to its own last populated cell, so ragged
+  // rows come back at different lengths. Pad to the widest to honour the
+  // uniform-width half of the contract exceljs's `columnCount` gives for free.
+  const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
+  for (const row of rows) {
+    while (row.length < width) row.push('');
+  }
+
+  return { sheetName, sheetNames, rows };
 }

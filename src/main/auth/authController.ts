@@ -269,7 +269,7 @@ export class AuthController {
     this.msSession = null; // one-time handshake consumed
 
     // Remember the email for prefill on next launch (not a secret). Persisted
-    // best-effort; the local SQLite DB already lives under the user's Documents.
+    // best-effort; it goes to the local SQLite DB under %LOCALAPPDATA%.
     this.lastUserEmail = email;
     db.setUserSettings({ [LAST_USER_EMAIL_KEY]: email }).catch(() => {
       /* non-fatal */

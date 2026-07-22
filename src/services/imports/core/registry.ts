@@ -462,9 +462,9 @@ export class ImportRegistry {
       filters.push({ name: 'CSV Files', extensions: ['csv'] });
     }
     if (formats.includes('xlsx') || formats.includes('xls')) {
-      // No 'xls'/'xlsb': exceljs reads OOXML only. Offering them in the dialog
-      // would just let users pick a file we then have to reject.
-      filters.push({ name: 'Excel Files', extensions: ['xlsx', 'xlsm'] });
+      // All four import now: OOXML via exceljs, legacy/binary via SheetJS, with
+      // routing done on file content rather than extension (see sheetToRows.ts).
+      filters.push({ name: 'Excel Files', extensions: ['xlsx', 'xlsm', 'xls', 'xlsb'] });
     }
     if (formats.includes('json')) {
       filters.push({ name: 'JSON Files', extensions: ['json'] });
