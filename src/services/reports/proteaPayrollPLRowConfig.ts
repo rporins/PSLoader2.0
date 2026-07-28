@@ -108,7 +108,7 @@ export function buildProteaPayrollPLRowConfig(
   blank,
 
   // ===== STAFF EXPENSES SUMMARY (Salaries + Payroll Burden + Contracts) =====
-  // Per-dept rows = Total Payroll (level_9) + 3 NOT BENEFITS (repointed)
+  // Per-dept rows = Total Payroll (level_9) + NOT BENEFITS (repointed)
   // + A631208 Contracts. Contracts sit outside the payroll hierarchy in
   // source data, so the section title and total label call them out.
   sectionTitle('STAFF EXPENSES SUMMARY (Salaries + Payroll Burden + Contracts)'),

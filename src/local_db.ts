@@ -7042,7 +7042,7 @@ export async function getProteaGroupDepartmentDetailData(
  * needed here — we only care about account existence.
  *
  * Returns accounts sorted: Associate Benefits accounts alphabetically by
- * description first, then the 3 NOT BENEFITS lines at the bottom (also
+ * description first, then the NOT BENEFITS lines at the bottom (also
  * alphabetical). Consumer (proteaReportPackService) uses this list to
  * (a) dynamically register `payroll_burden_acct_<base>` measures and
  * (b) build the Payroll-tab burden rows — replacing the previous static

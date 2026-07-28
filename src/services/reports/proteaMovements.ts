@@ -29,7 +29,6 @@ export interface ProteaCategoryRepoint {
 export const PROTEA_CATEGORY_REPOINTS: ProteaCategoryRepoint[] = [
   { account: 'A610112', targetCategory: 'Payroll' },
   { account: 'A652101', targetCategory: 'Payroll' },
-  { account: 'A632007', targetCategory: 'Payroll' },
 ];
 
 export const PROTEA_CATEGORY_SORT_ORDER: Record<RepointTargetCategory, number> = {

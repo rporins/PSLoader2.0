@@ -436,7 +436,7 @@ class ProteaReportPackService {
     // Discover the burden lines that actually have data in this OU/period
     // across ACT/BUD/LY for both the month and the custom range, then
     // register a per-account measure for each so the engine can compute
-    // side-by-side values just like the static rows did. The 3 NOT BENEFITS
+    // side-by-side values just like the static rows did. The NOT BENEFITS
     // repointed accounts ride through the same discovery — they only show
     // when they have data, exactly like any Associate Benefits account.
     // Result: no more 'Other' catch-all; every account is visible by name.

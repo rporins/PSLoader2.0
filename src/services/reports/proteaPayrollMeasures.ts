@@ -18,10 +18,10 @@
  * ag, pom, sm registered via registerPctOfRevenueQuartet there). Adds the
  * missing departments (other_ops, util, it) and Lodging Operations.
  *
- * The "NOT BENEFITS ACCOUNT" repointed accounts (A610112, A652101, A632007)
- * are sourced via PROTEA_PAYROLL_REPOINT_ACCOUNTS so adding/removing a
- * repoint in proteaMovements.ts cascades through automatically — DO NOT
- * hardcode this list anywhere in this file.
+ * The "NOT BENEFITS ACCOUNT" repointed accounts are sourced via
+ * PROTEA_PAYROLL_REPOINT_ACCOUNTS so adding/removing a repoint in
+ * proteaMovements.ts cascades through automatically — DO NOT hardcode
+ * this list anywhere in this file.
  */
 
 import { SubMeasure, Measure, MeasureContext } from '../../types/plReportTypes';
@@ -207,7 +207,7 @@ SUB['payroll_lodging_assoc_benefits_act'] = {
   ],
 };
 
-// Sum of the 3 NOT BENEFITS (repointed) accounts at Lodging Ops scope
+// Sum of the NOT BENEFITS (repointed) accounts at Lodging Ops scope
 SUB['payroll_lodging_not_benefits_act'] = {
   id: 'payroll_lodging_not_benefits_act',
   formula: 'CALCULATE',
@@ -217,8 +217,8 @@ SUB['payroll_lodging_not_benefits_act'] = {
   ],
 };
 
-// Total Payroll Burden = Associate Benefits + the 3 NOT BENEFITS accounts.
-// Spec-corrected per user: the 3 repointed accounts count toward the burden
+// Total Payroll Burden = Associate Benefits + the NOT BENEFITS accounts.
+// Spec-corrected per user: the repointed accounts count toward the burden
 // total even though they sit outside level_12 Associate Benefits.
 MEA['payroll_total_burden'] = {
   id: 'payroll_total_burden',
