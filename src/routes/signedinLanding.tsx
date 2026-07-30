@@ -35,6 +35,7 @@ import Avatar from "@mui/material/Avatar";
 import SettingsIcon from "@mui/icons-material/Settings";
 import PersonIcon from "@mui/icons-material/Person";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
+import VpnKeyOutlinedIcon from "@mui/icons-material/VpnKeyOutlined";
 import Tooltip from "@mui/material/Tooltip";
 import { alpha } from "@mui/material/styles";
 import Paper from "@mui/material/Paper";
@@ -55,6 +56,7 @@ import { useSettingsStore } from "../store/settings";
 import authService, { Hotel } from "../services/auth";
 import mappingTablesService from "../services/mappingTablesService";
 import dailyFinancialSyncService from "../services/dailyFinancialSyncService";
+import { usePortalHandoff } from "../components/PortalHandoffDialog";
 
 // window.ipcApi / window.authApi are typed globally (src/renderer.ts,
 // src/services/auth.ts) — no local augmentation needed here.
@@ -191,6 +193,8 @@ export default function SignedInLanding() {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const accountMenuOpen = Boolean(anchorEl);
 
+  const { openPortal, dialog: portalDialog } = usePortalHandoff();
+
   const [hotelAnchorEl, setHotelAnchorEl] = useState<null | HTMLElement>(null);
   const hotelMenuOpen = Boolean(hotelAnchorEl);
 
@@ -252,6 +256,14 @@ const handleSettings = () => {
 
 const handleHelp = () => {
   navigate("/signed-in-landing/help");
+  handleMenuClose();
+};
+
+// Access, hotel/report permissions and request status are managed in the browser
+// portal — the desktop token cannot reach that surface at all. Always available,
+// so a user who has moved property does not have to trigger a 403 to find it.
+const handleAccessPortal = () => {
+  openPortal();
   handleMenuClose();
 };
 
@@ -580,6 +592,13 @@ const handleSignOut = useCallback(async () => {
           <SettingsIcon fontSize="small" />
         </ListItemIcon>
         <ListItemText>Settings</ListItemText>
+      </StyledMenuItem>
+
+      <StyledMenuItem onClick={handleAccessPortal}>
+        <ListItemIcon>
+          <VpnKeyOutlinedIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText>Access & Permissions</ListItemText>
       </StyledMenuItem>
 
       <StyledMenuItem onClick={handleHelp}>
@@ -974,6 +993,8 @@ const handleSignOut = useCallback(async () => {
         <DrawerHeader />
         <Outlet />
       </Box>
+
+      {portalDialog}
     </Box>
   );
 }

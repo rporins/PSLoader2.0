@@ -17,9 +17,20 @@
 import { net } from "electron";
 import { SessionManager } from "./sessionManager";
 
-/** Error carrying the HTTP status + server `detail` for level/approval mapping. */
+/**
+ * Error carrying the HTTP status + server `detail` for level/approval mapping.
+ *
+ * `code` is the server's stable machine code from `{"error": <code>}` — e.g.
+ * `ou_access_pending`, `app_access_not_granted`. It is the only reliable way to
+ * tell "waiting on a device approval" apart from "waiting on a permission", which
+ * the prose cannot do: several codes' detail text contains the word "pending".
+ */
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+    public readonly code: string | null = null
+  ) {
     super(message);
     this.name = "ApiError";
   }
@@ -95,10 +106,11 @@ export class ApiClient {
     );
   }
 
-  /** Throw ApiError(status, detail) on non-2xx; otherwise parse the JSON body. */
+  /** Throw ApiError(status, detail, code) on non-2xx; otherwise parse the JSON body. */
   async parse<T>(response: Response): Promise<T> {
     if (!response.ok) {
-      throw new ApiError(response.status, await extractDetail(response));
+      const { detail, code } = await extractError(response);
+      throw new ApiError(response.status, detail, code);
     }
     // Some endpoints (204) may have no body.
     const text = await response.text();
@@ -106,15 +118,27 @@ export class ApiClient {
   }
 }
 
-/** Pull the FastAPI `detail` message from an error response, best-effort. */
-export async function extractDetail(response: Response): Promise<string> {
+/**
+ * Pull both halves of an error body: the FastAPI `detail` prose and the server's
+ * machine `error` code. Authorization denials carry both; broker failures carry
+ * only `error`; the pre-existing tier/approval denials carry only `detail`.
+ *
+ * A response body can only be read once, which is why this returns both rather
+ * than leaving callers to re-read for the code.
+ */
+export async function extractError(
+  response: Response
+): Promise<{ detail: string; code: string | null }> {
   try {
     const body = await response.json();
+    const code =
+      body && typeof body.error === "string" && body.error ? body.error : null;
     if (body && typeof body.detail === "string") {
-      return body.detail;
+      return { detail: body.detail, code };
     }
-    return JSON.stringify(body);
+    // No prose: fall back to the code, then to the raw body.
+    return { detail: code ?? JSON.stringify(body), code };
   } catch {
-    return `Request failed with status ${response.status}`;
+    return { detail: `Request failed with status ${response.status}`, code: null };
   }
 }

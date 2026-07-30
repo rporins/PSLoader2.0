@@ -3,9 +3,9 @@
  * Handles app-level operations like version checks and updates
  */
 
-import { autoUpdater, net } from 'electron';
-import { BrowserWindow, app } from 'electron';
+import { autoUpdater, net, BrowserWindow, app, shell } from 'electron';
 import type { IpcHandler } from '../types';
+import { SWA_ORIGIN } from '../../config';
 
 // Use app.isPackaged to properly detect production vs development
 // app.isPackaged is true when running from a built/installed app
@@ -55,6 +55,29 @@ export function createAppHandlers(): Record<string, IpcHandler> {
   return {
     'app:get-version': async () => {
       return { version: app.getVersion() };
+    },
+
+    /**
+     * Hand a portal URL to the user's default browser.
+     *
+     * Origin-locked on purpose: the renderer may only open the SWA that already
+     * hosts the sign-in broker, so a compromised renderer cannot turn this into a
+     * general "open anything" primitive. main.ts's setWindowOpenHandler would also
+     * reach shell.openExternal, but its job is blocking popups — this is explicit.
+     */
+    // Signature is (event, request) — the registry calls handler(event, ...args).
+    'app:open-external': async (_event, url: string) => {
+      let target: URL;
+      try {
+        target = new URL(url);
+      } catch {
+        throw new Error('Not a valid URL');
+      }
+      if (target.protocol !== 'https:' || !url.startsWith(`${SWA_ORIGIN}/`)) {
+        throw new Error('Refused to open a URL outside the portal origin');
+      }
+      await shell.openExternal(url);
+      return { opened: true };
     },
 
     'app:check-for-updates': async () => {

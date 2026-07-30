@@ -1,4 +1,5 @@
 import api from './api';
+import { throwAccessDenied } from './accessErrors';
 
 export interface FinancialDataRecord {
   id: number;
@@ -42,7 +43,10 @@ class FinancialDataService {
 
     if (!response.ok) {
       if (response.status === 403) {
-        throw new Error('Access denied to this OU');
+        // Carries the server's machine code when there is one, so the screen can
+        // tell "no hotel access yet" (fixable in the portal) apart from
+        // "read-only grant" — the old blanket string could say neither.
+        await throwAccessDenied(response, 'Access denied to this OU');
       }
       const error = await response.json();
       throw new Error(error.detail || 'Failed to fetch financial data');
@@ -130,7 +134,7 @@ class FinancialDataService {
 
     if (!response.ok) {
       if (response.status === 403) {
-        throw new Error('Access denied to this OU');
+        await throwAccessDenied(response, 'Access denied to this OU');
       }
       const error = await response.json();
       throw new Error(error.detail || 'Failed to fetch server versions');
@@ -148,7 +152,7 @@ class FinancialDataService {
 
     if (!response.ok) {
       if (response.status === 403) {
-        throw new Error('Access denied to this OU');
+        await throwAccessDenied(response, 'Access denied to this OU');
       }
       const error = await response.json();
       throw new Error(error.detail || 'Failed to fetch financial data');

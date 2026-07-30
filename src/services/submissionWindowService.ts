@@ -1,4 +1,5 @@
 import api from './api';
+import { throwAccessDenied } from './accessErrors';
 
 /**
  * A single Owner-Budget submission window as returned by the API.
@@ -90,7 +91,7 @@ class SubmissionWindowService {
 
     if (!response.ok) {
       if (response.status === 403) {
-        throw new Error('Access denied to this OU');
+        await throwAccessDenied(response, 'Access denied to this OU');
       }
       const error = await response.json();
       throw new Error(error.detail || 'Failed to fetch submission windows');

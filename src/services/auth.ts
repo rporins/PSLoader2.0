@@ -15,7 +15,7 @@
  */
 
 import api from "./api";
-import { MS_BROKER_ERROR_PREFIX } from "../config";
+import { AUTHZ_ERROR_PREFIX, MS_BROKER_ERROR_PREFIX, PORTAL_NAME } from "../config";
 
 /**
  * The IPC error middleware rewrites every thrown error as `${code}: ${message}`
@@ -76,6 +76,83 @@ export function describeBrokerError(code: string): string {
     case "mint_failed":
     default:
       return "Microsoft sign-in is temporarily unavailable. Please try again.";
+  }
+}
+
+// ── Authorization denials (permissions, not devices) ────────────
+
+/**
+ * Classify an authorization denial: main re-throws these as `AUTHZ:<code>`, the
+ * same message-encoding trick as MS_BROKER. Returns the code or null.
+ *
+ * Match on this BEFORE any prose check — several codes' detail text contains the
+ * words "pending" and "approval", which the device screens key on.
+ */
+export function authzErrorCode(err: unknown): string | null {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return msg.startsWith(AUTHZ_ERROR_PREFIX)
+    ? msg.slice(AUTHZ_ERROR_PREFIX.length)
+    : null;
+}
+
+export interface AuthzDenial {
+  title: string;
+  body: string;
+  /** Whether the portal can actually resolve this — false means it cannot. */
+  portal: boolean;
+}
+
+/** User-facing copy for an authorization denial code. */
+export function describeAuthzError(code: string): AuthzDenial {
+  switch (code) {
+    case "app_access_not_granted":
+      return {
+        title: "PS Loader access not granted",
+        body: `Your account doesn't yet hold access to PS Loader. Request it in the ${PORTAL_NAME} portal — this isn't a device problem, so re-registering won't help.`,
+        portal: true,
+      };
+    case "ou_access_pending":
+      return {
+        title: "No hotel access yet",
+        body: `Your device is fine — your account just isn't linked to any hotel yet. Request the properties you work on in the ${PORTAL_NAME} portal.`,
+        portal: true,
+      };
+    case "department_access_pending":
+      return {
+        title: "No department access yet",
+        body: `Your account isn't linked to a department yet. Request the departments you need in the ${PORTAL_NAME} portal.`,
+        portal: true,
+      };
+    case "account_not_approved":
+      return {
+        title: "Account on hold",
+        body: `An administrator has placed your account on hold. You can ask for it to be lifted in the ${PORTAL_NAME} portal.`,
+        portal: true,
+      };
+    case "account_deactivated":
+      return {
+        title: "Account deactivated",
+        body: "This account has been switched off. Contact your administrator — this cannot be resolved by signing in again.",
+        portal: false,
+      };
+    case "app_requires_device":
+      return {
+        title: "Desktop app required",
+        body: "This action needs a verified device. Continue in the PS Loader desktop app rather than a browser.",
+        portal: false,
+      };
+    case "app_session_mismatch":
+      return {
+        title: "Device registered to a different app",
+        body: "This device is registered to another product, so it cannot reach PS Loader. Report this to support — re-verifying will not fix it.",
+        portal: false,
+      };
+    default:
+      return {
+        title: "Access not permitted",
+        body: `Your account doesn't have permission for this. Check what you hold, or request more, in the ${PORTAL_NAME} portal.`,
+        portal: true,
+      };
   }
 }
 
@@ -343,9 +420,17 @@ class AuthClient {
   }
 
   /**
-   * Request an account (passwordless): the broker token verifies identity. Used
-   * both by the explicit Register screen and by the login screen when /auth/login
-   * reports the user isn't registered yet.
+   * Request an account (passwordless): the broker token verifies identity.
+   *
+   * DORMANT — no caller. Registration moved to the browser portal: a brand-new
+   * account has no property, so no local approver can decide its device, and the
+   * request surface is unreachable with a tier-1 desktop token. The Register
+   * screen and the login screen now hand off to the portal instead.
+   *
+   * Kept (with its main-process handler and IPC channel) because removing it
+   * touches the preload type surface for no behavioural gain. Deleting the CALL
+   * SITES is what mattered: they were the second of the two broker-token reuses
+   * standing between today and BROKER_JTI_MODE=enforce.
    */
   async register(email: string): Promise<unknown> {
     return viaBridge(() => this.requireAuthApi().register({ email }));

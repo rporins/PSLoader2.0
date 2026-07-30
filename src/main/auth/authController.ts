@@ -13,7 +13,8 @@ import * as db from "../../local_db";
 import { SessionManager } from "./sessionManager";
 import { DeviceIdentity } from "./deviceIdentity";
 import { SecureStore } from "./secureStore";
-import { ApiClient, ApiError, extractDetail } from "./apiClient";
+import { ApiClient, ApiError, extractError } from "./apiClient";
+import { AUTHZ_ERROR_PREFIX } from "../../config";
 import { MsBroker, BrokerError } from "./msBroker";
 import { TpmBinding, TpmState } from "./tpmBinding";
 import { EmitDeviceProgress, DeviceProgressPhase } from "./deviceProgress";
@@ -62,6 +63,29 @@ export const DEVICE_SECRET_INVALID = "DEVICE_SECRET_INVALID";
  * admin-contact message rather than silently looping through registration.
  */
 export const DEVICE_TPM_MISMATCH = "DEVICE_TPM_MISMATCH";
+
+/**
+ * Server denial codes that are about the USER'S PERMISSIONS, not this device.
+ *
+ * A 403 used to mean one thing here — "device awaiting approval" — so every 403
+ * set `devicePending` and sent the user to a wait-for-your-admin screen. It can
+ * now also mean "you hold no grant for this app" or "you have no hotel access
+ * yet", neither of which a device approval will ever fix. Matching on the prose
+ * cannot separate them: `ou_access_pending` and `department_access_pending` both
+ * contain the word "pending", which is exactly what the old screen keyed on.
+ *
+ * These are re-thrown as `AUTHZ:<code>` so the renderer can offer the portal.
+ * `device_required` is deliberately absent — that one IS the device flow.
+ */
+const ACCESS_DENIAL_CODES = new Set([
+  "app_access_not_granted",
+  "app_requires_device",
+  "app_session_mismatch",
+  "ou_access_pending",
+  "department_access_pending",
+  "account_not_approved",
+  "account_deactivated",
+]);
 
 export interface AuthControllerDeps {
   sessionManager: SessionManager;
@@ -361,8 +385,15 @@ export class AuthController {
     }
 
     if (!response.ok) {
-      const detail = await extractDetail(response);
+      const { detail, code } = await extractError(response);
       emit("verify", "validate", "failed");
+
+      // Permission denials are checked FIRST and must not touch devicePending —
+      // otherwise a user with no hotel access is parked on a screen telling them
+      // to wait for a device approval that has already happened or never applies.
+      if (code && ACCESS_DENIAL_CODES.has(code)) {
+        throw new Error(AUTHZ_ERROR_PREFIX + code);
+      }
 
       if (response.status === 404 || detail.toLowerCase().includes("not found")) {
         throw new Error(DEVICE_NOT_REGISTERED); // -> renderer triggers registration
@@ -536,7 +567,13 @@ export class AuthController {
 
     if (!response.ok) {
       emit("register", "submit", "failed");
-      throw new Error(await extractDetail(response));
+      const { detail, code } = await extractError(response);
+      // Same reasoning as runVerify: a permission denial here is not a
+      // registration failure the user can retry their way out of.
+      if (code && ACCESS_DENIAL_CODES.has(code)) {
+        throw new Error(AUTHZ_ERROR_PREFIX + code);
+      }
+      throw new Error(detail);
     }
 
     // { message, device_id, approval_status/status, tpm_enrolled }

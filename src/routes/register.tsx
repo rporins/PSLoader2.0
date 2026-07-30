@@ -1,30 +1,37 @@
-// Register.tsx — Modern Registration Form
+// Register.tsx — hand-off to the web access portal
 // ---------------------------------------------------------------------------------
-// Purpose: User registration with clean, modern design
+// Registration does NOT happen in the desktop app any more.
+//
+// Two facts force it into the browser. A brand-new account holds no property, so
+// no local approver can decide its device — only an administrator can, which put
+// every new starter behind the smallest group in the company. And the whole
+// request surface (`/access/*`) is gated above the tier a freshly-signed-in
+// desktop client holds, so the app literally cannot submit an access request.
+// The portal has neither problem: it needs only a broker token.
+//
+// The device stays here. The device IS the install, which is the entire point of
+// the second tier — this screen is only about who the user is and what they may
+// see.
 // ---------------------------------------------------------------------------------
 
-import React, { useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { brokerErrorCode, describeBrokerError } from "../services/auth";
+import React from "react";
+import { useNavigate } from "react-router-dom";
 import {
-  Alert,
   Box,
   Button,
   Card,
   CardContent,
-  CircularProgress,
+  Alert,
   IconButton,
-  InputAdornment,
   Stack,
-  TextField,
   Typography,
-  useMediaQuery,
 } from "@mui/material";
 import { alpha, styled, useTheme, keyframes } from "@mui/material/styles";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import EmailIcon from "@mui/icons-material/Email";
 import PersonAddAltRoundedIcon from "@mui/icons-material/PersonAddAltRounded";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
+import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
+import { usePortalLink } from "../hooks/usePortalLink";
 
 // ────────────────────────────────────────────────────────────
 // ANIMATIONS
@@ -62,12 +69,6 @@ const chromaticWave = keyframes`
     background-position: 0% 50%;
     filter: hue-rotate(0deg);
   }
-`;
-
-const successPulse = keyframes`
-  0% { transform: scale(0.8); opacity: 0; }
-  50% { transform: scale(1.1); opacity: 1; }
-  100% { transform: scale(1); opacity: 1; }
 `;
 
 // ────────────────────────────────────────────────────────────
@@ -173,38 +174,6 @@ const StyledCard = styled(Card)(({ theme }) => ({
        inset 0 1px 0 rgba(255, 255, 255, 0.9)`,
 }));
 
-const StyledTextField = styled(TextField)(({ theme }) => ({
-  "& .MuiOutlinedInput-root": {
-    borderRadius: 16,
-    backgroundColor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.1 : 0.5),
-    backdropFilter: "blur(10px)",
-    transition: "all 0.3s cubic-bezier(0.23, 1, 0.32, 1)",
-
-    "&:hover": {
-      backgroundColor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.15 : 0.6),
-    },
-
-    "&.Mui-focused": {
-      backgroundColor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.2 : 0.7),
-      boxShadow: `0 0 0 3px ${alpha(theme.palette.primary.main, 0.1)}`,
-    },
-  },
-
-  "& .MuiOutlinedInput-notchedOutline": {
-    borderColor: alpha(theme.palette.divider, 0.3),
-    transition: "border-color 0.3s",
-  },
-
-  "& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline": {
-    borderColor: alpha(theme.palette.primary.main, 0.4),
-  },
-
-  "& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline": {
-    borderColor: theme.palette.primary.main,
-    borderWidth: 2,
-  },
-}));
-
 const PremiumButton = styled(Button)(({ theme }) => ({
   borderRadius: 18,
   textTransform: "none",
@@ -235,6 +204,23 @@ const PremiumButton = styled(Button)(({ theme }) => ({
   },
 }));
 
+const SecondaryButton = styled(Button)(({ theme }) => ({
+  borderRadius: 18,
+  textTransform: "none",
+  fontWeight: 600,
+  fontSize: "0.95rem",
+  padding: "14px 28px",
+  border: `1px solid ${alpha(theme.palette.divider, 0.4)}`,
+  backgroundColor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.1 : 0.5),
+  backdropFilter: "blur(10px)",
+  transition: "all 0.3s cubic-bezier(0.23, 1, 0.32, 1)",
+
+  "&:hover": {
+    borderColor: alpha(theme.palette.primary.main, 0.5),
+    backgroundColor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.18 : 0.7),
+  },
+}));
+
 const BackButton = styled(IconButton)(({ theme }) => ({
   position: "absolute",
   top: 20,
@@ -250,99 +236,25 @@ const BackButton = styled(IconButton)(({ theme }) => ({
   },
 }));
 
+const UrlBox = styled("div")(({ theme }) => ({
+  padding: "12px 14px",
+  borderRadius: 14,
+  fontFamily: "monospace",
+  fontSize: 13,
+  wordBreak: "break-all",
+  textAlign: "left",
+  border: `1px solid ${alpha(theme.palette.divider, 0.3)}`,
+  backgroundColor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.12 : 0.55),
+}));
+
 // ────────────────────────────────────────────────────────────
 // MAIN COMPONENT
 // ────────────────────────────────────────────────────────────
 
-interface RegisterFormData {
-  email: string;
-}
-
 export default function Register() {
   const navigate = useNavigate();
-  const location = useLocation();
   const theme = useTheme();
-
-  // Verified company email from the Microsoft entrance (router state); if absent
-  // (deep link / back), we verify in place before requesting the account.
-  const verifiedEmail = (location.state as { msEmail?: string } | null)?.msEmail;
-
-  const [formData, setFormData] = useState<RegisterFormData>({
-    email: verifiedEmail ?? "",
-  });
-
-  const [msVerified, setMsVerified] = useState(!!verifiedEmail);
-  const [msVerifying, setMsVerifying] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-
-  // In-place Microsoft verification (fallback when landed here without an email).
-  const handleMicrosoftVerify = async () => {
-    if (!window.authApi) {
-      setError("Auth bridge unavailable. Please restart the app.");
-      return;
-    }
-    setError(null);
-    setMsVerifying(true);
-    try {
-      const result = await window.authApi.beginMicrosoftSignIn();
-      setFormData((f) => ({ ...f, email: result.email }));
-      setMsVerified(true);
-    } catch (err) {
-      const code = brokerErrorCode(err);
-      if (code !== "cancelled") {
-        setError(
-          code
-            ? describeBrokerError(code)
-            : err instanceof Error
-            ? err.message
-            : "Marriott SSO sign-in failed."
-        );
-      }
-    } finally {
-      setMsVerifying(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Passwordless account request routed through the main process. Main
-      // attaches the verified broker token and uses the token's email as
-      // identity; the `email` we pass is for display only.
-      if (!window.authApi) {
-        throw new Error("Auth bridge unavailable");
-      }
-      await window.authApi.register({ email: formData.email });
-      // The account is created UNAPPROVED — do not auto-redirect to a login the
-      // user can't use yet; the success state explains the approval step.
-      setSuccess(true);
-    } catch (err) {
-      const code = brokerErrorCode(err);
-      if (code) {
-        setError(describeBrokerError(code));
-        if (code === "domain_not_allowed" || code === "no_principal") {
-          setMsVerified(false);
-        }
-      } else {
-        const msg = err instanceof Error ? err.message : "";
-        if (/already registered/i.test(msg)) {
-          setError(
-            `You already have an account for ${formData.email} — please sign in.`
-          );
-        } else {
-          setError(msg || "An unexpected error occurred");
-        }
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const portal = usePortalLink();
 
   return (
     <PageRoot>
@@ -361,216 +273,117 @@ export default function Register() {
       <Box sx={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 480, px: 2 }}>
         <StyledCard elevation={0}>
           <CardContent sx={{ p: 5 }}>
-            {success ? (
-              // Success state
-              <Stack alignItems="center" spacing={3} sx={{ py: 4 }}>
-                <Box
-                  sx={{
-                    width: 80,
-                    height: 80,
-                    borderRadius: "50%",
-                    background: `linear-gradient(135deg, #10b981, #059669)`,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    animation: `${successPulse} 0.6s ease-out`,
-                    boxShadow: `0 20px 40px rgba(16, 185, 129, 0.3)`,
-                  }}
-                >
-                  <CheckCircleIcon sx={{ fontSize: 48, color: "#ffffff" }} />
-                </Box>
-                <Typography
-                  variant="h5"
-                  sx={{
-                    fontWeight: 700,
-                    background: `linear-gradient(135deg, #10b981, #059669)`,
-                    WebkitBackgroundClip: "text",
-                    WebkitTextFillColor: "transparent",
-                  }}
-                >
-                  Account requested
+            <Box sx={{ textAlign: "center", mb: 4 }}>
+              <Box
+                sx={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: "20%",
+                  background: `linear-gradient(135deg, #667eea, #764ba2)`,
+                  boxShadow: `0 20px 40px rgba(118,75,162,0.4)`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  margin: "0 auto 16px",
+                }}
+              >
+                <PersonAddAltRoundedIcon sx={{ color: "#ffffff", fontSize: 28 }} />
+              </Box>
+              <Typography
+                variant="h4"
+                sx={{
+                  fontWeight: 800,
+                  fontSize: "2rem",
+                  lineHeight: 1.1,
+                  mb: 1,
+                  background:
+                    theme.palette.mode === "dark"
+                      ? `linear-gradient(135deg, #ffffff, #c9b8ff)`
+                      : `linear-gradient(135deg, #1a1a2e, #764ba2)`,
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                }}
+              >
+                Register in the {portal.name} portal
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{
+                  color: theme.palette.text.secondary,
+                  opacity: 0.85,
+                  fontSize: "0.875rem",
+                }}
+              >
+                Accounts, hotel access and request status all live there
+              </Typography>
+            </Box>
+
+            <Stack spacing={3}>
+              <Typography
+                variant="body2"
+                sx={{ textAlign: "center", color: theme.palette.text.secondary }}
+              >
+                Sign in there with the same Marriott SSO account you use here, then
+                request the hotels and reports you work on. Once your access is
+                granted, come back and sign in — this app will register and verify
+                this device itself.
+              </Typography>
+
+              <Box>
+                <Typography variant="caption" sx={{ fontWeight: 600, opacity: 0.8 }}>
+                  Portal link
                 </Typography>
-                <Typography
-                  variant="body1"
-                  color="text.secondary"
-                  align="center"
-                >
-                  An administrator must approve your account before you can sign
-                  in. You'll also approve this device on your first sign-in.
-                </Typography>
-                <PremiumButton
-                  fullWidth
-                  size="large"
+                <UrlBox>{portal.url}</UrlBox>
+              </Box>
+
+              {portal.openError && (
+                <Alert severity="warning" sx={{ borderRadius: 3 }}>
+                  {portal.openError}
+                </Alert>
+              )}
+
+              <PremiumButton
+                fullWidth
+                size="large"
+                startIcon={<OpenInNewRoundedIcon />}
+                onClick={portal.openInBrowser}
+                sx={{ color: "white" }}
+              >
+                Open in my browser
+              </PremiumButton>
+
+              <SecondaryButton
+                fullWidth
+                size="large"
+                startIcon={<ContentCopyRoundedIcon />}
+                onClick={portal.copy}
+              >
+                {portal.copied ? "Link copied" : "Copy link instead"}
+              </SecondaryButton>
+            </Stack>
+
+            {/* Sign in link */}
+            <Box sx={{ textAlign: "center", mt: 3 }}>
+              <Typography variant="body2" color="text.secondary">
+                Already have access?{" "}
+                <Button
                   onClick={() => navigate("/login")}
-                  sx={{ mt: 1, color: "white" }}
+                  sx={{
+                    textTransform: "none",
+                    fontWeight: 600,
+                    color: theme.palette.primary.main,
+                    p: 0,
+                    minWidth: "auto",
+                    "&:hover": {
+                      background: "transparent",
+                      textDecoration: "underline",
+                    },
+                  }}
                 >
-                  Back to sign in
-                </PremiumButton>
-              </Stack>
-            ) : (
-              // Registration form
-              <>
-                {/* Header */}
-                <Box sx={{ textAlign: "center", mb: 4 }}>
-                  <Box
-                    sx={{
-                      width: 56,
-                      height: 56,
-                      borderRadius: "20%",
-                      background: `linear-gradient(135deg, #667eea, #764ba2)`,
-                      boxShadow: `0 20px 40px rgba(118,75,162,0.4)`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      margin: "0 auto 16px",
-                    }}
-                  >
-                    <PersonAddAltRoundedIcon sx={{ color: "#ffffff", fontSize: 28 }} />
-                  </Box>
-                  <Typography
-                    variant="h4"
-                    sx={{
-                      fontWeight: 800,
-                      fontSize: "2rem",
-                      lineHeight: 1.1,
-                      mb: 1,
-                      background:
-                        theme.palette.mode === "dark"
-                          ? `linear-gradient(135deg, #ffffff, #c9b8ff)`
-                          : `linear-gradient(135deg, #1a1a2e, #764ba2)`,
-                      WebkitBackgroundClip: "text",
-                      WebkitTextFillColor: "transparent",
-                    }}
-                  >
-                    Create Account
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      color: theme.palette.text.secondary,
-                      opacity: 0.8,
-                      fontSize: "0.875rem",
-                    }}
-                  >
-                    Create your account to get started
-                  </Typography>
-                </Box>
-
-                {/* Error alert */}
-                {error && (
-                  <Alert
-                    severity="error"
-                    sx={{
-                      mb: 3,
-                      borderRadius: 4,
-                      background: alpha("#ef4444", 0.08),
-                      border: `1px solid ${alpha("#ef4444", 0.2)}`,
-                      backdropFilter: "blur(10px)",
-                    }}
-                    onClose={() => setError(null)}
-                  >
-                    {error}
-                  </Alert>
-                )}
-
-                {/* Microsoft-gated: verify company identity to request an account */}
-                {!msVerified ? (
-                  <Stack spacing={3}>
-                    <Typography
-                      variant="body2"
-                      sx={{ textAlign: "center", color: theme.palette.text.secondary }}
-                    >
-                      Verify your company Marriott SSO account to request an account.
-                    </Typography>
-                    <PremiumButton
-                      fullWidth
-                      size="large"
-                      onClick={handleMicrosoftVerify}
-                      disabled={msVerifying}
-                      sx={{ color: "white" }}
-                    >
-                      {msVerifying ? (
-                        <CircularProgress size={24} sx={{ color: "white" }} />
-                      ) : (
-                        "Register with Marriott SSO"
-                      )}
-                    </PremiumButton>
-                  </Stack>
-                ) : (
-                <form onSubmit={handleSubmit}>
-                  <Stack spacing={3}>
-                    {/* Email field (verified via Microsoft — read-only) */}
-                    <StyledTextField
-                      fullWidth
-                      label="Email Address"
-                      type="email"
-                      value={formData.email}
-                      helperText="Verified via Marriott SSO"
-                      InputProps={{
-                        readOnly: true,
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <EmailIcon sx={{ color: "text.secondary" }} />
-                          </InputAdornment>
-                        ),
-                        endAdornment: (
-                          <InputAdornment position="end">
-                            <CheckCircleIcon fontSize="small" sx={{ color: "#10b981" }} />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-
-                    <Typography
-                      variant="body2"
-                      sx={{ textAlign: "center", color: theme.palette.text.secondary }}
-                    >
-                      No password needed — your Marriott SSO identity is your
-                      credential. An administrator will approve your account.
-                    </Typography>
-
-                    {/* Submit button */}
-                    <PremiumButton
-                      fullWidth
-                      type="submit"
-                      size="large"
-                      disabled={loading}
-                      sx={{ mt: 1, color: "white" }}
-                    >
-                      {loading ? (
-                        <CircularProgress size={24} sx={{ color: "white" }} />
-                      ) : (
-                        "Request Account"
-                      )}
-                    </PremiumButton>
-                  </Stack>
-                </form>
-                )}
-
-                {/* Sign in link */}
-                <Box sx={{ textAlign: "center", mt: 3 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    Already have an account?{" "}
-                    <Button
-                      onClick={() => navigate("/login")}
-                      sx={{
-                        textTransform: "none",
-                        fontWeight: 600,
-                        color: theme.palette.primary.main,
-                        p: 0,
-                        minWidth: "auto",
-                        "&:hover": {
-                          background: "transparent",
-                          textDecoration: "underline",
-                        },
-                      }}
-                    >
-                      Sign in
-                    </Button>
-                  </Typography>
-                </Box>
-              </>
-            )}
+                  Sign in
+                </Button>
+              </Typography>
+            </Box>
           </CardContent>
         </StyledCard>
       </Box>
