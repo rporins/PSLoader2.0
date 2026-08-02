@@ -36,6 +36,8 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import InputAdornment from '@mui/material/InputAdornment';
 import IconButton from '@mui/material/IconButton';
 import marriottLogo from '../images/marriott_logo.png';
+// [AUTH-DEBUG] temporary sign-in tracing — delete with main/auth/authDebug.ts
+import AuthDebugToggle from '../components/AuthDebugToggle';
 
 // Animations from landing page
 const liquidMorph = keyframes`
@@ -495,6 +497,9 @@ const Login: React.FC = () => {
 
   return (
     <PageRoot>
+      {/* [AUTH-DEBUG] temporary sign-in tracing toggle (discreet corner dot) */}
+      <AuthDebugToggle />
+
       <LiquidMetalOrbs $reduceMotion={false}>
         <div className="metal-orb orb1" />
         <div className="metal-orb orb2" />
