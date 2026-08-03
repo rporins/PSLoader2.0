@@ -3,7 +3,7 @@
  * -----------------------------------------------------------
  */
 
-import { app, BrowserWindow, session, shell } from "electron";
+import { app, BrowserWindow, Menu, session, shell } from "electron";
 import { autoUpdater } from "electron";
 import { updateElectronApp } from "update-electron-app";
 import log from "electron-log";
@@ -103,6 +103,35 @@ const logger = {
 // ────────────────────────────────────────────────────────────
 
 let mainWindow: Nullable<BrowserWindow> = null;
+
+/**
+ * Install an explicit application menu.
+ *
+ * When an Electron app never sets one, Electron installs a default menu whose View
+ * submenu carries the `resetZoom` (Ctrl+0), `zoomIn` and `zoomOut` roles. Those write
+ * webContents.zoomLevel straight through, behind the back of the UI-scale policy in
+ * ipc/handlers/window.ts — so a stray keystroke silently desyncs the rendered zoom
+ * from the persisted Display Scale setting, with no visible menu bar to explain it.
+ *
+ * This template keeps the roles the app relies on (DevTools via Ctrl+Shift+I / F12,
+ * reload, fullscreen) and omits the zoom ones. Scale is changed only in Settings.
+ */
+function setupApplicationMenu(): void {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "View",
+        submenu: [
+          { role: "reload" },
+          { role: "forceReload" },
+          { role: "toggleDevTools" },
+          { type: "separator" },
+          { role: "togglefullscreen" },
+        ],
+      },
+    ])
+  );
+}
 
 function createMainWindow(): void {
   mainWindow = new BrowserWindow({
@@ -324,6 +353,14 @@ app.on("ready", async () => {
       logger,
       devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL ?? null,
     });
+
+    // Replace Electron's default menu before any window exists. The default menu's
+    // View submenu binds Ctrl+0 / Ctrl+- / Ctrl+= to zoom roles that write
+    // webContents.zoomLevel directly, bypassing the UI-scale policy in
+    // ipc/handlers/window.ts — which leaves the Settings slider reading one value
+    // while the screen renders another. autoHideMenuBar keeps the bar itself hidden,
+    // so dropping those roles is invisible; only the accelerators change.
+    setupApplicationMenu();
 
     createMainWindow();
 
