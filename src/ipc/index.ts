@@ -4,6 +4,7 @@
  */
 
 import { ipcRegistry } from "./registry";
+import { createAuthDebugHandlers } from "./handlers/authDebug"; // [AUTH-DEBUG]
 import { createAuthHandlers, createDataHandlers, createDatabaseHandlers, createHardwareHandlers, createDataImportHandlers, createSettingsHandlers, createImportsHandlers, createValidationHandlers, createAppHandlers, createExcelExportHandlers, createTemplateExportHandlers, createProteaReportPackHandlers, createProteaBudgetPackHandlers, createBSTExtractHandlers, createWindowHandlers } from "./handlers";
 import {
   loggingMiddleware,
@@ -31,7 +32,7 @@ export function initializeIpc(deps: {
   /** Vite dev-server origin (dev only); trusted alongside file:// senders. */
   devServerUrl?: string | null;
 }) {
-  const { authController, apiClient, logger, devServerUrl } = deps;
+  const { authController, apiClient, logger, devServerUrl, sendToRenderer } = deps;
 
   // Set up global middleware. Sender validation runs first so untrusted frames
   // are rejected before any handler logic executes.
@@ -44,6 +45,12 @@ export function initializeIpc(deps: {
   // Register auth handlers (backed by the main-process AuthController)
   const authHandlers = createAuthHandlers(authController);
   Object.entries(authHandlers).forEach(([channel, handler]) => {
+    ipcRegistry.register(channel, handler);
+  });
+
+  // [AUTH-DEBUG] Register temporary sign-in tracing handlers
+  const authDebugHandlers = createAuthDebugHandlers(sendToRenderer);
+  Object.entries(authDebugHandlers).forEach(([channel, handler]) => {
     ipcRegistry.register(channel, handler);
   });
 

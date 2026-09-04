@@ -3,9 +3,9 @@
  * Handles app-level operations like version checks and updates
  */
 
-import { autoUpdater, net } from 'electron';
-import { BrowserWindow, app } from 'electron';
+import { autoUpdater, net, BrowserWindow, app, shell } from 'electron';
 import type { IpcHandler } from '../types';
+import { SWA_ORIGIN } from '../../config';
 
 // Use app.isPackaged to properly detect production vs development
 // app.isPackaged is true when running from a built/installed app
@@ -14,6 +14,17 @@ const isDev = !app.isPackaged;
 
 // Store the latest release info when update is available
 let latestReleaseInfo: { version: string; releaseNotes: string } | null = null;
+
+// Electron's Windows autoUpdater emits "Update URL is not set" if
+// checkForUpdates() runs before setFeedURL(). main.ts flips this once
+// update-electron-app has configured the feed, so the renderer's manual check
+// can never race ahead of it.
+let autoUpdaterReady = false;
+
+/** Called by main.ts right after update-electron-app has set the feed URL. */
+export function markAutoUpdaterReady(): void {
+  autoUpdaterReady = true;
+}
 
 /**
  * Fetch latest release info from GitHub
@@ -57,6 +68,29 @@ export function createAppHandlers(): Record<string, IpcHandler> {
       return { version: app.getVersion() };
     },
 
+    /**
+     * Hand a portal URL to the user's default browser.
+     *
+     * Origin-locked on purpose: the renderer may only open the SWA that already
+     * hosts the sign-in broker, so a compromised renderer cannot turn this into a
+     * general "open anything" primitive. main.ts's setWindowOpenHandler would also
+     * reach shell.openExternal, but its job is blocking popups — this is explicit.
+     */
+    // Signature is (event, request) — the registry calls handler(event, ...args).
+    'app:open-external': async (_event, url: string) => {
+      let target: URL;
+      try {
+        target = new URL(url);
+      } catch {
+        throw new Error('Not a valid URL');
+      }
+      if (target.protocol !== 'https:' || !url.startsWith(`${SWA_ORIGIN}/`)) {
+        throw new Error('Refused to open a URL outside the portal origin');
+      }
+      await shell.openExternal(url);
+      return { opened: true };
+    },
+
     'app:check-for-updates': async () => {
       // console.log('[AppHandlers] Checking for updates...');
       // console.log('[AppHandlers] Current version:', app.getVersion());
@@ -70,6 +104,21 @@ export function createAppHandlers(): Record<string, IpcHandler> {
           latestVersion: app.getVersion(),
           devMode: true,
           message: 'Update checks only work in production builds'
+        };
+      }
+
+      // Defensive: if the feed URL isn't configured yet, calling
+      // checkForUpdates() would emit "Update URL is not set" and paint the
+      // error screen. update-electron-app's own startup check covers this
+      // launch anyway, so just report "nothing to do" and let the renderer
+      // continue into the app.
+      if (!autoUpdaterReady) {
+        return {
+          updateAvailable: false,
+          currentVersion: app.getVersion(),
+          latestVersion: app.getVersion(),
+          devMode: false,
+          checking: false,
         };
       }
 

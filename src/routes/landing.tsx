@@ -20,6 +20,8 @@ import PersonAddAltRoundedIcon from "@mui/icons-material/PersonAddAltRounded";
 import HelpOutlineRoundedIcon from "@mui/icons-material/HelpOutlineRounded";
 import marriottLogo from "../images/marriott_logo.png";
 import { brokerErrorCode, describeBrokerError } from "../services/auth";
+// [AUTH-DEBUG] temporary sign-in tracing — delete with main/auth/authDebug.ts
+import AuthDebugToggle from "../components/AuthDebugToggle";
 
 // 3D imports
 import { Canvas, useFrame } from "@react-three/fiber";
@@ -674,6 +676,9 @@ export default function Landing() {
 
   return (
     <PageRoot>
+      {/* [AUTH-DEBUG] temporary sign-in tracing toggle (discreet corner dot) */}
+      <AuthDebugToggle />
+
       {/* 3D Scene with chrome spheres and particles */}
       <Scene3D reduceMotion={false} />
 

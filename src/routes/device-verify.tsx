@@ -1,7 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import authService, { DeviceProgressEvent } from '../services/auth';
+import authService, {
+  DeviceProgressEvent,
+  authzErrorCode,
+  describeAuthzError,
+  type AuthzDenial,
+} from '../services/auth';
 import { useThemeMode } from '../store/settings';
+import { usePortalHandoff } from '../components/PortalHandoffDialog';
+import { PORTAL_NAME } from '../config';
 import '../styles/auth.css';
 
 /**
@@ -43,10 +50,15 @@ const DeviceVerify: React.FC = () => {
   const navigate = useNavigate();
   const themeMode = useThemeMode();
   const isDark = themeMode === 'dark';
-  const [status, setStatus] = useState<'verifying' | 'registering' | 'pending' | 'error' | 'tpm-mismatch'>('verifying');
+  const [status, setStatus] = useState<
+    'verifying' | 'registering' | 'pending' | 'error' | 'tpm-mismatch' | 'access-needed'
+  >('verifying');
   const [message, setMessage] = useState('Verifying device security...');
   const [error, setError] = useState('');
   const [deviceId, setDeviceId] = useState<string | null>(null);
+  /** Set when the server refused for a PERMISSIONS reason, not a device one. */
+  const [denial, setDenial] = useState<AuthzDenial | null>(null);
+  const { openPortal, dialog: portalDialog } = usePortalHandoff();
 
   // Which bar is showing, and the state of each of its steps.
   const [phase, setPhase] = useState<'verify' | 'register'>('verify');
@@ -100,6 +112,20 @@ const DeviceVerify: React.FC = () => {
         navigate('/signed-in-landing/home');
       }, 400);
     } catch (err: any) {
+      // MUST come first. Several server codes (ou_access_pending,
+      // department_access_pending, account_not_approved) contain the words
+      // "pending" and "approval", which the device branch below matches on — so
+      // checking prose first would park a user with no hotel access on a screen
+      // telling them to wait for a device approval that will never fix it.
+      const authz = authzErrorCode(err);
+      if (authz) {
+        setDenial(describeAuthzError(authz));
+        setStatus('access-needed');
+        setError('');
+        setDeviceId(authService.getDeviceId());
+        return;
+      }
+
       if (
         err.message === 'DEVICE_NOT_REGISTERED' ||
         err.message === 'DEVICE_SECRET_INVALID'
@@ -147,6 +173,14 @@ const DeviceVerify: React.FC = () => {
           navigate('/signed-in-landing/home');
         }, 400);
       } catch (verifyErr: any) {
+        // Permission codes before prose — see the note in verifyDevice().
+        const authz = authzErrorCode(verifyErr);
+        if (authz) {
+          setDenial(describeAuthzError(authz));
+          setStatus('access-needed');
+          setError('');
+          return;
+        }
         // Device is registered but not approved yet
         if (verifyErr.message?.includes('pending') || verifyErr.message?.includes('approval')) {
           setStatus('pending');
@@ -157,6 +191,13 @@ const DeviceVerify: React.FC = () => {
         }
       }
     } catch (err: any) {
+      const authz = authzErrorCode(err);
+      if (authz) {
+        setDenial(describeAuthzError(authz));
+        setStatus('access-needed');
+        setError('');
+        return;
+      }
       setStatus('error');
       setError(err.message || 'Device registration failed');
     }
@@ -167,6 +208,7 @@ const DeviceVerify: React.FC = () => {
     setStatus('verifying');
     setMessage('Verifying device security...');
     setError('');
+    setDenial(null);
     verifyDevice();
   };
 
@@ -183,7 +225,7 @@ const DeviceVerify: React.FC = () => {
               <circle cx="40" cy="40" r="38" stroke="#FF3B30" strokeWidth="2" opacity="0.3"/>
               <path d="M50 30L30 50M30 30L50 50" stroke="#FF3B30" strokeWidth="3" strokeLinecap="round"/>
             </svg>
-          ) : status === 'pending' ? (
+          ) : status === 'pending' || status === 'access-needed' ? (
             <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
               <circle cx="40" cy="40" r="38" stroke="#FF9500" strokeWidth="2" opacity="0.3"/>
               <path d="M40 25v20M40 55v.01" stroke="#FF9500" strokeWidth="3" strokeLinecap="round"/>
@@ -208,8 +250,18 @@ const DeviceVerify: React.FC = () => {
           )}
         </div>
 
-        <h2 className="auth-title">{status === 'pending' ? 'Awaiting Approval' : 'Device Security'}</h2>
-        <p className="auth-subtitle">{message}</p>
+        <h2 className="auth-title">
+          {status === 'access-needed'
+            ? denial?.title ?? 'Access needed'
+            : status === 'pending'
+            ? 'Awaiting Approval'
+            : 'Device Security'}
+        </h2>
+        <p className="auth-subtitle">
+          {status === 'access-needed'
+            ? 'This device is fine — the hold is on your account permissions.'
+            : message}
+        </p>
 
         {status === 'verifying' || status === 'registering' ? (
           <div className="progress-container">
@@ -250,6 +302,47 @@ const DeviceVerify: React.FC = () => {
           </>
         )}
 
+        {status === 'access-needed' && denial && (
+          // A permissions wall, NOT a device one. Re-registering or waiting for a
+          // device approval cannot resolve any of these, so the card sends the
+          // user to the portal instead of leaving them to guess.
+          <div className="pending-message">
+            <div className="info-box">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="#FF9500">
+                <path d="M10 0C4.48 0 0 4.48 0 10s4.48 10 10 10 10-4.48 10-10S15.52 0 10 0zm1 15h-2v-2h2v2zm0-4h-2V5h2v6z"/>
+              </svg>
+              <div>
+                <p style={{ marginBottom: '12px', fontWeight: 600 }}>{denial.title}</p>
+                <p style={{ marginBottom: '16px' }}>{denial.body}</p>
+                {deviceId && <DeviceIdField deviceId={deviceId} isDark={isDark} />}
+              </div>
+            </div>
+            {denial.portal && (
+              <button
+                onClick={openPortal}
+                className="submit-button"
+                style={{ marginTop: '16px' }}
+              >
+                Open the {PORTAL_NAME} portal
+              </button>
+            )}
+            <button
+              onClick={retry}
+              className="submit-button retry-button"
+              style={{ marginTop: '12px' }}
+            >
+              I've done that — try again
+            </button>
+            <button
+              onClick={() => navigate('/')}
+              className="resend-button"
+              style={{ marginTop: '12px' }}
+            >
+              Back to Login
+            </button>
+          </div>
+        )}
+
         {status === 'pending' && (
           <div className="pending-message">
             <div className="info-box">
@@ -268,6 +361,15 @@ const DeviceVerify: React.FC = () => {
             </div>
             <button onClick={() => navigate('/')} className="submit-button" style={{ marginTop: '16px' }}>
               Back to Login
+            </button>
+            {/* Hotel/report access is decided separately from the device, so it is
+                worth requesting now rather than after the device is approved. */}
+            <button
+              onClick={openPortal}
+              className="resend-button"
+              style={{ marginTop: '12px' }}
+            >
+              Request hotel access in the {PORTAL_NAME} portal
             </button>
           </div>
         )}
@@ -301,6 +403,8 @@ const DeviceVerify: React.FC = () => {
           </div>
         )}
       </div>
+
+      {portalDialog}
     </div>
   );
 };

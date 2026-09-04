@@ -3,7 +3,7 @@
  * -----------------------------------------------------------
  */
 
-import { app, BrowserWindow, session, shell } from "electron";
+import { app, BrowserWindow, Menu, session, shell } from "electron";
 import { autoUpdater } from "electron";
 import { updateElectronApp } from "update-electron-app";
 import log from "electron-log";
@@ -11,7 +11,7 @@ import path from "path";
 import dotenv from "dotenv";
 import { initializeDatabase, closeLocalDatabase } from "./local_db";
 import { initializeIpc } from "./ipc";
-import { setupAutoUpdaterEvents } from "./ipc/handlers/app";
+import { setupAutoUpdaterEvents, markAutoUpdaterReady } from "./ipc/handlers/app";
 import { attachUiScale } from "./ipc/handlers/window";
 import { createAuthStack } from "./main/auth";
 import { API_BASE_URL, SWA_ORIGIN } from "./config";
@@ -104,6 +104,35 @@ const logger = {
 
 let mainWindow: Nullable<BrowserWindow> = null;
 
+/**
+ * Install an explicit application menu.
+ *
+ * When an Electron app never sets one, Electron installs a default menu whose View
+ * submenu carries the `resetZoom` (Ctrl+0), `zoomIn` and `zoomOut` roles. Those write
+ * webContents.zoomLevel straight through, behind the back of the UI-scale policy in
+ * ipc/handlers/window.ts — so a stray keystroke silently desyncs the rendered zoom
+ * from the persisted Display Scale setting, with no visible menu bar to explain it.
+ *
+ * This template keeps the roles the app relies on (DevTools via Ctrl+Shift+I / F12,
+ * reload, fullscreen) and omits the zoom ones. Scale is changed only in Settings.
+ */
+function setupApplicationMenu(): void {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "View",
+        submenu: [
+          { role: "reload" },
+          { role: "forceReload" },
+          { role: "toggleDevTools" },
+          { type: "separator" },
+          { role: "togglefullscreen" },
+        ],
+      },
+    ])
+  );
+}
+
 function createMainWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1100,
@@ -164,9 +193,6 @@ function createMainWindow(): void {
 
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
-    // Initialize auto-updater AFTER window is visible
-    // This ensures users see the app immediately
-    initializeAutoUpdater();
     // DevTools can be opened with Ctrl+Shift+I or F12 (Electron default shortcuts)
     // No automatic opening in production or development
   });
@@ -241,10 +267,13 @@ function setupContentSecurityPolicy(devServerUrl?: string): void {
  * Configure auto-updater using update-electron-app
  * This works with Electron Forge + Squirrel.Windows
  * Only runs in packaged/production builds
- */
-/**
- * Initialize auto-updater AFTER window is shown
- * This ensures users see the app immediately, then updates happen in background
+ *
+ * Must run BEFORE the renderer is loaded: the update checker fires
+ * `app:check-for-updates` from its mount effect, and Electron's Windows
+ * autoUpdater throws "Update URL is not set" if checkForUpdates() is called
+ * before update-electron-app has had a chance to call setFeedURL(). The IPC
+ * hop beats the paint round-trip, so initialising on `ready-to-show` lost
+ * that race and surfaced the error card on some launches.
  */
 function initializeAutoUpdater(): void {
   if (!app.isPackaged) {
@@ -260,6 +289,10 @@ function initializeAutoUpdater(): void {
     logger: log,
     notifyUser: false, // We handle notifications via IPC to renderer
   });
+
+  // The feed URL is set synchronously inside updateElectronApp() (the app is
+  // already ready by now), so manual checks are safe from here on.
+  markAutoUpdaterReady();
 
   // Set up event listeners for Electron's native autoUpdater
   autoUpdater.on("checking-for-update", () => {
@@ -321,10 +354,24 @@ app.on("ready", async () => {
       devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL ?? null,
     });
 
+    // Replace Electron's default menu before any window exists. The default menu's
+    // View submenu binds Ctrl+0 / Ctrl+- / Ctrl+= to zoom roles that write
+    // webContents.zoomLevel directly, bypassing the UI-scale policy in
+    // ipc/handlers/window.ts — which leaves the Settings slider reading one value
+    // while the screen renders another. autoHideMenuBar keeps the bar itself hidden,
+    // so dropping those roles is invisible; only the accelerators change.
+    setupApplicationMenu();
+
     createMainWindow();
 
     // Setup auto-updater event forwarding to renderer
     setupAutoUpdaterEvents(mainWindow);
+
+    // Configure the updater in the same tick as createMainWindow(), before the
+    // renderer can execute any JS, so the feed URL is already set when the
+    // update checker asks for a manual check. Listeners above are registered
+    // first so the automatic startup check can't fire into a void.
+    initializeAutoUpdater();
   } catch (err) {
     logger.error("Startup error:", err);
     // In a real prod app, consider user-facing error UI here.

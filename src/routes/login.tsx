@@ -1,7 +1,14 @@
 import React, { Suspense, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import authService, { brokerErrorCode, describeBrokerError } from '../services/auth';
+import authService, {
+  brokerErrorCode,
+  describeBrokerError,
+  authzErrorCode,
+  describeAuthzError,
+} from '../services/auth';
 import { useAuthStatus } from '../hooks/useAuthStatus';
+import { usePortalHandoff } from '../components/PortalHandoffDialog';
+import { PORTAL_NAME } from '../config';
 import {
   Alert,
   Box,
@@ -24,10 +31,13 @@ import LockRoundedIcon from '@mui/icons-material/LockRounded';
 import ShieldRoundedIcon from '@mui/icons-material/ShieldRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import HourglassTopRoundedIcon from '@mui/icons-material/HourglassTopRounded';
+import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import InputAdornment from '@mui/material/InputAdornment';
 import IconButton from '@mui/material/IconButton';
 import marriottLogo from '../images/marriott_logo.png';
+// [AUTH-DEBUG] temporary sign-in tracing — delete with main/auth/authDebug.ts
+import AuthDebugToggle from '../components/AuthDebugToggle';
 
 // Animations from landing page
 const liquidMorph = keyframes`
@@ -355,11 +365,19 @@ const Login: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState(''); // non-error notices
-  // Terminal "waiting for admin approval" message (account requested / pending).
-  const [pendingMsg, setPendingMsg] = useState('');
+  /**
+   * Terminal card shown when sign-in cannot proceed for a PERMISSIONS reason —
+   * the account isn't registered, is on hold, or holds no access. All of those
+   * are resolved in the browser portal, never here, so the card carries the
+   * hand-off rather than a "wait for your administrator" dead end.
+   */
+  const [blocked, setBlocked] = useState<{ title: string; body: string; portal: boolean } | null>(
+    null
+  );
 
   // Background cold-start resume state — drives the "Continue session" button.
   const { status: authStatus, resolving, resumable } = useAuthStatus();
+  const { openPortal, dialog: portalDialog } = usePortalHandoff();
 
   // In-place Microsoft verification (fallback when landed here without an email).
   const handleMicrosoftVerify = async () => {
@@ -418,6 +436,7 @@ const Login: React.FC = () => {
     e.preventDefault();
     setError('');
     setInfo('');
+    setBlocked(null);
     setIsLoading(true);
 
     try {
@@ -439,25 +458,33 @@ const Login: React.FC = () => {
         return;
       }
 
+      // An authorization denial carries a machine code — check it BEFORE any
+      // prose match, because several codes' text contains "pending"/"approval".
+      const authz = authzErrorCode(err);
+      if (authz) {
+        setBlocked(describeAuthzError(authz));
+        setIsLoading(false);
+        return;
+      }
+
       const msg: string = err?.message ?? '';
       if (/not a registered user|not registered/i.test(msg)) {
-        // First-time user: request an account with the same broker token, then
-        // show the terminal "waiting for approval" screen.
-        try {
-          await authService.register(email);
-          setPendingMsg(
-            'Your account has been requested. An administrator must approve it before you can sign in.'
-          );
-        } catch (regErr: any) {
-          const regMsg: string = regErr?.message ?? '';
-          if (/pending approval/i.test(regMsg)) {
-            setPendingMsg('Your account is pending administrator approval.');
-          } else {
-            setError(regMsg || 'Could not request an account. Please try again.');
-          }
-        }
+        // First-time user. Registration is NOT done from the desktop any more:
+        // a new account has no property, so nobody local can approve its device,
+        // and the request surface is unreachable with a tier-1 token. The portal
+        // is the only place this can be completed — send them there rather than
+        // silently registering and parking them on a wait screen.
+        setBlocked({
+          title: 'You need to register first',
+          body: `This Marriott account isn't set up for PS Loader yet. Register in the ${PORTAL_NAME} portal and request the hotels you work on — then come back and sign in here.`,
+          portal: true,
+        });
       } else if (/pending approval/i.test(msg)) {
-        setPendingMsg('Your account is pending administrator approval.');
+        setBlocked({
+          title: 'Account on hold',
+          body: `An administrator has placed your account on hold. You can ask for it to be lifted in the ${PORTAL_NAME} portal.`,
+          portal: true,
+        });
       } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
         setError('Cannot connect to server. Please check your connection and try again.');
       } else {
@@ -470,6 +497,9 @@ const Login: React.FC = () => {
 
   return (
     <PageRoot>
+      {/* [AUTH-DEBUG] temporary sign-in tracing toggle (discreet corner dot) */}
+      <AuthDebugToggle />
+
       <LiquidMetalOrbs $reduceMotion={false}>
         <div className="metal-orb orb1" />
         <div className="metal-orb orb2" />
@@ -588,9 +618,10 @@ const Login: React.FC = () => {
               </Alert>
             )}
 
-            {pendingMsg ? (
-              // Terminal state: account requested / pending admin approval. The
-              // approval is out-of-band, so this is a clear "wait" screen — no spinner.
+            {blocked ? (
+              // Terminal state: a PERMISSIONS wall, not a device or password one.
+              // Every case here is resolved in the browser portal, so the card
+              // offers that hand-off instead of "wait for your administrator".
               <Stack spacing={3} alignItems="center">
                 <Box
                   sx={{
@@ -607,17 +638,27 @@ const Login: React.FC = () => {
                   <HourglassTopRoundedIcon sx={{ color: '#ffffff', fontSize: 32 }} />
                 </Box>
                 <Typography variant="h6" sx={{ fontWeight: 700, textAlign: 'center' }}>
-                  Awaiting approval
+                  {blocked.title}
                 </Typography>
                 <Typography
                   variant="body2"
                   sx={{ textAlign: 'center', color: theme.palette.text.secondary }}
                 >
-                  {pendingMsg}
+                  {blocked.body}
                 </Typography>
-                <PremiumButton fullWidth size="large" onClick={() => navigate('/')}>
+                {blocked.portal && (
+                  <PremiumButton
+                    fullWidth
+                    size="large"
+                    startIcon={<OpenInNewRoundedIcon />}
+                    onClick={openPortal}
+                  >
+                    Open the {PORTAL_NAME} portal
+                  </PremiumButton>
+                )}
+                <SecondaryButton fullWidth size="large" onClick={() => navigate('/')}>
                   Back to Welcome
-                </PremiumButton>
+                </SecondaryButton>
               </Stack>
             ) : !msVerified ? (
               // Fallback entrance: reached /login without a verified email (deep
@@ -754,6 +795,8 @@ const Login: React.FC = () => {
           </CardContent>
         </HolographicCard>
       </Box>
+
+      {portalDialog}
     </PageRoot>
   );
 };

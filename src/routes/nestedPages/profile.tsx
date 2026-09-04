@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Box, Typography, Avatar, Card, CardContent, Divider, Stack, Button, Chip, CircularProgress, Alert, List, ListItem, ListItemText } from "@mui/material";
-import { alpha, useTheme } from "@mui/material/styles";
+import { useTheme } from "@mui/material/styles";
+import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
 import authService, { UserInfo, OUAccess } from "../../services/auth";
+import { usePortalHandoff } from "../../components/PortalHandoffDialog";
 
 interface IpcApi {
   sendIpcRequest: (channel: string, ...args: any[]) => Promise<any>;
@@ -46,6 +48,7 @@ export default function Profile() {
   const [ouAccess, setOuAccess] = useState<OUAccess[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { openPortal, dialog: portalDialog } = usePortalHandoff();
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -108,9 +111,15 @@ export default function Profile() {
               </Stack>
             </Box>
             <Stack direction="row" spacing={1}>
-              <Button variant="contained" disabled>Edit Profile</Button>
-              <Button variant="outlined" disabled sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
-                Change Password
+              {/* Profile fields and access are owned by the portal, not the app —
+                  there is no desktop endpoint that can change either. */}
+              <Button
+                variant="contained"
+                startIcon={<OpenInNewRoundedIcon />}
+                onClick={openPortal}
+                sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600 }}
+              >
+                Manage access
               </Button>
             </Stack>
           </Stack>
@@ -147,9 +156,20 @@ export default function Profile() {
           </Typography>
           <Divider sx={{ mb: 2 }} />
           {ouAccess.length === 0 ? (
-            <Typography variant="body2" sx={{ color: "text.secondary" }}>
-              No OU access configured
-            </Typography>
+            <Stack spacing={1.5} alignItems="flex-start">
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                No hotel access configured yet. Data screens will refuse until at
+                least one property is granted.
+              </Typography>
+              <Button
+                variant="outlined"
+                startIcon={<OpenInNewRoundedIcon />}
+                onClick={openPortal}
+                sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600 }}
+              >
+                Request hotel access
+              </Button>
+            </Stack>
           ) : (
             <List dense>
               {ouAccess.map((access) => (
@@ -179,6 +199,8 @@ export default function Profile() {
           )}
         </CardContent>
       </Card>
+
+      {portalDialog}
     </Box>
   );
 }

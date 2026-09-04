@@ -30,17 +30,24 @@ import {
   COMPANY_SSO_LOGIN_HINT,
   MS_BROKER_ERROR_PREFIX,
 } from "../../config";
+// [AUTH-DEBUG] temporary sign-in tracing — see authDebug.ts, delete with it.
+import {
+  authDebugArmed,
+  authDebugLog,
+  authDebugRegisterWindow,
+} from "./authDebug";
 
 /** Persistent session partition for the SWA auth window (survives restarts). */
 export const SWA_PARTITION = "persist:swa";
 
 /**
- * Diagnostics for the Entra/embedded-webview integration. Keep `false` for
- * normal (fast, hidden-window) operation; flip to `true` only to debug a
- * sign-in regression — it forces the auth window visible and logs every
- * navigation to the main console so a stalled SSO redirect is visible.
+ * Diagnostics for the Entra/embedded-webview integration. Off unless the user
+ * arms the temporary sign-in tracing (discreet toggle on the sign-in screen, or
+ * Ctrl+Shift+Alt+D); when armed it forces the auth window visible and streams
+ * every navigation to the diagnostics window. See `authDebug.ts`.
  */
-const MS_BROKER_DEBUG = false;
+// [AUTH-DEBUG]
+const isDebug = () => authDebugArmed();
 
 /**
  * A clean desktop-Chrome User-Agent (no `Electron/…` or app-name token). Entra
@@ -147,9 +154,8 @@ export class MsBroker {
             return callback({});
           }
           url.searchParams.set("domain_hint", COMPANY_DOMAIN_HINT);
-          if (MS_BROKER_DEBUG) {
-            console.log("[msBroker] injected domain_hint:", url.toString());
-          }
+          // [AUTH-DEBUG]
+          authDebugLog("ms-auth/domain-hint", `injected → ${url.toString()}`, "nav");
           callback({ redirectUrl: url.toString() });
         }
       );
@@ -169,6 +175,9 @@ export class MsBroker {
   async mintToken(options: MintOptions = {}): Promise<string> {
     const silent = options.silent ?? false;
     const win = this.createWindow();
+    // [AUTH-DEBUG]
+    let failedWhileTracing = false;
+    authDebugLog("ms-auth/flow", `mintToken start (silent=${silent})`, "ok");
     try {
       // 1) Load the SWA origin. If it lands on the authenticated SWA page we can
       //    mint immediately; if it redirects to Microsoft, drive interactive login.
@@ -177,6 +186,13 @@ export class MsBroker {
       try {
         return await this.mintOnPage(win);
       } catch (error) {
+        // [AUTH-DEBUG]
+        authDebugLog(
+          "ms-auth/flow",
+          `first mint failed: ${error instanceof BrokerError ? error.code : String(error)}` +
+            ` — ${silent ? "silent, giving up" : "driving interactive /.auth/login/aad"}`,
+          "warn"
+        );
         // '/' was reachable but the principal wasn't established (public root, not
         // yet signed in). For an interactive attempt, trigger Entra login explicitly.
         //
@@ -200,8 +216,23 @@ export class MsBroker {
         }
         throw error;
       }
+    } catch (error) {
+      // [AUTH-DEBUG]
+      authDebugLog(
+        "ms-auth/flow",
+        `mintToken FAILED: ${error instanceof BrokerError ? `${error.code} — ${error.detail}` : String(error)}`,
+        "error"
+      );
+      // While tracing, leave the failed window on screen: the page it died on —
+      // and the snapshots of it — are the evidence. Closed by the user, or by
+      // the next sign-in attempt.
+      if (isDebug()) {
+        failedWhileTracing = true;
+        authDebugLog("ms-auth/flow", "window kept open for inspection", "warn");
+      }
+      throw error;
     } finally {
-      this.destroy(win);
+      if (!failedWhileTracing) this.destroy(win);
     }
   }
 
@@ -254,13 +285,62 @@ export class MsBroker {
       },
     });
 
+    this.configureAuthWindow(win, "ms-auth");
+    return win;
+  }
+
+  /**
+   * Per-window hardening + instrumentation. Applied to the sign-in window and,
+   * identically, to any popup it legitimately opens — a popup that inherits none
+   * of this would be the very failure mode we are hunting.
+   */
+  private configureAuthWindow(win: BrowserWindow, label: string): void {
     // Present as plain desktop Chrome so Entra / Conditional Access doesn't refuse
     // the embedded webview (`disallowed_useragent`). Set before any navigation so
     // every request in the sign-in chain carries it.
     win.webContents.setUserAgent(desktopChromeUserAgent());
 
-    // Harden: never spawn popups.
-    win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    // Popups: allowed, but only over HTTPS. Some tenants finish a step of the
+    // federated flow in a `window.open()` popup (certificate picker, MFA, a
+    // third-party IdP, "keep me signed in" handoff). Denying it outright — as we
+    // used to — leaves the opener parked on a blank page with no error anywhere,
+    // which is exactly the "white screen after Microsoft" symptom. The popup
+    // inherits this window's sandboxed, preload-less `persist:swa` partition, so
+    // it is no more privileged than the window that opened it.
+    win.webContents.setWindowOpenHandler(({ url, disposition }) => {
+      let isHttps = false;
+      try {
+        isHttps = new URL(url).protocol === "https:";
+      } catch {
+        isHttps = false;
+      }
+      // [AUTH-DEBUG]
+      authDebugLog(
+        `${label}/popup`,
+        `${isHttps ? "ALLOWED" : "DENIED (not https)"} ${disposition} → ${url}`,
+        isHttps ? "warn" : "error"
+      );
+      if (!isHttps) return { action: "deny" };
+      return {
+        action: "allow",
+        outlivesOpener: false,
+        // No `webPreferences` override: the child must inherit the opener's
+        // partition and sandbox settings verbatim.
+        overrideBrowserWindowOptions: {
+          width: 700,
+          height: 680,
+          center: true,
+          autoHideMenuBar: true,
+          title: "Sign in with Microsoft",
+        },
+      };
+    });
+
+    win.webContents.on("did-create-window", (child) => {
+      // [AUTH-DEBUG]
+      authDebugLog(`${label}/popup`, "popup window opened", "warn");
+      this.configureAuthWindow(child, `${label}-popup`);
+    });
 
     // Suppress the Entra passkey/WebAuthn prompt and autofill the company email so
     // the flow jumps straight to Marriott SSO. Must be set up before navigation.
@@ -281,34 +361,18 @@ export class MsBroker {
       }
       if (!isHttps) {
         event.preventDefault();
-        if (MS_BROKER_DEBUG) console.log("[msBroker] blocked non-https nav:", url);
+        // [AUTH-DEBUG] a blocked scheme hop is a prime blank-page suspect.
+        authDebugLog(`${label}/BLOCKED-NAV`, `non-https navigation blocked → ${url}`, "error");
       }
     });
 
-    if (MS_BROKER_DEBUG) {
-      const wc = win.webContents;
-      wc.on("did-navigate", (_e, url) => console.log("[msBroker] NAV:", url));
-      wc.on("did-navigate-in-page", (_e, url) =>
-        console.log("[msBroker] IN-PAGE:", url)
-      );
-      wc.on("did-redirect-navigation", (_e, url) =>
-        console.log("[msBroker] REDIRECT:", url)
-      );
-      wc.on("did-fail-load", (_e, code, desc, url) =>
-        console.log("[msBroker] FAIL:", code, desc, url)
-      );
-      wc.on("did-start-loading", () => console.log("[msBroker] start-loading"));
-      wc.on("did-stop-loading", () => console.log("[msBroker] stop-loading"));
-      // Show the window so the sign-in flow is visible. DevTools is intentionally
-      // NOT auto-opened here: it attaches its own debugger and would conflict with
-      // the CDP session used by setupAuthPageAutomation. Navigation is still logged
-      // to the main-process console above.
-      win.once("ready-to-show", () => {
-        win.show();
-      });
+    // [AUTH-DEBUG] register for tracing; also arms the in-window chord so the
+    // user can switch tracing on while stuck on the blank page.
+    authDebugRegisterWindow(win, label);
+    if (isDebug()) {
+      // Never hidden while tracing — the point is to watch it happen.
+      win.once("ready-to-show", () => win.show());
     }
-
-    return win;
   }
 
   /**
@@ -350,13 +414,21 @@ export class MsBroker {
         var HINT = ${hint};
         if (!HINT) return;
         var start = Date.now();
+        // These console lines are picked up by the temporary sign-in tracing
+        // (page-console entries). Harmless when tracing is off. [AUTH-DEBUG]
+        console.log('[psauth] automation running on ' + location.hostname);
         var timer = setInterval(function () {
-          if (Date.now() - start > 8000) { clearInterval(timer); return; }
+          if (Date.now() - start > 8000) {
+            clearInterval(timer);
+            console.log('[psauth] no email box appeared within 8s');
+            return;
+          }
           var input = document.querySelector('input[name="loginfmt"]');
           var next = document.querySelector('#idSIButton9') || document.querySelector('input[type="submit"]');
           if (!input || !next || input.__psAutofilled) return;
           input.__psAutofilled = true;
           clearInterval(timer);
+          console.log('[psauth] autofilling company address and submitting');
           var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
           setter.call(input, HINT);
           input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -375,16 +447,21 @@ export class MsBroker {
           wc.debugger.sendCommand("Page.addScriptToEvaluateOnNewDocument", { source })
         )
         .then(() => {
-          if (MS_BROKER_DEBUG) console.log("[msBroker] auth-page automation attached (CDP)");
+          // [AUTH-DEBUG]
+          authDebugLog("ms-auth/automation", "page automation attached (CDP)", "ok");
         })
         .catch((err) => {
-          if (MS_BROKER_DEBUG) console.log("[msBroker] CDP setup error:", err);
+          // [AUTH-DEBUG]
+          authDebugLog("ms-auth/automation", `CDP setup error: ${String(err)}`, "error");
         });
     } catch (err) {
       // DevTools/another debugger already attached — degrade to per-load inject.
-      if (MS_BROKER_DEBUG) {
-        console.log("[msBroker] CDP attach failed, using dom-ready fallback:", err);
-      }
+      // [AUTH-DEBUG]
+      authDebugLog(
+        "ms-auth/automation",
+        `CDP attach failed, using dom-ready fallback: ${String(err)}`,
+        "warn"
+      );
       wc.on("dom-ready", () => {
         wc.executeJavaScript(source, true).catch(() => {
           /* best-effort */
@@ -447,7 +524,9 @@ export class MsBroker {
           parsed.host === this.swaHost &&
           !parsed.pathname.startsWith("/.auth")
         ) {
-          if (win.isVisible() && !MS_BROKER_DEBUG) {
+          // [AUTH-DEBUG]
+          authDebugLog("ms-auth/gate", `landed on SWA origin — ready to mint (${current})`, "ok");
+          if (win.isVisible() && !isDebug()) {
             win.hide(); // back on SWA origin => no more interaction needed
           }
           finish(resolve);
@@ -466,6 +545,8 @@ export class MsBroker {
               reject(new BrokerError("no_principal", "interactive login required"))
             );
           } else if (!win.isVisible()) {
+            // [AUTH-DEBUG]
+            authDebugLog("ms-auth/gate", `at identity provider — showing window (${parsed.host})`, "nav");
             win.show(); // let the user complete interactive sign-in
           }
         }
@@ -475,10 +556,24 @@ export class MsBroker {
       const onClosed = () =>
         finish(() => reject(new BrokerError("cancelled", "sign-in window closed")));
 
-      const timer = setTimeout(
-        () => finish(() => reject(new BrokerError("timeout", "sign-in timed out"))),
-        AUTH_WINDOW_TIMEOUT_MS
-      );
+      const timer = setTimeout(() => {
+        // [AUTH-DEBUG] the 3-minute give-up: log where it was stuck.
+        authDebugLog(
+          "ms-auth/gate",
+          `TIMED OUT after ${AUTH_WINDOW_TIMEOUT_MS / 1000}s, still at ${(() => {
+            try {
+              return win.webContents.getURL();
+            } catch {
+              return "(unknown)";
+            }
+          })()}`,
+          "error"
+        );
+        finish(() => reject(new BrokerError("timeout", "sign-in timed out")));
+      }, AUTH_WINDOW_TIMEOUT_MS);
+
+      // [AUTH-DEBUG]
+      authDebugLog("ms-auth/gate", `loading ${url}`, "nav");
 
       win.webContents.on("did-navigate", onNavigate);
       win.webContents.on("did-redirect-navigation", onNavigate);
@@ -527,6 +622,14 @@ export class MsBroker {
     )) as { status: number; body: { token?: string; error?: string } | null };
 
     const code = result.body?.error;
+
+    // [AUTH-DEBUG]
+    authDebugLog(
+      "ms-auth/mint",
+      `POST /api/mint-ms-token → HTTP ${result.status}${code ? ` (${code})` : ""}` +
+        `${result.status === 200 && result.body?.token ? " — token received" : ""}`,
+      result.status === 200 ? "ok" : "error"
+    );
 
     if (result.status === 200 && result.body?.token) {
       return result.body.token;
