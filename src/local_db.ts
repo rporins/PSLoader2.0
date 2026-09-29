@@ -6041,6 +6041,22 @@ function mapDetailRows(rows: any[]): DepartmentDetailRow[] {
   }));
 }
 
+/** Protea-only display overrides for account descriptions, keyed by account code.
+ *  Applied to Protea report queries only — Excel exports keep the mapping-table description. */
+const PROTEA_ACCOUNT_NAME_OVERRIDES: Record<string, string> = {
+  A759101: '759101 Tourism levy received',
+  A759301: '759301 Tourism levy paid',
+};
+
+function mapProteaDetailRows(rows: any[]): DepartmentDetailRow[] {
+  const mapped = mapDetailRows(rows);
+  for (const row of mapped) {
+    const override = PROTEA_ACCOUNT_NAME_OVERRIDES[row.account];
+    if (override) row.accountName = override;
+  }
+  return mapped;
+}
+
 // ============================================================================
 // PROTEA-SPECIFIC CATEGORY REPOINTS
 // Accounts whose detail-sheet category should differ from the standard
@@ -6681,7 +6697,7 @@ export async function getProteaDepartmentDetailData(
     ];
 
     const result = await client.execute({ sql: query, args: params });
-    return mapDetailRows(result.rows as any[]);
+    return mapProteaDetailRows(result.rows as any[]);
   } catch (error) {
     console.error(`Error getting Protea department detail data for ${department}:`, error);
     throw error;
@@ -6872,7 +6888,7 @@ export async function getProteaAllDepartmentsDetailData(
     }
     for (const [dept, rows] of rowsByDepartment) {
       if (!byDepartment.has(dept)) continue;
-      byDepartment.set(dept, mapDetailRows(rows));
+      byDepartment.set(dept, mapProteaDetailRows(rows));
     }
 
     return byDepartment;
@@ -7024,7 +7040,7 @@ export async function getProteaGroupDepartmentDetailData(
     ];
 
     const result = await client.execute({ sql: query, args: params });
-    return mapDetailRows(result.rows as any[]);
+    return mapProteaDetailRows(result.rows as any[]);
   } catch (error) {
     console.error(`Error getting Protea group department detail data:`, error);
     throw error;

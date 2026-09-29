@@ -20,6 +20,7 @@ import { INVEST_CUSTOM_SUBGROUPS, InvestSubgroupDef } from './reports/investSubg
 import {
   ROOMS_KPI_CONFIG,
   FB_KPI_CONFIG,
+  UTILITIES_KPI_CONFIG,
   PCT_OF_REVENUE_KPI_GROUPS,
   MONTH_NAMES,
   TAB_COLOR_REPORT,
@@ -62,7 +63,7 @@ import {
   isMovedAccount,
   isDetailOnlyAccount,
   PROTEA_DEPARTMENT_MOVEMENTS,
-  BANQUETING_DEPARTMENTS,
+  PROTEA_BANQUETING_GROUP_DEPTS,
   PROTEA_GROUP_DISPLAY_ORDER,
   MOVED_DEPT_SET,
   MOVED_DEPT_BY_SOURCE,
@@ -71,6 +72,8 @@ import {
   computeInvestFactorOwnerSubgroupTotals,
   applyInvestSubgroupOverridesToF90Rows,
   InvestSubgroupTotals,
+  computeFixedExpPctOfRevenue,
+  FIXED_EXP_PCT_REVENUE_LABEL,
   LEVIES_SUBGROUP,
   isLeviesAccount,
 } from './reports/proteaShared';
@@ -200,6 +203,11 @@ class ProteaBudgetPackService {
   private generatedAt: string = '';
   private periods: string[] = [];
   private lyPeriods: string[] = [];
+
+  /** Fixed Expenses as % of Total Revenue, captured from the F90 rows (after
+   *  the INVEST override, so in the budget slot remap) and rendered on the
+   *  FIXED EXPENSES tab. Null until the F90 sheet has been built in this run. */
+  private fixedExpPctRevenue: { total: InvestSubgroupTotals; monthly: Map<string, InvestSubgroupTotals> } | null = null;
 
   /** Registry of sheets and group headers for the cover page TOC */
   private sheetRegistry: Array<{
@@ -471,6 +479,7 @@ class ProteaBudgetPackService {
           ['ADR',                            false],
           ['RevPAR',                         false],
           ['RevPAR after TAC',               false],
+          ['Rooms Revenue as % of Total Revenue', true],
           ['Rooms Available',                false],
           ['Rooms SOLD',                     false, 0, 'Sold Rooms'],
           ['Bed Nights Sold',                false],
@@ -678,6 +687,15 @@ class ProteaBudgetPackService {
       }
       applyInvestSubgroupOverridesToF90Rows(monthRows, monthOverrides);
     });
+
+    const monthlyFixedExpPct = new Map<string, InvestSubgroupTotals>();
+    for (const [period, monthRows] of monthlyData) {
+      monthlyFixedExpPct.set(period, computeFixedExpPctOfRevenue(monthRows));
+    }
+    this.fixedExpPctRevenue = {
+      total: computeFixedExpPctOfRevenue(totalData),
+      monthly: monthlyFixedExpPct,
+    };
 
     // F90 must never suppress zero rows: layout parity with the validated
     // actuals Protea pack requires every PROTEA_F90_PL_ROW_CONFIG row to
@@ -1008,7 +1026,7 @@ class ProteaBudgetPackService {
     const groupMap = new Map<string, typeof departments>();
     for (const dept of departments) {
       let groupKey = dept.level7Group || dept.baseDepartment;
-      if (config.includeBanquetingBreakdown && BANQUETING_DEPARTMENTS.has(dept.baseDepartment)) {
+      if (config.includeBanquetingBreakdown && PROTEA_BANQUETING_GROUP_DEPTS.has(dept.baseDepartment)) {
         groupKey = 'Total Banqueting';
       }
       if (!groupMap.has(groupKey)) groupMap.set(groupKey, []);
@@ -1188,6 +1206,18 @@ class ProteaBudgetPackService {
     } else if (groupName === 'Total Food & Beverage') {
       const kpi = await this.fetchBudgetKpiEngineData(config, FB_KPI_CONFIG);
       this.addBudgetFbKpiRows(sheet, kpi);
+    } else if (groupName === 'Utilities Dept') {
+      const kpi = await this.fetchBudgetKpiEngineData(config, UTILITIES_KPI_CONFIG);
+      this.renderBudgetKpiSections(sheet, kpi, [
+        {
+          header: 'Utilities KPIs',
+          rows: [
+            ['Utilities as % of Revenue',     true],
+            ['Utilities per Rooms Available', false, 2],
+            ['Utilities per Rooms SOLD',      false, 2],
+          ],
+        },
+      ]);
     } else {
       // % of Hotel Revenue block — A&G, POM, S&M (any group registered
       // in PCT_OF_REVENUE_KPI_GROUPS). Mirrors the actuals pack dispatch.
@@ -1254,6 +1284,16 @@ class ProteaBudgetPackService {
     this.addBudgetCustomSubgroupDataSection(sheet, currentData, lyData, budgetByPeriod, {
       onlySubgroupNames: ['Fixed Expenses'],
     });
+
+    if (this.fixedExpPctRevenue) {
+      const toKpiMap = (v: InvestSubgroupTotals) =>
+        new Map([[FIXED_EXP_PCT_REVENUE_LABEL, v as PLCalculationResult]]);
+      const monthly = new Map<string, Map<string, PLCalculationResult>>();
+      for (const [period, v] of this.fixedExpPctRevenue.monthly) monthly.set(period, toKpiMap(v));
+      this.renderBudgetKpiSections(sheet, { total: toKpiMap(this.fixedExpPctRevenue.total), monthly }, [
+        { header: 'Percentage of Revenue', rows: [[FIXED_EXP_PCT_REVENUE_LABEL, true]] },
+      ]);
+    }
 
     sheet.views = [{ state: 'frozen', xSplit: 1, ySplit: 5 }];
     return finalName;
@@ -1976,6 +2016,7 @@ class ProteaBudgetPackService {
     workbook.modified = new Date();
 
     this.sheetRegistry = [];
+    this.fixedExpPctRevenue = null;
     this.periods = generatePeriodsSync(config.startMonth, config.startYear, config.endMonth, config.endYear);
     this.lyPeriods = this.periods.map(offsetPeriodMinusYear);
 

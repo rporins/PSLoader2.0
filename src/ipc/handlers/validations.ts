@@ -8,7 +8,7 @@
 
 import { IpcHandler } from "../types";
 import { IPC_CHANNELS } from "../types";
-import { ValidationEngine, validationDefinitions } from "../../services/validations/engine";
+import { ValidationEngine, validationDefinitions, validationAutoFixes } from "../../services/validations/engine";
 import * as db from "../../local_db";
 
 // Singleton validation engine instance
@@ -28,6 +28,7 @@ function getValidationEngine(): ValidationEngine {
 
     // Register all validation definitions
     validationEngine.registerAll(validationDefinitions);
+    validationEngine.registerAutoFixes(validationAutoFixes);
 
     console.log(`[ValidationEngine] Initialized with ${validationEngine.count} validations`);
   }
@@ -61,6 +62,41 @@ export class ValidationHandlers {
       };
     } catch (error) {
       console.error('[ValidationHandlers] Error running validation:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: Date.now(),
+      };
+    }
+  };
+
+  /**
+   * Apply the one-click auto-fix for a failing validation
+   * Request: { validationName: string, ou: string, period?: { year, month } }
+   */
+  applyAutoFixHandler: IpcHandler = async (event, request) => {
+    try {
+      const engine = getValidationEngine();
+
+      const result = await engine.applyAutoFix(request.validationName, {
+        ou: request.ou,
+        period: request.period,
+      });
+
+      // Data changed - validations must be re-confirmed, same as a manual edit
+      if (result.rowsAffected > 0) {
+        await db.setValidationCompletedState(request.ou, false);
+      }
+
+      console.log(`[ValidationHandlers] Auto-fix "${request.validationName}" updated ${result.rowsAffected} row(s) for ${request.ou}`);
+
+      return {
+        success: true,
+        data: result,
+        timestamp: Date.now(),
+      };
+    } catch (error) {
+      console.error('[ValidationHandlers] Error applying auto-fix:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -193,6 +229,7 @@ export function createValidationHandlers() {
     [IPC_CHANNELS.VALIDATION_RUN]: handlers.runValidationHandler,
     'validation:get-all': handlers.getAllValidationsHandler,
     'validation:run-all': handlers.runAllValidationsHandler,
+    'validation:apply-fix': handlers.applyAutoFixHandler,
     'validation:check-exists': handlers.checkValidationExistsHandler,
     'validation:stats': handlers.getValidationStatsHandler,
   };

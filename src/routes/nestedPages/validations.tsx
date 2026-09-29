@@ -46,6 +46,7 @@ import {
   HourglassEmpty as HourglassEmptyIcon,
   CheckCircleOutline as CheckCircleOutlineIcon,
   DeleteSweep as DeleteSweepIcon,
+  AutoFixHigh as AutoFixHighIcon,
 } from '@mui/icons-material';
 import validationService, { Validation } from '../../services/validationService';
 import validationOverrideService, { ValidationOverrideStatus } from '../../services/validationOverrideService';
@@ -104,6 +105,7 @@ interface ValidationResult {
   warnings?: string[];
   recordCount?: number;
   expanded?: boolean;
+  autoFix?: { label: string; description: string; affectedCount: number };
 }
 
 interface OverrideRequestDialogState {
@@ -143,6 +145,11 @@ const Validations: React.FC = () => {
   const [overrideReason, setOverrideReason] = useState('');
   const [submittingOverride, setSubmittingOverride] = useState(false);
   const [checkingOverrideStatus, setCheckingOverrideStatus] = useState(false);
+
+  // Auto-fix state: which card is asking for confirmation / applying, and what was done
+  const [confirmingFix, setConfirmingFix] = useState<string | null>(null);
+  const [applyingFix, setApplyingFix] = useState<string | null>(null);
+  const [fixNotices, setFixNotices] = useState<Map<string, { severity: 'success' | 'error'; message: string }>>(new Map());
 
   const selectedOU = useSettingsStore((s) => s.selectedHotelOu);
   const selectedPeriod = useSettingsStore((s) => s.selectedPeriod);
@@ -292,6 +299,7 @@ const Validations: React.FC = () => {
           errors: result.errors,
           warnings: result.warnings,
           recordCount: result.recordCount,
+          autoFix: result.autoFix,
           expanded: false,
         });
         return newMap;
@@ -308,6 +316,44 @@ const Validations: React.FC = () => {
       });
     }
   }, [selectedOU]);
+
+  // Disarm an unanswered auto-fix confirmation after a few seconds
+  useEffect(() => {
+    if (!confirmingFix || applyingFix) return;
+    const timer = setTimeout(() => setConfirmingFix(null), 6000);
+    return () => clearTimeout(timer);
+  }, [confirmingFix, applyingFix]);
+
+  // Clear auto-fix notices when switching hotel
+  useEffect(() => {
+    setConfirmingFix(null);
+    setFixNotices(new Map());
+  }, [selectedOU]);
+
+  // Apply a validation's one-click fix, then re-run it
+  const handleApplyAutoFix = useCallback(async (validation: Validation) => {
+    if (!selectedOU) return;
+
+    setApplyingFix(validation.name);
+    let notice: { severity: 'success' | 'error'; message: string };
+    try {
+      const { rowsAffected } = await validationService.applyAutoFix(validation.name, selectedOU);
+      notice = {
+        severity: 'success',
+        message: `Auto-fixed: ${rowsAffected} ${rowsAffected === 1 ? 'line' : 'lines'} set to 0. The original values are noted in each line's description.`,
+      };
+    } catch (error) {
+      notice = {
+        severity: 'error',
+        message: `Auto-fix failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      };
+    }
+
+    setFixNotices(prev => new Map(prev).set(validation.name, notice));
+    setApplyingFix(null);
+    setConfirmingFix(null);
+    await handleRunValidation(validation);
+  }, [selectedOU, handleRunValidation]);
 
   // Run all validations
   const handleRunAllValidations = useCallback(async () => {
@@ -345,6 +391,7 @@ const Validations: React.FC = () => {
   // Clear all results
   const handleClearResults = useCallback(() => {
     setValidationResults(new Map());
+    setFixNotices(new Map());
   }, []);
 
   // Handle marking validations as done
@@ -657,6 +704,10 @@ const Validations: React.FC = () => {
               const overrideStatus = getOverrideStatusForValidation(validation.name);
               const hasOverrideRequest = overrideStatus && overrideStatus.requested_at !== null;
               const isOverrideApproved = overrideStatus?.is_approved || false;
+              const autoFix = hasErrors && !validationCompleted && !isOverrideApproved ? result?.autoFix : undefined;
+              const isConfirmingFix = confirmingFix === validation.name;
+              const isApplyingFix = applyingFix === validation.name;
+              const fixNotice = fixNotices.get(validation.name);
 
               return (
                 <ValidationCard key={validation.id}>
@@ -737,6 +788,80 @@ const Validations: React.FC = () => {
                       {/* Progress bar when running */}
                       {result?.status === 'running' && (
                         <LinearProgress sx={{ borderRadius: 1 }} />
+                      )}
+
+                      {/* One-click auto-fix (two-step: click, then confirm) */}
+                      {autoFix && (
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: 1.5,
+                            px: 1.5,
+                            py: 1,
+                            borderRadius: 2,
+                            bgcolor: alpha(theme.palette.primary.main, isConfirmingFix ? 0.1 : 0.05),
+                            border: `1px solid ${alpha(theme.palette.primary.main, isConfirmingFix ? 0.4 : 0.2)}`,
+                            transition: 'all 0.2s ease',
+                          }}
+                        >
+                          <AutoFixHighIcon color="primary" fontSize="small" />
+                          <Typography variant="body2" fontSize="0.8rem" sx={{ flex: 1, minWidth: 200 }}>
+                            {isConfirmingFix
+                              ? `Set ${autoFix.affectedCount} flagged ${autoFix.affectedCount === 1 ? 'entry' : 'entries'} to 0? The original values are kept in the line descriptions.`
+                              : autoFix.description}
+                          </Typography>
+                          {isConfirmingFix ? (
+                            <Stack direction="row" spacing={1}>
+                              <Button
+                                size="small"
+                                color="inherit"
+                                disabled={isApplyingFix}
+                                onClick={() => setConfirmingFix(null)}
+                                sx={{ borderRadius: 2, textTransform: 'none' }}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                size="small"
+                                variant="contained"
+                                disabled={isApplyingFix}
+                                startIcon={isApplyingFix ? <CircularProgress size={14} color="inherit" /> : <CheckCircleIcon />}
+                                onClick={() => handleApplyAutoFix(validation)}
+                                sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
+                              >
+                                Confirm
+                              </Button>
+                            </Stack>
+                          ) : (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={<AutoFixHighIcon />}
+                              disabled={applyingFix !== null || result?.status === 'running'}
+                              onClick={() => setConfirmingFix(validation.name)}
+                              sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
+                            >
+                              {autoFix.label} ({autoFix.affectedCount})
+                            </Button>
+                          )}
+                        </Box>
+                      )}
+
+                      {/* Result of the last auto-fix */}
+                      {fixNotice && result?.status !== 'running' && (
+                        <Alert
+                          severity={fixNotice.severity}
+                          onClose={() => setFixNotices(prev => {
+                            const next = new Map(prev);
+                            next.delete(validation.name);
+                            return next;
+                          })}
+                          sx={{ borderRadius: 2, py: 0, '& .MuiAlert-message': { fontSize: '0.8rem' } }}
+                        >
+                          {fixNotice.message}
+                        </Alert>
                       )}
 
                       {/* Errors and Warnings */}

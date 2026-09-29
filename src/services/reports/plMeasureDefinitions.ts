@@ -3497,6 +3497,50 @@ export const MEASURES: Record<string, Measure> = {
     subMeasures: ['utilities_expense_act']
   },
 
+  // Utilities Dept summary KPIs — numerator is the F90 "Utilities" line
+  // (utilities_expense_act is negate:true, so a debit expense arrives
+  // negative; flip it back to positive). Denominators are the F90 TOTAL
+  // REVENUE / Rooms Available / Rooms SOLD lines. Protea moves no accounts
+  // into or out of Utilities, so no `_protea` variants are needed.
+  utilities_pct_revenue: {
+    id: 'utilities_pct_revenue',
+    type: 'calculated',
+    subMeasures: ['utilities_expense_act', 'total_sales_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return evaluateDivide(
+        -(ctx.subMeasures.utilities_expense_act || 0),
+        ctx.subMeasures.total_sales_act || 0,
+        0
+      ) * 100;
+    }
+  },
+
+  utilities_per_room_available: {
+    id: 'utilities_per_room_available',
+    type: 'calculated',
+    subMeasures: ['utilities_expense_act', 'total_rooms_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return evaluateDivide(
+        -(ctx.subMeasures.utilities_expense_act || 0),
+        ctx.subMeasures.total_rooms_act || 0,
+        0
+      );
+    }
+  },
+
+  utilities_per_room_sold: {
+    id: 'utilities_per_room_sold',
+    type: 'calculated',
+    subMeasures: ['utilities_expense_act', 'sold_rooms_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return evaluateDivide(
+        -(ctx.subMeasures.utilities_expense_act || 0),
+        ctx.subMeasures.sold_rooms_act || 0,
+        0
+      );
+    }
+  },
+
   // F90 P&L - Property Operation & Maintenance Expense
   property_operation_maint_expense: {
     id: 'property_operation_maint_expense',
@@ -3921,6 +3965,23 @@ export const MEASURES: Record<string, Measure> = {
   //   `_protea` ID. See plan: "Pattern: KPIs whose totals diverge between
   //   Protea and non-Protea".
   // ==========================================================================
+
+  // Rooms Revenue as % of Total Revenue — numerator/denominator are the same
+  // sub-measures as the F90 "Rooms and Reservations" and "TOTAL REVENUE"
+  // lines, so the KPI ties to the P&L it sits under. Revenue isn't touched
+  // by the Protea account moves, so no `_protea` variant is needed.
+  rooms_revenue_pct_total: {
+    id: 'rooms_revenue_pct_total',
+    type: 'calculated',
+    subMeasures: ['rooms_reservations_revenue_act', 'total_sales_act'],
+    evaluator: (ctx: MeasureContext) => {
+      return evaluateDivide(
+        ctx.subMeasures.rooms_reservations_revenue_act || 0,
+        ctx.subMeasures.total_sales_act || 0,
+        0
+      ) * 100;
+    }
+  },
 
   rev_par_after_tac: {
     id: 'rev_par_after_tac',

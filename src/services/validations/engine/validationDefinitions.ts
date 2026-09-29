@@ -16,7 +16,7 @@
  * - account column = "A701110" (with A prefix)
  */
 
-import { ValidationResult, ValidationOptions, ValidationFn } from './ValidationEngine';
+import { ValidationResult, ValidationOptions, ValidationFn, AutoFixFn, AutoFixResult } from './ValidationEngine';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPER FUNCTIONS - COMBO BASED (uses dep_acc_combo_id for performance)
@@ -125,13 +125,29 @@ async function comboMustBeZero(
   };
 }
 
+interface JanuaryOnlyConfig extends ComboCheckConfig {
+  /** When set, failures offer a one-click "zero out non-January values" fix (see validationAutoFixes) */
+  autoFixDescription?: string;
+}
+
+/**
+ * Staging rows that break a January-only rule. Shared by the check and its
+ * auto-fix so the fix touches exactly the rows the validation flagged.
+ */
+const NON_JANUARY_VALUE_WHERE = `
+  ou = ?
+  AND dep_acc_combo_id LIKE ?
+  AND month != 1
+  AND amount != 0
+`;
+
 /**
  * Check that a combo only has values in January (month = 1)
  */
 async function comboJanuaryOnly(
   db: any,
   options: ValidationOptions,
-  config: ComboCheckConfig
+  config: JanuaryOnlyConfig
 ): Promise<ValidationResult> {
   const comboPattern = buildComboPattern(config.department, config.account);
 
@@ -139,10 +155,7 @@ async function comboJanuaryOnly(
     sql: `
       SELECT dep_acc_combo_id, department, account, month, SUM(amount) as total_amount
       FROM financial_data_staging
-      WHERE ou = ?
-        AND dep_acc_combo_id LIKE ?
-        AND month != 1
-        AND amount != 0
+      WHERE ${NON_JANUARY_VALUE_WHERE}
       GROUP BY dep_acc_combo_id, department, account, month
     `,
     args: [options.ou, comboPattern]
@@ -159,11 +172,47 @@ async function comboJanuaryOnly(
     success: errors.length === 0,
     recordCount: rows.length,
     errors: errors.length > 0 ? errors : undefined,
+    autoFix: errors.length > 0 && config.autoFixDescription
+      ? {
+          label: 'Set to 0',
+          description: config.autoFixDescription,
+          affectedCount: rows.length
+        }
+      : undefined,
     stats: {
       recordsChecked: rows.length,
       issuesFound: errors.length
     }
   };
+}
+
+/**
+ * Auto-fix for comboJanuaryOnly: sets the flagged non-January amounts to 0.
+ * Rows are zeroed rather than deleted so an explicit 0 is uploaded, and the
+ * original amount is kept in source_description for traceability.
+ */
+async function zeroComboOutsideJanuary(
+  db: any,
+  options: ValidationOptions,
+  config: ComboCheckConfig
+): Promise<AutoFixResult> {
+  const comboPattern = buildComboPattern(config.department, config.account);
+
+  // SQLite evaluates SET expressions against the pre-update row, so `amount`
+  // in the description is the original value.
+  const result = await db.execute({
+    sql: `
+      UPDATE financial_data_staging
+      SET
+        source_description = TRIM(COALESCE(source_description, '') || ' [AUTOFIX: non-January value ' || amount || ' set to 0]'),
+        amount = 0,
+        last_modified = CURRENT_TIMESTAMP
+      WHERE ${NON_JANUARY_VALUE_WHERE}
+    `,
+    args: [options.ou, comboPattern]
+  });
+
+  return { rowsAffected: result.rowsAffected ?? 0 };
 }
 
 /**
@@ -379,6 +428,17 @@ async function accountJanuaryOnly(
     }
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SHARED CONFIGS (used by both a validation and its auto-fix)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const SQUARE_METERS_JANUARY: JanuaryOnlyConfig = {
+  department: '____', // any 4-char department
+  account: '957317',
+  errorMessage: 'Square meters should only be populated in January',
+  autoFixDescription: 'Square meters are only loaded in January. If these other months are not intended, set them to 0.'
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // VALIDATION DEFINITIONS
@@ -600,6 +660,32 @@ export const validationDefinitions: Record<string, ValidationFn> = {
     });
   },
 
+  // Bed nights: BNA (D0010 A960004) and BNS (D0010 A960005) must both be populated
+  bna_bns_populated: async (db, options) => {
+    const bna = await comboMustHaveValue(db, options, {
+      department: '0010',
+      account: '960004',
+      errorMessage: 'No Bed Nights Available (BNA) amount found, this needs to be populated'
+    });
+    const bns = await comboMustHaveValue(db, options, {
+      department: '0010',
+      account: '960005',
+      errorMessage: 'No Bed Nights Sold (BNS) amount found, this needs to be populated'
+    });
+
+    const errors = [...(bna.errors || []), ...(bns.errors || [])];
+
+    return {
+      success: errors.length === 0,
+      recordCount: (bna.recordCount || 0) + (bns.recordCount || 0),
+      errors: errors.length > 0 ? errors : undefined,
+      stats: {
+        recordsChecked: 2,
+        issuesFound: errors.length
+      }
+    };
+  },
+
   // PSF Accounts - uses pattern matching ("_" = single char wildcard in SQL LIKE)
   // This matches any department with account 77011X
   psf_accounts: async (db, options) => {
@@ -668,11 +754,7 @@ export const validationDefinitions: Record<string, ValidationFn> = {
 
   // Square meters - any department, specific account (use % for any dept)
   square_meters_january: async (db, options) => {
-    return comboJanuaryOnly(db, options, {
-      department: '____', // any 4-char department
-      account: '957317',
-      errorMessage: 'Square meters should only be populated in January'
-    });
+    return comboJanuaryOnly(db, options, SQUARE_METERS_JANUARY);
   },
 
   seat_counts_january: async (db, options) => {
@@ -1202,6 +1284,63 @@ export const validationDefinitions: Record<string, ValidationFn> = {
   },
 
   // ─────────────────────────────────────────────────────────────────────────
+  // BED NIGHTS SOLD CANNOT EXCEED BED NIGHTS AVAILABLE
+  // Per month: BNS (D0010 A960005) must be <= BNA (D0010 A960004).
+  // Missing lines are left to bna_bns_populated.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  bna_greater_than_bns: async (db, options) => {
+    const result = await db.execute({
+      sql: `
+        SELECT
+          month,
+          SUM(CASE WHEN account = 'A960004' THEN amount ELSE 0 END) as bna,
+          SUM(CASE WHEN account = 'A960005' THEN amount ELSE 0 END) as bns
+        FROM financial_data_staging
+        WHERE ou = ?
+          AND department = 'D0010'
+          AND account IN ('A960004', 'A960005')
+        GROUP BY month
+        ORDER BY month
+      `,
+      args: [options.ou]
+    });
+
+    const rows = result.rows || [];
+    const errors: string[] = [];
+    const errorDetails: any[] = [];
+
+    for (const row of rows) {
+      const bna = (row.bna as number) || 0;
+      const bns = (row.bns as number) || 0;
+
+      if (bns > bna) {
+        errors.push(`Month ${row.month}: Bed Nights Sold (${bns}) is higher than Bed Nights Available (${bna})`);
+        errorDetails.push({
+          type: 'BNS_EXCEEDS_BNA',
+          message: `BNS exceeds BNA for month ${row.month}`,
+          count: 1,
+          month: row.month,
+          bna,
+          bns,
+          difference: bns - bna
+        });
+      }
+    }
+
+    return {
+      success: errors.length === 0,
+      recordCount: rows.length,
+      errors: errors.length > 0 ? errors : undefined,
+      errorDetails: errorDetails.length > 0 ? errorDetails : undefined,
+      stats: {
+        recordsChecked: rows.length,
+        issuesFound: errors.length
+      }
+    };
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
   // NON-STATS ACCOUNTS BALANCE TO ZERO
   // All accounts that do NOT start with A9 (i.e. non-stats / financial accounts)
   // should net to zero when summed. This validates that the uploaded trial balance
@@ -1452,4 +1591,16 @@ export const validationDefinitions: Record<string, ValidationFn> = {
     };
   },
 
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AUTO-FIXES
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// One-click fixes offered on a failing validation card. The key MUST match the
+// validation name, and that validation must return an `autoFix` offer when it
+// fails (e.g. via autoFixDescription on a JanuaryOnlyConfig).
+
+export const validationAutoFixes: Record<string, AutoFixFn> = {
+  square_meters_january: (db, options) => zeroComboOutsideJanuary(db, options, SQUARE_METERS_JANUARY),
 };

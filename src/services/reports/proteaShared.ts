@@ -24,6 +24,7 @@ export const ROOMS_KPI_CONFIG: PLRow[] = [
   { type: 'measure', label: 'ADR', measureId: 'adr', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'RevPAR', measureId: 'rev_par', formatting: 'number', indentLevel: 1 },
   { type: 'measure', label: 'RevPAR after TAC', measureId: 'rev_par_after_tac', formatting: 'number', indentLevel: 1 },
+  { type: 'measure', label: 'Rooms Revenue as % of Total Revenue', measureId: 'rooms_revenue_pct_total', formatting: 'percentage', indentLevel: 1 },
   { type: 'measure', label: 'Rooms Dept Profit %', measureId: 'rooms_dept_profit_pct', formatting: 'percentage', indentLevel: 1 },
   // Bed-night & guest-rate KPIs (engine-computed, period-independent)
   { type: 'measure', label: 'Bed Nights Sold',         measureId: 'bed_nights_sold',         formatting: 'number',     indentLevel: 1 },
@@ -134,6 +135,14 @@ const buildPctOfRevenueConfig = (key: string): PLRow[] => [
   // Controllables. Same naming pattern as the Rooms / F&B equivalents.
   { type: 'measure', label: 'Payroll as a % of Revenue',        measureId: `payroll_pct_revenue_${key}_protea`,   formatting: 'percentage', indentLevel: 1 },
   { type: 'measure', label: 'Other Expenses as a % of Revenue', measureId: `other_exp_pct_revenue_${key}_protea`, formatting: 'percentage', indentLevel: 1 },
+];
+
+/** Utilities Dept summary KPIs — all built on the F90 "Utilities" line, so
+ *  they tie to the F90 (see plMeasureDefinitions.ts `utilities_pct_revenue`). */
+export const UTILITIES_KPI_CONFIG: PLRow[] = [
+  { type: 'measure', label: 'Utilities as % of Revenue',      measureId: 'utilities_pct_revenue',        formatting: 'percentage', indentLevel: 1 },
+  { type: 'measure', label: 'Utilities per Rooms Available',  measureId: 'utilities_per_room_available', formatting: 'number',     indentLevel: 1 },
+  { type: 'measure', label: 'Utilities per Rooms SOLD',       measureId: 'utilities_per_room_sold',      formatting: 'number',     indentLevel: 1 },
 ];
 
 export const AG_KPI_CONFIG:  PLRow[] = buildPctOfRevenueConfig('ag');
@@ -496,6 +505,14 @@ export const PROTEA_DEPARTMENT_MOVEMENTS: DepartmentMovement[] = [
 // departmentScopes.ts). Set wrapper gives O(1) membership lookup for renderers.
 export const BANQUETING_DEPARTMENTS: ReadonlySet<string> = new Set(BANQUETING_DEPARTMENT_CODES);
 
+// Extra departments rolled into the 'Total Banqueting' group (summary + detail
+// sheets) when the banqueting toggle is on. Report grouping only — deliberately
+// NOT added to BANQUETING_DEPARTMENT_CODES, which also scopes engine KPIs
+// (covers/spend) regardless of the toggle.
+export const PROTEA_BANQUETING_GROUP_EXTRA_DEPTS: readonly string[] = ['D0191'];
+export const PROTEA_BANQUETING_GROUP_DEPTS: ReadonlySet<string> =
+  new Set([...BANQUETING_DEPARTMENT_CODES, ...PROTEA_BANQUETING_GROUP_EXTRA_DEPTS]);
+
 /** Preferred display order for department groups in the Protea report pack.
  *  Groups not listed here appear after these in their natural (alphabetical) order.
  *  'Total Banqueting' only appears when the banqueting toggle is enabled. */
@@ -670,6 +687,26 @@ const F90_BELOW_LINE_LABEL_TO_SUBGROUP: Record<string, string> = {
   'Deferred Tax': 'Deferred Tax',
   'Dividends': 'Dividends',
 };
+
+/** Label of the Fixed Expenses tab's "% of Revenue" KPI row. */
+export const FIXED_EXP_PCT_REVENUE_LABEL = 'Fixed Expenses as % of Total Revenue';
+
+/**
+ * Fixed Expenses as % of Total Revenue, derived from already-rendered F90 rows
+ * (call AFTER applyInvestSubgroupOverridesToF90Rows). Numerator and
+ * denominator are the F90 "Fixed Expenses" and "TOTAL REVENUE" rows, so the
+ * KPI ties to the F90 by construction. Works slot-by-slot, so it is also
+ * correct under the budget pack's actuals/budget/ly slot remap.
+ */
+export function computeFixedExpPctOfRevenue(f90Rows: any[]): InvestSubgroupTotals {
+  const fixed = f90Rows.find(r => r?.label === 'Fixed Expenses');
+  const revenue = f90Rows.find(r => r?.label === 'TOTAL REVENUE');
+  const pct = (k: keyof InvestSubgroupTotals) => {
+    const denom = Number(revenue?.[k]) || 0;
+    return denom !== 0 ? ((Number(fixed?.[k]) || 0) / Math.abs(denom)) * 100 : 0;
+  };
+  return { actuals: pct('actuals'), budget: pct('budget'), ly: pct('ly') };
+}
 
 /** Recalculates an F90 row's variance fields after an actuals/budget/ly override. */
 function recomputeVariances(row: any): void {

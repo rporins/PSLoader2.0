@@ -20,6 +20,7 @@ import { INVEST_CUSTOM_SUBGROUPS, InvestSubgroupDef } from './reports/investSubg
 import {
   ROOMS_KPI_CONFIG,
   FB_KPI_CONFIG,
+  UTILITIES_KPI_CONFIG,
   MONTH_NAMES,
   TAB_COLOR_REPORT,
   TAB_COLOR_GROUP_SUMMARY,
@@ -62,7 +63,7 @@ import {
   isMovedAccount,
   DepartmentMovement,
   PROTEA_DEPARTMENT_MOVEMENTS,
-  BANQUETING_DEPARTMENTS,
+  PROTEA_BANQUETING_GROUP_DEPTS,
   PROTEA_GROUP_DISPLAY_ORDER,
   MOVED_DEPT_SET,
   MOVED_DEPT_BY_SOURCE,
@@ -70,6 +71,9 @@ import {
   classifyAccountsByLevel20,
   computeInvestFactorOwnerSubgroupTotals,
   applyInvestSubgroupOverridesToF90Rows,
+  InvestSubgroupTotals,
+  computeFixedExpPctOfRevenue,
+  FIXED_EXP_PCT_REVENUE_LABEL,
   LEVIES_SUBGROUP,
   isLeviesAccount,
   PCT_OF_REVENUE_KPI_GROUPS,
@@ -90,7 +94,7 @@ export interface ProteaReportPackConfig {
   ytdEndYear: number;
   version: string;  // 'MAIN' or 'OWNR'
   generateDetailTabs: boolean;  // Include individual department detail sheets (vs summary-only)
-  includeBanquetingBreakdown: boolean;  // Split banqueting depts (D0230/D0231/D0232) out of F&B
+  includeBanquetingBreakdown: boolean;  // Group banqueting depts (PROTEA_BANQUETING_GROUP_DEPTS, incl. D0191) under Total Banqueting
 }
 
 // ============================================================================
@@ -110,6 +114,11 @@ class ProteaReportPackService {
    */
   private deptDetailMonth: Map<string, any[]> = new Map();
   private deptDetailRange: Map<string, any[]> = new Map();
+
+  /** Fixed Expenses as % of Total Revenue, captured from the F90 rows (after
+   *  the INVEST override) and rendered on the FIXED EXPENSES tab. Null until
+   *  the F90 sheet has been built in this run. */
+  private fixedExpPctRevenue: { month: InvestSubgroupTotals; range: InvestSubgroupTotals } | null = null;
 
   /** Registry of sheets and group headers for the cover page TOC */
   private sheetRegistry: Array<{
@@ -132,6 +141,7 @@ class ProteaReportPackService {
 
     // Reset sheet registry for this report
     this.sheetRegistry = [];
+    this.fixedExpPctRevenue = null;
 
     // Capture generation timestamp once for all sheets
     const now = new Date();
@@ -373,6 +383,11 @@ class ProteaReportPackService {
     applyInvestSubgroupOverridesToF90Rows(monthData, monthTotals);
     applyInvestSubgroupOverridesToF90Rows(ytdData, ytdTotals);
 
+    this.fixedExpPctRevenue = {
+      month: computeFixedExpPctOfRevenue(monthData),
+      range: computeFixedExpPctOfRevenue(ytdData),
+    };
+
     // Add data rows with month and range side by side
     this.addPLDataRows(sheet, monthData, ytdData);
 
@@ -604,7 +619,7 @@ class ProteaReportPackService {
     const groupMap = new Map<string, typeof departments>();
     for (const dept of departments) {
       let groupKey = dept.level7Group || dept.baseDepartment;
-      if (config.includeBanquetingBreakdown && BANQUETING_DEPARTMENTS.has(dept.baseDepartment)) {
+      if (config.includeBanquetingBreakdown && PROTEA_BANQUETING_GROUP_DEPTS.has(dept.baseDepartment)) {
         groupKey = 'Total Banqueting';
       }
       if (!groupMap.has(groupKey)) {
@@ -858,6 +873,13 @@ class ProteaReportPackService {
     } else if (groupName === 'Total Food & Beverage') {
       const [monthKpi, rangeKpi] = await this.fetchKpiEngineData(config, FB_KPI_CONFIG);
       this.addFbKpiRows(sheet, monthDetailData, rangeDetailData, totalCols, monthKpi, rangeKpi);
+    } else if (groupName === 'Utilities Dept') {
+      const [monthKpi, rangeKpi] = await this.fetchKpiEngineData(config, UTILITIES_KPI_CONFIG);
+      this.addEngineKpiSection(sheet, totalCols, monthKpi, rangeKpi, 'Utilities KPIs', [
+        ['Utilities as % of Revenue',     true],
+        ['Utilities per Rooms Available', false, 2],
+        ['Utilities per Rooms SOLD',      false, 2],
+      ]);
     } else {
       // % of Hotel Revenue block — fires for A&G, POM, S&M (any group
       // registered in PCT_OF_REVENUE_KPI_GROUPS).
@@ -943,6 +965,15 @@ class ProteaReportPackService {
       suppressStats: true,
       customSubgroups: fixedExpSubgroups,
     });
+
+    if (this.fixedExpPctRevenue) {
+      const toKpiMap = (v: InvestSubgroupTotals) =>
+        new Map([[FIXED_EXP_PCT_REVENUE_LABEL, v as PLCalculationResult]]);
+      this.addEngineKpiSection(sheet, totalCols,
+        toKpiMap(this.fixedExpPctRevenue.month),
+        toKpiMap(this.fixedExpPctRevenue.range),
+        'Percentage of Revenue', [[FIXED_EXP_PCT_REVENUE_LABEL, true]]);
+    }
 
     sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
     return finalName;
@@ -1518,6 +1549,15 @@ class ProteaReportPackService {
         div((rRev.actuals || 0) - rTac, rTotal.actuals || 0), div((rRev.budget || 0) - rTacBud, rTotal.budget || 0), div((rRev.ly || 0) - rTacLy, rTotal.ly || 0));
     }
 
+    // --- Rooms Revenue as % of Total Revenue (engine-computed) ---
+    addEngineKpiRow('Rooms Revenue as % of Total Revenue',
+      kv(monthKpi, 'Rooms Revenue as % of Total Revenue'),
+      kv(rangeKpi, 'Rooms Revenue as % of Total Revenue'), true);
+
+    // --- Room counts (engine-computed; same measures as the F90 Key Statistics) ---
+    addEngineKpiRow('Rooms Available', mTotal, rTotal, false);
+    addEngineKpiRow('Rooms SOLD', kv(monthKpi, 'Sold Rooms'), kv(rangeKpi, 'Sold Rooms'), false);
+
     // --- Bed-night & guest-rate KPIs (engine-computed) ---
     addEngineKpiRow('Bed Nights Sold',         kv(monthKpi, 'Bed Nights Sold'),         kv(rangeKpi, 'Bed Nights Sold'),         false);
     addEngineKpiRow('Bed Nights Available',    kv(monthKpi, 'Bed Nights Available'),    kv(rangeKpi, 'Bed Nights Available'),    false);
@@ -1592,6 +1632,27 @@ class ProteaReportPackService {
     monthKpi: Map<string, PLCalculationResult>,
     rangeKpi: Map<string, PLCalculationResult>
   ): void {
+    this.addEngineKpiSection(sheet, totalCols, monthKpi, rangeKpi, 'Percentage of Revenue', [
+      ['Payroll as a % of Revenue',        true],
+      ['Other Expenses as a % of Revenue', true],
+    ]);
+  }
+
+  /**
+   * Renders a titled block of engine-computed KPI rows (month | range, LY /
+   * Actuals / Budget). Tuple per row: [label, isPercentage, decimals?].
+   * Percentage rows show variances in pts; number rows show value + % variance.
+   * `label` is both the display text and the lookup key into the KPI maps.
+   */
+  private addEngineKpiSection(
+    sheet: ExcelJS.Worksheet,
+    totalCols: number,
+    monthKpi: Map<string, PLCalculationResult>,
+    rangeKpi: Map<string, PLCalculationResult>,
+    headerLabel: string,
+    rows: ReadonlyArray<[string, boolean] | [string, boolean, number]>
+  ): void {
+    const pct = (num: number, denom: number) => denom !== 0 ? (num / Math.abs(denom)) * 100 : 0;
     const applyKpiHeaderStyle = (row: ExcelJS.Row) => {
       row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
         cell.fill = SUBTOTAL_FILL;
@@ -1629,12 +1690,33 @@ class ProteaReportPackService {
       applyKpiDataStyle(row);
     };
 
+    const addNumRow = (label: string, decimals: number) => {
+      const m = monthKpi.get(label);
+      const r = rangeKpi.get(label);
+      const mAct = m?.actuals || 0, mBud = m?.budget || 0, mLy = m?.ly || 0;
+      const rAct = r?.actuals || 0, rBud = r?.budget || 0, rLy = r?.ly || 0;
+      const row = sheet.addRow({
+        account: `  ${label}`,
+        mLy: formatNumber(mLy, decimals), mVsLyPct: formatPercentage(pct(mAct - mLy, mLy)),
+        mAct: formatNumber(mAct, decimals), mBud: formatNumber(mBud, decimals),
+        mVsBud: formatNumber(mAct - mBud, decimals), mVsBudPct: formatPercentage(pct(mAct - mBud, mBud)),
+        sep: '',
+        rLy: formatNumber(rLy, decimals), rVsLyPct: formatPercentage(pct(rAct - rLy, rLy)),
+        rAct: formatNumber(rAct, decimals), rBud: formatNumber(rBud, decimals),
+        rVsBud: formatNumber(rAct - rBud, decimals), rVsBudPct: formatPercentage(pct(rAct - rBud, rBud)),
+        comments: ''
+      });
+      applyKpiDataStyle(row);
+    };
+
     this.addBlankSeparatorRow(sheet, totalCols);
     const header = sheet.addRow(new Array(totalCols).fill(''));
-    header.getCell(1).value = 'Percentage of Revenue';
+    header.getCell(1).value = headerLabel;
     applyKpiHeaderStyle(header);
-    addPctRow('Payroll as a % of Revenue');
-    addPctRow('Other Expenses as a % of Revenue');
+    for (const [label, isPct, decimals] of rows) {
+      if (isPct) addPctRow(label);
+      else addNumRow(label, decimals ?? 0);
+    }
   }
 
   /**

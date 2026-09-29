@@ -25,6 +25,24 @@ export interface ValidationResult {
     recordsChecked?: number;
     issuesFound?: number;
   };
+  /**
+   * Present when a one-click fix is available for this failure.
+   * The fix itself lives in validationAutoFixes under the same validation name.
+   */
+  autoFix?: AutoFixOffer;
+}
+
+export interface AutoFixOffer {
+  /** Button label, e.g. "Set to 0" */
+  label: string;
+  /** Short explanation shown next to the button */
+  description: string;
+  /** Number of flagged entries the fix will touch */
+  affectedCount: number;
+}
+
+export interface AutoFixResult {
+  rowsAffected: number;
 }
 
 export interface ValidationOptions {
@@ -37,12 +55,15 @@ export interface ValidationOptions {
 
 export type ValidationFn = (db: any, options: ValidationOptions) => Promise<ValidationResult>;
 
+export type AutoFixFn = (db: any, options: ValidationOptions) => Promise<AutoFixResult>;
+
 /**
  * Validation Engine - executes named validations
  */
 export class ValidationEngine {
   private db: any;
   private validations: Map<string, ValidationFn> = new Map();
+  private autoFixes: Map<string, AutoFixFn> = new Map();
 
   constructor(db: any) {
     this.db = db;
@@ -124,6 +145,26 @@ export class ValidationEngine {
     }
 
     return results;
+  }
+
+  /**
+   * Register one-click fixes, keyed by the validation name they fix
+   */
+  registerAutoFixes(fixes: Record<string, AutoFixFn>): void {
+    for (const [name, fn] of Object.entries(fixes)) {
+      this.autoFixes.set(name, fn);
+    }
+  }
+
+  /**
+   * Apply the registered auto-fix for a validation
+   */
+  async applyAutoFix(validationName: string, options: ValidationOptions): Promise<AutoFixResult> {
+    const fixFn = this.autoFixes.get(validationName);
+    if (!fixFn) {
+      throw new Error(`No auto-fix registered for validation "${validationName}"`);
+    }
+    return fixFn(this.db, options);
   }
 
   /**

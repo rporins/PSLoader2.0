@@ -220,6 +220,7 @@ class ValidationService {
     errors?: string[];
     warnings?: string[];
     recordCount?: number;
+    autoFix?: { label: string; description: string; affectedCount: number };
   }> {
     if (typeof window !== 'undefined' && window.ipcApi) {
       try {
@@ -233,6 +234,24 @@ class ValidationService {
         console.error('Failed to run validation:', error);
         throw error;
       }
+    }
+    throw new Error('IPC API not available');
+  }
+
+  /**
+   * Apply the one-click auto-fix offered by a failing validation
+   * @returns Number of staging rows changed
+   */
+  async applyAutoFix(validationName: string, ou: string): Promise<{ rowsAffected: number }> {
+    if (typeof window !== 'undefined' && window.ipcApi) {
+      const result = await window.ipcApi.sendIpcRequest('validation:apply-fix', {
+        validationName,
+        ou
+      });
+      if (!result?.success) {
+        throw new Error(result?.error || 'Auto-fix failed');
+      }
+      return result.data;
     }
     throw new Error('IPC API not available');
   }
