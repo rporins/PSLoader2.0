@@ -64,6 +64,7 @@ import {
   isDetailOnlyAccount,
   PROTEA_DEPARTMENT_MOVEMENTS,
   PROTEA_BANQUETING_GROUP_DEPTS,
+  PROTEA_FB_COMBINED_GROUP,
   PROTEA_GROUP_DISPLAY_ORDER,
   MOVED_DEPT_SET,
   MOVED_DEPT_BY_SOURCE,
@@ -128,6 +129,7 @@ function pct(a: number, b: number): number {
 // actuals pack keeps the original below-Stats placement for now.
 const BUDGET_STATS_KEEP_GROUPS = new Set([
   'Total Food & Beverage',
+  PROTEA_FB_COMBINED_GROUP,
   'Total Banqueting',
   'Utilities Dept',
   'Administrative & General',
@@ -1033,6 +1035,13 @@ class ProteaBudgetPackService {
       groupMap.get(groupKey)!.push(dept);
     }
 
+    // Combined F&B + Banqueting summary (summary-only, no detail tabs)
+    const fbDepts = groupMap.get('Total Food & Beverage');
+    const banqDepts = groupMap.get('Total Banqueting');
+    if (config.includeBanquetingBreakdown && fbDepts && banqDepts) {
+      groupMap.set(PROTEA_FB_COMBINED_GROUP, [...fbDepts, ...banqDepts]);
+    }
+
     // Sort groups per display order
     const sortedGroups = [...groupMap.entries()].sort((a, b) => {
       const idxA = PROTEA_GROUP_DISPLAY_ORDER.indexOf(a[0]);
@@ -1064,8 +1073,8 @@ class ProteaBudgetPackService {
         this.sheetRegistry.push({ type: 'sheet', sheetName: name, indent: true });
       }
 
-      // Individual department detail sheets (if enabled)
-      if (config.generateDetailTabs) {
+      // Individual department detail sheets (if enabled; combined F&B is summary-only)
+      if (config.generateDetailTabs && groupName !== PROTEA_FB_COMBINED_GROUP) {
         for (const dept of groupDepts) {
           if (MOVED_DEPT_SET.has(dept.baseDepartment)) continue;
           const deptSheetName = await this.createBudgetSingleDepartmentWorksheet(
@@ -1203,7 +1212,7 @@ class ProteaBudgetPackService {
     if (isRoomsGroup) {
       const kpi = await this.fetchBudgetKpiEngineData(config, ROOMS_KPI_CONFIG);
       this.addBudgetRoomsKpiRows(sheet, kpi);
-    } else if (groupName === 'Total Food & Beverage') {
+    } else if (groupName === 'Total Food & Beverage' || groupName === PROTEA_FB_COMBINED_GROUP) {
       const kpi = await this.fetchBudgetKpiEngineData(config, FB_KPI_CONFIG);
       this.addBudgetFbKpiRows(sheet, kpi);
     } else if (groupName === 'Utilities Dept') {

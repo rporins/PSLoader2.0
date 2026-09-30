@@ -64,6 +64,7 @@ import {
   DepartmentMovement,
   PROTEA_DEPARTMENT_MOVEMENTS,
   PROTEA_BANQUETING_GROUP_DEPTS,
+  PROTEA_FB_COMBINED_GROUP,
   PROTEA_GROUP_DISPLAY_ORDER,
   MOVED_DEPT_SET,
   MOVED_DEPT_BY_SOURCE,
@@ -628,6 +629,13 @@ class ProteaReportPackService {
       groupMap.get(groupKey)!.push(dept);
     }
 
+    // Combined F&B + Banqueting summary (summary-only, no detail tabs)
+    const fbDepts = groupMap.get('Total Food & Beverage');
+    const banqDepts = groupMap.get('Total Banqueting');
+    if (config.includeBanquetingBreakdown && fbDepts && banqDepts) {
+      groupMap.set(PROTEA_FB_COMBINED_GROUP, [...fbDepts, ...banqDepts]);
+    }
+
     // Sort groups: prioritised groups first (in defined order), then remaining alphabetically
     const sortedGroups = [...groupMap.entries()].sort((a, b) => {
       const idxA = PROTEA_GROUP_DISPLAY_ORDER.indexOf(a[0]);
@@ -648,6 +656,7 @@ class ProteaReportPackService {
       if (nonMovedDepts.length === 0 && !MOVEMENT_TARGET_GROUPS.has(groupName)) continue;
 
       const isMultiDeptGroup = groupDepts.length > 1;
+      const showDetailTabs = config.generateDetailTabs && groupName !== PROTEA_FB_COMBINED_GROUP;
 
       // Register group header in TOC for every group (including singletons)
       this.sheetRegistry.push({ type: 'groupHeader', sheetName: '', groupName, indent: false });
@@ -662,7 +671,7 @@ class ProteaReportPackService {
         }
 
         // Create individual department detail sheets (only when detail tabs enabled)
-        if (config.generateDetailTabs) {
+        if (showDetailTabs) {
           for (const dept of groupDepts) {
             // Suppress moved department detail tabs — their accounts are merged into their target group
             if (MOVED_DEPT_SET.has(dept.baseDepartment)) continue;
@@ -688,7 +697,7 @@ class ProteaReportPackService {
         }
 
         // Individual department detail sheet (only when detail tabs enabled)
-        if (config.generateDetailTabs) {
+        if (showDetailTabs) {
           // Suppress moved department detail tabs — their accounts are merged into their target group
           if (!MOVED_DEPT_SET.has(dept.baseDepartment)) {
             const deptSheetName = await this.createSingleDepartmentWorksheet(
@@ -854,7 +863,7 @@ class ProteaReportPackService {
     this.styleDeptSeparator(headerRow);
 
     // Combined month + range data (side by side)
-    const STATS_KEEP_GROUPS = new Set(['Total Food & Beverage', 'Total Banqueting', 'Utilities Dept']);
+    const STATS_KEEP_GROUPS = new Set(['Total Food & Beverage', PROTEA_FB_COMBINED_GROUP, 'Total Banqueting', 'Utilities Dept']);
     const keepStats = STATS_KEEP_GROUPS.has(groupName);
     const isRoomsGroup = groupName === 'Rooms and Reservation';
     this.addDepartmentDataSection(sheet, monthDetailData, rangeDetailData, totalCols, undefined, {
@@ -870,7 +879,7 @@ class ProteaReportPackService {
     if (isRoomsGroup) {
       const [monthKpi, rangeKpi] = await this.fetchKpiEngineData(config, ROOMS_KPI_CONFIG);
       this.addRoomsKpiRows(sheet, monthDetailData, rangeDetailData, totalCols, monthKpi, rangeKpi);
-    } else if (groupName === 'Total Food & Beverage') {
+    } else if (groupName === 'Total Food & Beverage' || groupName === PROTEA_FB_COMBINED_GROUP) {
       const [monthKpi, rangeKpi] = await this.fetchKpiEngineData(config, FB_KPI_CONFIG);
       this.addFbKpiRows(sheet, monthDetailData, rangeDetailData, totalCols, monthKpi, rangeKpi);
     } else if (groupName === 'Utilities Dept') {

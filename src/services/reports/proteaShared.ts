@@ -513,11 +513,16 @@ export const PROTEA_BANQUETING_GROUP_EXTRA_DEPTS: readonly string[] = ['D0191'];
 export const PROTEA_BANQUETING_GROUP_DEPTS: ReadonlySet<string> =
   new Set([...BANQUETING_DEPARTMENT_CODES, ...PROTEA_BANQUETING_GROUP_EXTRA_DEPTS]);
 
+// Synthetic summary-only group (F&B + Banqueting) added when the banqueting
+// toggle is on, so the pack still shows total F&B including banqueting.
+export const PROTEA_FB_COMBINED_GROUP = 'Total F&B Combined';
+
 /** Preferred display order for department groups in the Protea report pack.
  *  Groups not listed here appear after these in their natural (alphabetical) order.
- *  'Total Banqueting' only appears when the banqueting toggle is enabled. */
+ *  'Total F&B Combined' and 'Total Banqueting' only appear when the banqueting toggle is enabled. */
 export const PROTEA_GROUP_DISPLAY_ORDER: string[] = [
   'Rooms and Reservation',
+  PROTEA_FB_COMBINED_GROUP,
   'Total Food & Beverage',
   'Total Banqueting',
   'Other Operated Departments',
